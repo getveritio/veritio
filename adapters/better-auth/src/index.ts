@@ -1,4 +1,4 @@
-import type { AuditEventInput, AuditRecord, AuditRecorder, EvidenceScope, JsonObject } from "veritio";
+import type { AuditEventInput, AuditRecord, AuditRecorder, EvidenceScope, JsonObject } from "@veritio/core";
 
 export interface BetterAuthVeritioAdapterOptions {
   recorder: AuditRecorder;

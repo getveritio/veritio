@@ -13,13 +13,10 @@
   "files": ["dist"],
   "peerDependencies": {
     "@tanstack/react-start": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-start": {
-      "optional": true
-    },
-    "veritio": {
       "optional": true
     }
   }

@@ -13,13 +13,10 @@
   "files": ["dist"],
   "peerDependencies": {
     "@sveltejs/kit": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {
     "@sveltejs/kit": {
-      "optional": true
-    },
-    "veritio": {
       "optional": true
     }
   }

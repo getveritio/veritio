@@ -12,13 +12,13 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun test src"
   },
   "peerDependencies": {
-    "better-auth": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0",
+    "better-auth": "*"
   },
   "peerDependenciesMeta": {
     "better-auth": {
@@ -26,6 +26,6 @@
     }
   },
   "devDependencies": {
-    "veritio": "workspace:*"
+    "@veritio/core": "workspace:*"
   }
 }

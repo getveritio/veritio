@@ -12,14 +12,11 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "next": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0",
+    "next": "*"
   },
   "peerDependenciesMeta": {
     "next": {
-      "optional": true
-    },
-    "veritio": {
       "optional": true
     }
   }

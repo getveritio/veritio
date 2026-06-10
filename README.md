@@ -22,7 +22,7 @@ It gives product teams a shared protocol and SDKs for audit events, consent hist
 ## TypeScript Quick Start
 
 ```ts
-import { MemoryAuditStore, createAuditEvent } from "veritio";
+import { MemoryAuditStore, createAuditEvent } from "@veritio/core";
 
 const store = new MemoryAuditStore();
 
@@ -64,7 +64,7 @@ examples/             Integration guides and runnable examples
 
 ## Initial Modules
 
-- `veritio`: TypeScript SDK.
+- `@veritio/core`: TypeScript SDK.
 - `@veritio/better-auth`: Better Auth adapter.
 - `@veritio/next`: planned Next.js adapter.
 - `@veritio/tanstack-start`: planned TanStack Start adapter.

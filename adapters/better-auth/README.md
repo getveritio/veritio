@@ -17,7 +17,7 @@ This adapter must receive a configured Veritio recorder from the host applicatio
 ## Usage
 
 ```ts
-import { createAuditRecorder, MemoryAuditStore } from "veritio";
+import { createAuditRecorder, MemoryAuditStore } from "@veritio/core";
 import { createBetterAuthVeritioAdapter } from "@veritio/better-auth";
 
 const store = new MemoryAuditStore();

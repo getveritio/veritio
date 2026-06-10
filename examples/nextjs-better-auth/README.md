@@ -14,7 +14,7 @@ It shows the server-side shape a future example app should implement.
 ## Server-Side Sketch
 
 ```ts
-import { createAuditRecorder, MemoryAuditStore } from "veritio";
+import { createAuditRecorder, MemoryAuditStore } from "@veritio/core";
 import { createBetterAuthVeritioAdapter } from "@veritio/better-auth";
 
 const store = new MemoryAuditStore();

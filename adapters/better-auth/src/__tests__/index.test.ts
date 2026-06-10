@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { MemoryAuditStore, createAuditRecorder } from "veritio";
+import { MemoryAuditStore, createAuditRecorder } from "@veritio/core";
 import { createBetterAuthVeritioAdapter } from "../index";
 
 describe("createBetterAuthVeritioAdapter", () => {

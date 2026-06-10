@@ -18,6 +18,12 @@ Checked on 2026-06-10.
 - `getveritio.com`: whois returned no match
 - `veritiolabs.com`: whois returned no match
 
+## Package Naming Decision
+
+- Use `@veritio/core` for the TypeScript SDK.
+- Use `@veritio/*` for JavaScript adapters and server packages.
+- Keep `veritio` / `veritio-*` for non-JavaScript packages where ecosystem naming fits.
+
 ## Rejected Names
 
 - Evident: taken on npm and PyPI, with existing security/compliance brand usage.
