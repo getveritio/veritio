@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/event.schema.json",
+  "title": "Veritio Audit Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schemaVersion",
+    "occurredAt",
+    "actor",
+    "action",
+    "target",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaVersion": {
+      "type": "string",
+      "const": "2026-06-10"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actor": {
+      "$ref": "#/$defs/actor"
+    },
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)+$"
+    },
+    "target": {
+      "$ref": "#/$defs/target"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "requestId": {
+      "type": "string"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "lawfulBasis": {
+      "enum": [
+        "consent",
+        "contract",
+        "legal_obligation",
+        "vital_interests",
+        "public_task",
+        "legitimate_interests",
+        "not_applicable"
+      ]
+    },
+    "dataCategories": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "retention": {
+      "type": "string"
+    },
+    "metadata": {
+      "$ref": "#/$defs/jsonObject"
+    }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": ["user", "system", "service", "ai_agent", "anonymous"]
+        },
+        "id": {
+          "type": "string"
+        },
+        "display": {
+          "type": "string"
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "display": {
+          "type": "string"
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenantId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        }
+      }
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/jsonObject"
+        }
+      ]
+    }
+  }
+}

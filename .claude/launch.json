@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "verify",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "verify"]
+    },
+    {
+      "name": "typescript-tests",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "test:ts"]
+    },
+    {
+      "name": "typecheck",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "typecheck"]
+    }
+  ]
+}

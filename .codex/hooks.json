@@ -1,0 +1,37 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "project_dir=\"${CODEX_PROJECT_DIR:-$PWD}\"; \"$project_dir/.codex/hooks/guard-forbidden-files.sh\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "project_dir=\"${CODEX_PROJECT_DIR:-$PWD}\"; \"$project_dir/.codex/hooks/guard-risky-commands.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "project_dir=\"${CODEX_PROJECT_DIR:-$PWD}\"; \"$project_dir/.codex/hooks/verify-stop.sh\"",
+            "timeout": 1200
+          }
+        ]
+      }
+    ]
+  }
+}

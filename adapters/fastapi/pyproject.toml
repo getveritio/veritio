@@ -1,0 +1,9 @@
+[project]
+name = "veritio-fastapi"
+version = "0.0.0"
+description = "FastAPI adapter for Veritio evidence events."
+requires-python = ">=3.11"
+license = "Apache-2.0"
+dependencies = [
+  "veritio>=0.0.0"
+]

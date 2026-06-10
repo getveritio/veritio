@@ -1,0 +1,29 @@
+{
+  "name": "veritio-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.10",
+  "workspaces": [
+    "sdks/typescript",
+    "adapters/better-auth",
+    "adapters/next",
+    "adapters/tanstack-start",
+    "adapters/sveltekit",
+    "adapters/express",
+    "adapters/hono",
+    "adapters/trpc",
+    "server/node"
+  ],
+  "scripts": {
+    "test": "bun test sdks/typescript/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
+    "test:ts": "bun test sdks/typescript/src",
+    "test:python": "PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests",
+    "test:go": "cd sdks/go && go test ./...",
+    "typecheck": "bun run --cwd sdks/typescript typecheck",
+    "verify": "bun run test && bun run typecheck"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14",
+    "typescript": "^5.9.3"
+  }
+}

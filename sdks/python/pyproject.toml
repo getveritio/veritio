@@ -1,0 +1,16 @@
+[project]
+name = "veritio"
+version = "0.0.0"
+description = "Protocol-first evidence SDK for audit events, consent history, DSAR workflows, and compliance exports."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [
+  { name = "Veritio contributors" }
+]
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
