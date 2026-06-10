@@ -1,7 +1,21 @@
 {
   "name": "@veritio/server",
   "version": "0.0.0",
+  "description": "Placeholder for the planned self-hosted Veritio Node server; kept private until the implementation is ready.",
   "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EP93/veritio.git",
+    "directory": "server/node"
+  },
+  "keywords": [
+    "audit-trail",
+    "evidence",
+    "nodejs",
+    "server",
+    "records-of-processing"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +24,10 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "dependencies": {
     "@veritio/core": "workspace:*"
   }

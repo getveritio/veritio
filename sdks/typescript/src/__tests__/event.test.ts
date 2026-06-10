@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  HASH_ALGORITHM,
   MemoryAuditStore,
   canonicalJson,
   createAuditRecorder,
   createAuditEvent,
+  hashAuditRecord,
+  hashIdempotencyKey,
   verifyAuditRecords,
 } from "../index";
 
@@ -19,6 +22,62 @@ describe("canonicalJson", () => {
     });
 
     expect(actual).toBe('{"a":{"b":[2,{"x":"first","y":"yes"}],"c":3},"z":1}');
+  });
+
+  test("preserves null and does not HTML-escape JSON strings", () => {
+    const lineSeparator = String.fromCharCode(0x2028);
+
+    expect(canonicalJson({ note: `<&${lineSeparator}`, a: null })).toBe(
+      `{"a":null,"note":"<&${lineSeparator}"}`,
+    );
+  });
+});
+
+describe("audit record schema", () => {
+  test("requires tenant-scoped record envelope fields", async () => {
+    const schema = (await Bun.file("spec/audit-record.schema.json").json()) as {
+      required: string[];
+      properties: {
+        event: {
+          allOf: [
+            unknown,
+            {
+              required: string[];
+              properties: {
+                scope: {
+                  required: string[];
+                  properties: {
+                    tenantId: {
+                      minLength: number;
+                    };
+                  };
+                };
+              };
+            },
+          ];
+        };
+      };
+      $defs: {
+        sha256Hex: {
+          pattern: string;
+        };
+      };
+    };
+
+    expect(schema.required).toEqual([
+      "event",
+      "sequence",
+      "previousHash",
+      "hash",
+      "hashAlgorithm",
+      "canonicalization",
+      "appendedAt",
+      "idempotencyKeyHash",
+    ]);
+    expect(schema.properties.event.allOf[1].required).toContain("scope");
+    expect(schema.properties.event.allOf[1].properties.scope.required).toContain("tenantId");
+    expect(schema.properties.event.allOf[1].properties.scope.properties.tenantId.minLength).toBe(1);
+    expect(schema.$defs.sha256Hex.pattern).toBe("^[a-f0-9]{64}$");
   });
 });
 
@@ -53,6 +112,19 @@ describe("createAuditEvent", () => {
         note: "safe",
       },
     });
+  });
+
+  test("rejects actions outside the protocol pattern", () => {
+    expect(() =>
+      createAuditEvent({
+        id: "evt_01",
+        occurredAt: "2026-06-10T00:00:00.000Z",
+        actor: { type: "user", id: "usr_123" },
+        action: "OrgMemberInvited",
+        target: { type: "organization", id: "org_123" },
+        metadata: {},
+      }),
+    ).toThrow("action must use dotted lowercase protocol form");
   });
 });
 
@@ -99,6 +171,72 @@ describe("MemoryAuditStore", () => {
       index: 1,
       reason: "hash_mismatch",
     });
+  });
+
+  test("emits the language-neutral audit record envelope", async () => {
+    const store = new MemoryAuditStore();
+    const record = await store.append(
+      createAuditEvent({
+        id: "evt_01",
+        occurredAt: "2026-06-10T00:00:00.000Z",
+        actor: { type: "user", id: "usr_123" },
+        action: "org.member.invited",
+        target: { type: "organization", id: "org_123" },
+        scope: { tenantId: "org_123", environment: "test" },
+        metadata: { role: "viewer" },
+      }),
+      { idempotencyKey: "org_123:invite:usr_456" },
+    );
+
+    expect(Object.keys(record).sort()).toEqual([
+      "appendedAt",
+      "canonicalization",
+      "event",
+      "hash",
+      "hashAlgorithm",
+      "idempotencyKeyHash",
+      "previousHash",
+      "sequence",
+    ]);
+    expect(record.sequence).toBe(1);
+    expect(record.previousHash).toBeNull();
+    expect(record.hashAlgorithm).toBe(HASH_ALGORITHM);
+    expect(record.canonicalization).toBe("veritio-json-v1");
+    expect(record.appendedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(record.idempotencyKeyHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(record.hash).toBe(hashAuditRecord(record));
+  });
+
+  test("hashes idempotency keys with the protocol preimage", () => {
+    expect(hashIdempotencyKey("org_123", "evt_01")).toBe(
+      "e18c21b684554d90c197722b0b121e63bd5eadf5bf2f844c70f31be0825016f8",
+    );
+  });
+
+  test("hashes audit records with the protocol vector", () => {
+    const lineSeparator = String.fromCharCode(0x2028);
+    const idempotencyKeyHash = hashIdempotencyKey("org_123", "evt_01");
+
+    expect(
+      hashAuditRecord({
+        event: {
+          id: "evt_01",
+          schemaVersion: "2026-06-10",
+          occurredAt: "2026-06-10T00:00:00.000Z",
+          actor: { type: "user", id: "usr_123" },
+          action: "org.member.invited",
+          target: { type: "organization", id: "org_123" },
+          scope: { tenantId: "org_123", environment: "test" },
+          metadata: { note: `<&${lineSeparator}`, optional: null, role: "viewer" },
+        },
+        sequence: 1,
+        previousHash: null,
+        hashAlgorithm: HASH_ALGORITHM,
+        canonicalization: "veritio-json-v1",
+        appendedAt: "2026-06-10T00:00:01.000Z",
+        idempotencyKeyHash,
+      }),
+    ).toBe("14396c51f0304f26c9be4ac918daf9d50109c0d9fd238ccb1c87c15632427edf");
   });
 });
 

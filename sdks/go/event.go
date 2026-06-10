@@ -1,6 +1,7 @@
 package veritio
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -9,12 +10,16 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"time"
 )
 
 const SchemaVersion = "2026-06-10"
+const HashAlgorithm = "sha256"
+const Canonicalization = "veritio-json-v1"
 
 var sensitiveKeyPattern = regexp.MustCompile(`(?i)(password|secret|token|api[_-]?key|authorization|email|phone|ssn)`)
+var actionPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$`)
 
 type Principal struct {
 	Type    string `json:"type"`
@@ -65,16 +70,29 @@ type AuditEvent struct {
 	Metadata       map[string]any `json:"metadata"`
 }
 
+type AuditRecord struct {
+	Event              AuditEvent `json:"event"`
+	Sequence           int        `json:"sequence"`
+	PreviousHash       *string    `json:"previousHash"`
+	Hash               string     `json:"hash"`
+	HashAlgorithm      string     `json:"hashAlgorithm"`
+	Canonicalization   string     `json:"canonicalization"`
+	AppendedAt         string     `json:"appendedAt"`
+	IdempotencyKeyHash string     `json:"idempotencyKeyHash"`
+}
+
 func CanonicalJSON(value any) (string, error) {
 	normalized, err := normalizeJSON(value)
 	if err != nil {
 		return "", err
 	}
-	encoded, err := json.Marshal(normalized)
-	if err != nil {
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(normalized); err != nil {
 		return "", err
 	}
-	return string(encoded), nil
+	return unescapeJSONLineTerminators(strings.TrimSuffix(encoded.String(), "\n")), nil
 }
 
 func CreateAuditEvent(input AuditEventInput) (AuditEvent, error) {
@@ -86,6 +104,9 @@ func CreateAuditEvent(input AuditEventInput) (AuditEvent, error) {
 	}
 	if input.Action == "" {
 		return AuditEvent{}, errors.New("action is required")
+	}
+	if !actionPattern.MatchString(input.Action) {
+		return AuditEvent{}, errors.New("action must use dotted lowercase protocol form")
 	}
 	if input.Target.ID == "" {
 		return AuditEvent{}, errors.New("target.id is required")
@@ -135,6 +156,35 @@ func HashAuditEvent(event AuditEvent, previousHash *string) (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func HashAuditRecord(record AuditRecord) (string, error) {
+	payload := map[string]any{
+		"event":              record.Event,
+		"sequence":           record.Sequence,
+		"previousHash":       record.PreviousHash,
+		"hashAlgorithm":      record.HashAlgorithm,
+		"canonicalization":   record.Canonicalization,
+		"appendedAt":         record.AppendedAt,
+		"idempotencyKeyHash": record.IdempotencyKeyHash,
+	}
+	canonical, err := CanonicalJSON(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func HashIdempotencyKey(tenantID string, idempotencyKey string) (string, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return "", errors.New("tenantId is required")
+	}
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return "", errors.New("idempotencyKey is required")
+	}
+	sum := sha256.Sum256([]byte(tenantID + "\x00" + idempotencyKey))
 	return hex.EncodeToString(sum[:]), nil
 }
 
@@ -217,6 +267,33 @@ func normalizeJSON(value any) (any, error) {
 		}
 		return decoded, nil
 	}
+}
+
+func unescapeJSONLineTerminators(value string) string {
+	var builder strings.Builder
+	for index := 0; index < len(value); {
+		if strings.HasPrefix(value[index:], `\u2028`) && isUnescapedJSONBackslash(value, index) {
+			builder.WriteRune(rune(0x2028))
+			index += len(`\u2028`)
+			continue
+		}
+		if strings.HasPrefix(value[index:], `\u2029`) && isUnescapedJSONBackslash(value, index) {
+			builder.WriteRune(rune(0x2029))
+			index += len(`\u2029`)
+			continue
+		}
+		builder.WriteByte(value[index])
+		index++
+	}
+	return builder.String()
+}
+
+func isUnescapedJSONBackslash(value string, index int) bool {
+	count := 0
+	for cursor := index - 1; cursor >= 0 && value[cursor] == '\\'; cursor-- {
+		count++
+	}
+	return count%2 == 0
 }
 
 func uniqueSorted(values []string) []string {

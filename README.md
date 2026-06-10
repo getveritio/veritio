@@ -48,7 +48,7 @@ await store.append(event);
 ## Repository Layout
 
 ```txt
-spec/                 Language-neutral schemas and contracts
+spec/                 Language-neutral event and audit-record schemas
 sdks/typescript/      JS/TS SDK
 sdks/python/          Python SDK
 sdks/go/              Go SDK

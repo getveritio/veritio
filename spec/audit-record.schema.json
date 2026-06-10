@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/audit-record.schema.json",
+  "title": "Veritio Audit Record",
+  "description": "Append-only storage envelope for a tenant-scoped Veritio audit event.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event",
+    "sequence",
+    "previousHash",
+    "hash",
+    "hashAlgorithm",
+    "canonicalization",
+    "appendedAt",
+    "idempotencyKeyHash"
+  ],
+  "properties": {
+    "event": {
+      "allOf": [
+        { "$ref": "https://getveritio.com/spec/event.schema.json" },
+        {
+          "type": "object",
+          "required": ["scope"],
+          "properties": {
+            "scope": {
+              "type": "object",
+              "required": ["tenantId"],
+              "properties": {
+                "tenantId": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Monotonic append order within a tenant scope."
+    },
+    "previousHash": {
+      "oneOf": [
+        { "type": "null" },
+        { "$ref": "#/$defs/sha256Hex" }
+      ],
+      "description": "Hash of the previous record in this tenant chain, or null for the first record."
+    },
+    "hash": {
+      "$ref": "#/$defs/sha256Hex"
+    },
+    "hashAlgorithm": {
+      "type": "string",
+      "const": "sha256"
+    },
+    "canonicalization": {
+      "type": "string",
+      "const": "veritio-json-v1"
+    },
+    "appendedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "idempotencyKeyHash": {
+      "$ref": "#/$defs/sha256Hex",
+      "description": "SHA-256 over tenantId, a NUL byte, and the append idempotency key. When the host does not pass an idempotency key, the event id is used."
+    }
+  },
+  "$defs": {
+    "sha256Hex": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

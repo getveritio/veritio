@@ -1,6 +1,20 @@
 {
   "name": "veritio-monorepo",
   "private": true,
+  "description": "Protocol-first OSS evidence layer for application audit trails, consent history, data subject workflows, retention, and compliance exports.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EP93/veritio.git"
+  },
+  "keywords": [
+    "audit-trail",
+    "evidence",
+    "consent-history",
+    "records-of-processing",
+    "data-subject-requests",
+    "retention"
+  ],
   "type": "module",
   "packageManager": "bun@1.3.10",
   "workspaces": [

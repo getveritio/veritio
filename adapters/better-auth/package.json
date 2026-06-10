@@ -1,7 +1,22 @@
 {
   "name": "@veritio/better-auth",
   "version": "0.0.0",
-  "private": true,
+  "description": "Better Auth adapter for recording Veritio audit trail evidence from server-side auth lifecycle events.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EP93/veritio.git",
+    "directory": "adapters/better-auth"
+  },
+  "keywords": [
+    "better-auth",
+    "auth",
+    "audit-trail",
+    "evidence",
+    "tamper-evident",
+    "records-of-processing",
+    "typescript"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -10,7 +25,16 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/index.js.map",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",

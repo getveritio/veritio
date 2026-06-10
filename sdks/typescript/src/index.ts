@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const SCHEMA_VERSION = "2026-06-10";
 export const HASH_ALGORITHM = "sha256";
+const ACTION_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -122,6 +123,9 @@ export function createAuditEvent(input: AuditEventInput): AuditEvent {
   assertNonEmpty(input.action, "action");
   assertNonEmpty(input.target?.id, "target.id");
   assertNonEmpty(input.target?.type, "target.type");
+  if (!ACTION_PATTERN.test(input.action)) {
+    throw new TypeError("action must use dotted lowercase protocol form");
+  }
 
   const event: AuditEvent = {
     id: input.id ?? `evt_${randomUUID()}`,
@@ -408,7 +412,8 @@ function requireTenantId(event: AuditEvent): string {
   return tenantId;
 }
 
-function hashIdempotencyKey(tenantId: string, idempotencyKey: string): string {
+export function hashIdempotencyKey(tenantId: string, idempotencyKey: string): string {
+  assertNonEmpty(tenantId, "tenantId");
   assertNonEmpty(idempotencyKey, "idempotencyKey");
   return sha256Hex(`${tenantId}\u0000${idempotencyKey}`);
 }
