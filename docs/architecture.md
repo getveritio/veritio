@@ -21,7 +21,8 @@ Veritio is protocol-first. SDKs and framework adapters emit the same event shape
    - Data adapters for ORM and query-layer mutation evidence.
 
 4. **Storage**
-   - Postgres is the first durable target.
+   - PostgreSQL/Neon, MySQL/MariaDB, and MongoDB are durable host-injected targets.
+   - Redis support is a tenant-tip cache helper unless paired with a durable store.
    - Storage receives normalized events and writes append-only records with previous-hash links.
 
 5. **Server**

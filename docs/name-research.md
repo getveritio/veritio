@@ -23,11 +23,12 @@ Checked on 2026-06-10.
 
 - Use `@veritio/core` for the TypeScript SDK.
 - Use `@veritio/*` for JavaScript adapters and server packages.
+- Use `@veritio/storage` for host-injected JavaScript storage helpers.
 - Keep `veritio` / `veritio-*` for non-JavaScript packages where ecosystem naming fits.
 
 ## JS Publish Guardrail
 
-- `@veritio/core` and `@veritio/better-auth` are the initial publishable JavaScript packages because they have implementation source and tests; omit `private` and publish them as public scoped packages.
+- `@veritio/core`, `@veritio/better-auth`, `@veritio/storage`, and implemented framework helper packages are publishable only when they have implementation source, tests, and package dry-run output.
 - Placeholder JavaScript adapter and server packages must stay `private: true` until they have implementation source, tests, and successful package dry-run output.
 - `@veritio/server` stays private for now because `server/node` currently documents the planned self-hosted API surface but does not contain implementation source.
 

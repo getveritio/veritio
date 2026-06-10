@@ -48,6 +48,9 @@
     "adapters/next": {
       "name": "@veritio/next",
       "version": "0.0.0",
+      "devDependencies": {
+        "@veritio/core": "workspace:*",
+      },
       "peerDependencies": {
         "@veritio/core": ">=0.0.0",
         "next": "*",
@@ -56,9 +59,32 @@
         "next",
       ],
     },
+    "adapters/react": {
+      "name": "@veritio/react",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "react": "*",
+      },
+      "optionalPeers": [
+        "react",
+      ],
+    },
+    "adapters/svelte": {
+      "name": "@veritio/svelte",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "svelte": "*",
+      },
+      "optionalPeers": [
+        "svelte",
+      ],
+    },
     "adapters/sveltekit": {
       "name": "@veritio/sveltekit",
       "version": "0.0.0",
+      "devDependencies": {
+        "@veritio/core": "workspace:*",
+      },
       "peerDependencies": {
         "@sveltejs/kit": "*",
         "@veritio/core": ">=0.0.0",
@@ -70,6 +96,9 @@
     "adapters/tanstack-start": {
       "name": "@veritio/tanstack-start",
       "version": "0.0.0",
+      "devDependencies": {
+        "@veritio/core": "workspace:*",
+      },
       "peerDependencies": {
         "@tanstack/react-start": "*",
         "@veritio/core": ">=0.0.0",
@@ -89,6 +118,16 @@
         "@trpc/server",
       ],
     },
+    "adapters/vue": {
+      "name": "@veritio/vue",
+      "version": "0.0.0",
+      "peerDependencies": {
+        "vue": "*",
+      },
+      "optionalPeers": [
+        "vue",
+      ],
+    },
     "sdks/typescript": {
       "name": "@veritio/core",
       "version": "0.0.0",
@@ -98,6 +137,16 @@
       "version": "0.0.0",
       "dependencies": {
         "@veritio/core": "workspace:*",
+      },
+    },
+    "storage": {
+      "name": "@veritio/storage",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@veritio/core": "workspace:*",
+      },
+      "peerDependencies": {
+        "@veritio/core": ">=0.0.0",
       },
     },
   },
@@ -114,13 +163,21 @@
 
     "@veritio/next": ["@veritio/next@workspace:adapters/next"],
 
+    "@veritio/react": ["@veritio/react@workspace:adapters/react"],
+
     "@veritio/server": ["@veritio/server@workspace:server/node"],
+
+    "@veritio/storage": ["@veritio/storage@workspace:storage"],
+
+    "@veritio/svelte": ["@veritio/svelte@workspace:adapters/svelte"],
 
     "@veritio/sveltekit": ["@veritio/sveltekit@workspace:adapters/sveltekit"],
 
     "@veritio/tanstack-start": ["@veritio/tanstack-start@workspace:adapters/tanstack-start"],
 
     "@veritio/trpc": ["@veritio/trpc@workspace:adapters/trpc"],
+
+    "@veritio/vue": ["@veritio/vue@workspace:adapters/vue"],
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 

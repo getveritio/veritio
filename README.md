@@ -9,7 +9,9 @@ It gives product teams a shared protocol and SDKs for audit events, consent hist
 - A protocol-first event model for app-level evidence.
 - SDKs for TypeScript, Python, and Go.
 - A first Better Auth adapter for server-side auth lifecycle evidence.
-- Planned framework adapters for Next.js, TanStack Start, SvelteKit, Express, Hono, tRPC, and FastAPI.
+- Thin framework adapters for Next.js, TanStack Start, SvelteKit, React, Vue, and Svelte.
+- Initial storage helpers for PostgreSQL/Neon, MySQL/MariaDB, MongoDB, and Redis tenant-tip caching.
+- Planned framework adapters for Express, Hono, tRPC, and FastAPI.
 - A planned self-hostable server path plus a future managed provider path.
 - Planned UI surfaces for audit logs, consent history, and data-subject requests.
 
@@ -52,6 +54,7 @@ spec/                 Language-neutral event and audit-record schemas
 sdks/typescript/      JS/TS SDK
 sdks/python/          Python SDK
 sdks/go/              Go SDK
+storage/              Host-injected storage adapters
 adapters/             Framework and library adapters
 server/node/          Self-hosted ingestion/query API surface
 docs/                 Product, architecture, and hosted-provider docs
@@ -66,9 +69,13 @@ examples/             Integration guides and runnable examples
 
 - `@veritio/core`: TypeScript SDK.
 - `@veritio/better-auth`: Better Auth adapter.
-- `@veritio/next`: planned Next.js adapter.
-- `@veritio/tanstack-start`: planned TanStack Start adapter.
-- `@veritio/sveltekit`: planned SvelteKit adapter.
+- `@veritio/storage`: host-injected storage helpers.
+- `@veritio/next`: Next.js server-side adapter.
+- `@veritio/tanstack-start`: TanStack Start server-side adapter.
+- `@veritio/sveltekit`: SvelteKit server-side adapter.
+- `@veritio/react`: React UI intent helpers.
+- `@veritio/vue`: Vue UI intent helpers.
+- `@veritio/svelte`: Svelte UI intent helpers.
 - `@veritio/express`: planned Express adapter.
 - `@veritio/hono`: planned Hono adapter.
 - `@veritio/trpc`: planned tRPC adapter.

@@ -1,0 +1,29 @@
+{
+  "name": "@veritio/example-react-better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:server": "tsx server/index.ts",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@veritio/better-auth": "file:../../adapters/better-auth",
+    "@veritio/core": "file:../../sdks/typescript",
+    "@vitejs/plugin-react": "*",
+    "better-auth": "*",
+    "express": "*",
+    "react": "*",
+    "react-dom": "*",
+    "vite": "*"
+  },
+  "devDependencies": {
+    "@types/express": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "tsx": "*",
+    "typescript": "*"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@veritio/example-storage-postgres-neon",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "*",
+    "@veritio/core": "file:../../sdks/typescript",
+    "@veritio/storage": "file:../../storage",
+    "pg": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/pg": "*",
+    "typescript": "*"
+  }
+}

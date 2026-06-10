@@ -1,0 +1,26 @@
+{
+  "name": "@veritio/example-tanstack-start-better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vinxi dev",
+    "build": "vinxi build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tanstack/react-router": "*",
+    "@tanstack/react-start": "*",
+    "@veritio/better-auth": "file:../../adapters/better-auth",
+    "@veritio/core": "file:../../sdks/typescript",
+    "better-auth": "*",
+    "react": "*",
+    "react-dom": "*",
+    "vinxi": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "typescript": "*"
+  }
+}
