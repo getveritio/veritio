@@ -15,12 +15,14 @@
     "server/node"
   ],
   "scripts": {
-    "test": "bun test sdks/typescript/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
+    "build": "bun run --cwd sdks/typescript build && bun run --cwd adapters/better-auth build",
+    "test": "bun run --cwd sdks/typescript build && bun test sdks/typescript/src && bun test adapters/better-auth/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
     "test:ts": "bun test sdks/typescript/src",
+    "test:better-auth": "bun run --cwd sdks/typescript build && bun test adapters/better-auth/src",
     "test:python": "PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests",
     "test:go": "cd sdks/go && go test ./...",
-    "typecheck": "bun run --cwd sdks/typescript typecheck",
-    "verify": "bun run test && bun run typecheck"
+    "typecheck": "bun run --cwd sdks/typescript typecheck && bun run --cwd sdks/typescript build && bun run --cwd adapters/better-auth typecheck",
+    "verify": "bun run test && bun run typecheck && bun run build"
   },
   "devDependencies": {
     "bun-types": "^1.3.14",

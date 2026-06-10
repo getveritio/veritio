@@ -29,7 +29,7 @@ The hosted Veritio offering can sell:
 - customer audit portals
 - DSAR request workflows
 - evidence bundles for sales and security reviews
-- EU-region hosting and operational guarantees
+- EU-region hosting options and service-level commitments
 
 ## First Product Boundary
 

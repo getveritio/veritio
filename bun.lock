@@ -12,13 +12,15 @@
     "adapters/better-auth": {
       "name": "@veritio/better-auth",
       "version": "0.0.0",
+      "devDependencies": {
+        "veritio": "workspace:*",
+      },
       "peerDependencies": {
         "better-auth": "*",
         "veritio": ">=0.0.0",
       },
       "optionalPeers": [
         "better-auth",
-        "veritio",
       ],
     },
     "adapters/express": {

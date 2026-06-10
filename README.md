@@ -8,9 +8,10 @@ It gives product teams a shared protocol and SDKs for audit events, consent hist
 
 - A protocol-first event model for app-level evidence.
 - SDKs for TypeScript, Python, and Go.
-- Framework adapters for Better Auth, Next.js, TanStack Start, SvelteKit, Express, Hono, tRPC, and FastAPI.
-- A self-hostable server path plus a future managed provider path.
-- Accessible UI surfaces for audit logs, consent history, and data-subject requests.
+- A first Better Auth adapter for server-side auth lifecycle evidence.
+- Planned framework adapters for Next.js, TanStack Start, SvelteKit, Express, Hono, tRPC, and FastAPI.
+- A planned self-hostable server path plus a future managed provider path.
+- Planned UI surfaces for audit logs, consent history, and data-subject requests.
 
 ## What Veritio Is Not
 
@@ -36,7 +37,7 @@ const event = createAuditEvent({
   lawfulBasis: "contract",
   retention: "security_1y",
   metadata: {
-    invitedEmail: "member@example.com",
+    inviteId: "inv_123",
     role: "viewer"
   }
 });
@@ -54,7 +55,7 @@ sdks/go/              Go SDK
 adapters/             Framework and library adapters
 server/node/          Self-hosted ingestion/query API surface
 docs/                 Product, architecture, and hosted-provider docs
-examples/             Working integration examples
+examples/             Integration guides and runnable examples
 .agents/              Codex-style local skills
 .codex/               Codex agent and hook configuration
 .claude/              Claude Code rules, agents, skills, and hooks
@@ -65,10 +66,13 @@ examples/             Working integration examples
 
 - `veritio`: TypeScript SDK.
 - `@veritio/better-auth`: Better Auth adapter.
-- `@veritio/next`: Next.js adapter.
-- `@veritio/tanstack-start`: TanStack Start adapter.
-- `@veritio/sveltekit`: SvelteKit adapter.
-- `@veritio/fastapi`: FastAPI adapter.
+- `@veritio/next`: planned Next.js adapter.
+- `@veritio/tanstack-start`: planned TanStack Start adapter.
+- `@veritio/sveltekit`: planned SvelteKit adapter.
+- `@veritio/express`: planned Express adapter.
+- `@veritio/hono`: planned Hono adapter.
+- `@veritio/trpc`: planned tRPC adapter.
+- `veritio-fastapi`: planned FastAPI adapter.
 - `veritio`: Python SDK package.
 - `github.com/ep93/veritio/sdks/go`: Go SDK module.
 
