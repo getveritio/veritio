@@ -252,6 +252,25 @@ describe("MemoryAuditStore fail-closed behavior", () => {
       reason: "hash_mismatch",
     });
   });
+
+  test("does not retain a mutable reference to the appended event", async () => {
+    const store = new MemoryAuditStore();
+    const event = createAuditEvent({
+      id: "evt_01",
+      occurredAt: "2026-06-10T00:00:00.000Z",
+      actor: { type: "user", id: "usr_123" },
+      action: "org.member.invited",
+      target: { type: "organization", id: "org_123" },
+      scope: { tenantId: "org_123", environment: "test" },
+      metadata: { role: "viewer" },
+    });
+
+    await store.append(event);
+    event.metadata.role = "admin";
+
+    expect(store.records()[0]?.event.metadata).toEqual({ role: "viewer" });
+    expect(verifyAuditRecords(store.records())).toEqual({ ok: true });
+  });
 });
 
 describe("createAuditRecorder", () => {

@@ -223,6 +223,7 @@ export class MemoryAuditStore implements AuditStore {
     const tenantId = requireTenantId(event);
     const idempotencyKeyHash = hashIdempotencyKey(tenantId, options.idempotencyKey ?? event.id);
     const eventCanonical = canonicalJson(event);
+    const storedEvent = cloneEvent(event);
     const existing = this.#idempotencyRecords.get(idempotencyKeyHash);
     if (existing) {
       if (existing.eventCanonical !== eventCanonical) {
@@ -238,7 +239,7 @@ export class MemoryAuditStore implements AuditStore {
     }
 
     const recordWithoutHash: Omit<AuditRecord, "hash"> = {
-      event,
+      event: storedEvent,
       sequence: (previousRecord?.sequence ?? 0) + 1,
       previousHash,
       hashAlgorithm: HASH_ALGORITHM,
@@ -410,6 +411,10 @@ function requireTenantId(event: AuditEvent): string {
 function hashIdempotencyKey(tenantId: string, idempotencyKey: string): string {
   assertNonEmpty(idempotencyKey, "idempotencyKey");
   return sha256Hex(`${tenantId}\u0000${idempotencyKey}`);
+}
+
+function cloneEvent(event: AuditEvent): AuditEvent {
+  return JSON.parse(JSON.stringify(event)) as AuditEvent;
 }
 
 function cloneRecord(record: AuditRecord): AuditRecord {
