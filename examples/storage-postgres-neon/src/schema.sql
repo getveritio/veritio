@@ -1,16 +1,15 @@
-create table if not exists veritio_audit_records (
-  tenant_id text not null,
-  sequence bigint not null,
-  idempotency_key_hash text not null,
-  event_json jsonb not null,
-  previous_hash text,
-  hash text not null,
-  hash_algorithm text not null check (hash_algorithm = 'sha256'),
-  canonicalization text not null check (canonicalization = 'veritio-json-v1'),
-  appended_at timestamptz not null,
-  primary key (tenant_id, sequence),
-  unique (tenant_id, idempotency_key_hash)
+CREATE TABLE IF NOT EXISTS veritio_audit_records (
+  tenant_id text NOT NULL,
+  sequence bigint NOT NULL,
+  idempotency_key_hash char(64) NOT NULL,
+  event_canonical text NOT NULL,
+  record_json text NOT NULL,
+  hash char(64) NOT NULL,
+  previous_hash char(64),
+  appended_at text NOT NULL,
+  PRIMARY KEY (tenant_id, sequence),
+  UNIQUE (tenant_id, idempotency_key_hash)
 );
 
-create index if not exists veritio_audit_records_tenant_appended_at_idx
-  on veritio_audit_records (tenant_id, appended_at desc);
+CREATE INDEX IF NOT EXISTS veritio_audit_records_tenant_sequence_idx
+  ON veritio_audit_records (tenant_id, sequence);

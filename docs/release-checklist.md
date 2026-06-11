@@ -48,6 +48,16 @@ bun run typecheck
 git diff --check
 ```
 
+`bun run test:storage` also loads the env-gated live database conformance
+suites. For release verification, record whether the following variables were
+set against disposable databases or CI service containers:
+
+- `VERITIO_POSTGRES_TEST_URL`
+- `VERITIO_NEON_TEST_URL`
+- `VERITIO_MYSQL_TEST_URL`
+- `VERITIO_MARIADB_TEST_URL`
+- `VERITIO_MONGODB_TEST_URL`
+
 For public npm packages, inspect dry-run package contents before publishing:
 
 ```sh

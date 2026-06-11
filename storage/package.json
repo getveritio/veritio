@@ -40,12 +40,15 @@
   "scripts": {
     "build": "bun run --cwd ../sdks/typescript build && node ../node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "typecheck": "bun run --cwd ../sdks/typescript build && node ../node_modules/typescript/bin/tsc -p tsconfig.build.json --noEmit",
-    "test": "bun run --cwd ../sdks/typescript build && bun test src"
+    "test": "bun run --cwd ../sdks/typescript build && bun test src integration"
   },
   "peerDependencies": {
     "@veritio/core": ">=0.0.0"
   },
   "devDependencies": {
-    "@veritio/core": "workspace:*"
+    "@veritio/core": "workspace:*",
+    "mongodb": "^7.3.0",
+    "mysql2": "^3.22.5",
+    "pg": "^8.21.0"
   }
 }

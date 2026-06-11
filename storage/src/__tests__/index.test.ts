@@ -52,6 +52,19 @@ describe("SQL AuditStore adapters", () => {
     expect(MYSQL_AUDIT_RECORDS_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS `veritio_audit_records`");
     expect(MYSQL_AUDIT_RECORDS_SCHEMA_SQL).toContain("UNIQUE KEY");
   });
+
+  test("MySQL list queries inline validated limits for mysql2 prepared statements", async () => {
+    const client = createSqlClient();
+    const store = createMysqlAuditStore({ client });
+    await store.append(makeEvent("evt_01", "org_123", { role: "viewer" }));
+    await store.append(makeEvent("evt_02", "org_123", { role: "admin" }));
+
+    const records = await store.list({ tenantId: "org_123" }, { limit: 1 });
+
+    expect(records).toHaveLength(1);
+    expect(client.statements.some((statement) => statement.includes("LIMIT ?"))).toBe(false);
+    expect(client.statements.some((statement) => statement.includes("LIMIT 1"))).toBe(true);
+  });
 });
 
 describe("Mongo AuditStore adapter", () => {
@@ -152,13 +165,15 @@ function mutateMongoStoredRecord(
   collection.documents[index] = { ...document, recordJson: JSON.stringify(nextRecord) };
 }
 
-function createSqlClient(): SqlAuditExecutor & { rows: SqlAuditRow[] } {
-  const client: SqlAuditExecutor & { rows: SqlAuditRow[] } = {
+function createSqlClient(): SqlAuditExecutor & { rows: SqlAuditRow[]; statements: string[] } {
+  const client: SqlAuditExecutor & { rows: SqlAuditRow[]; statements: string[] } = {
     rows: [],
+    statements: [],
     async transaction(run) {
       return run(client);
     },
     async execute(statement, params) {
+      client.statements.push(statement);
       const sql = statement.toLowerCase();
       if (sql.startsWith("select event_canonical")) {
         const [tenantId, idempotencyKeyHash] = params;
@@ -196,10 +211,12 @@ function createSqlClient(): SqlAuditExecutor & { rows: SqlAuditRow[] } {
       }
       if (sql.startsWith("select record_json") && sql.includes("order by") && sql.includes("asc")) {
         const [tenantId, afterSequence, limit] = params;
+        const inlineLimit = statement.match(/\blimit\s+(\d+)\s*$/i)?.[1];
+        const effectiveLimit = limit ?? inlineLimit;
         const rows = client.rows
           .filter((row) => row.tenant_id === tenantId && row.sequence > Number(afterSequence))
           .sort((a, b) => a.sequence - b.sequence);
-        return limit === undefined ? rows : rows.slice(0, Number(limit));
+        return effectiveLimit === undefined ? rows : rows.slice(0, Number(effectiveLimit));
       }
       throw new TypeError(`unexpected SQL: ${statement}`);
     },

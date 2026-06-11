@@ -251,10 +251,10 @@ class SqlAuditStore implements AuditStore {
     const afterSequence = options.afterSequence ?? 0;
     const rows = rowsFromResult(
       await this.#client.execute(
-        this.#selectTenantRecordsSql(options.limit !== undefined),
+        this.#selectTenantRecordsSql(options.limit),
         options.limit === undefined
           ? this.#params(tenantId, afterSequence)
-          : this.#params(tenantId, afterSequence, options.limit),
+          : this.#tenantRecordsParams(tenantId, afterSequence, options.limit),
       ),
     );
     const records = rows.map((row) => recordFromSqlRow(row, tenantId));
@@ -270,8 +270,9 @@ class SqlAuditStore implements AuditStore {
     return `SELECT record_json FROM ${this.#table} WHERE tenant_id = ${this.#placeholder(1)} ORDER BY sequence DESC LIMIT 1 FOR UPDATE`;
   }
 
-  #selectTenantRecordsSql(withLimit: boolean): string {
-    const limit = withLimit ? ` LIMIT ${this.#placeholder(3)}` : "";
+  #selectTenantRecordsSql(limitValue: number | undefined): string {
+    const limit =
+      limitValue === undefined ? "" : ` LIMIT ${this.#dialect === "mysql" ? limitValue : this.#placeholder(3)}`;
     return `SELECT record_json FROM ${this.#table} WHERE tenant_id = ${this.#placeholder(1)} AND sequence > ${this.#placeholder(2)} ORDER BY sequence ASC${limit}`;
   }
 
@@ -285,6 +286,12 @@ class SqlAuditStore implements AuditStore {
 
   #params(...params: unknown[]): readonly unknown[] {
     return params;
+  }
+
+  #tenantRecordsParams(tenantId: string, afterSequence: number, limit: number): readonly unknown[] {
+    return this.#dialect === "mysql"
+      ? this.#params(tenantId, afterSequence)
+      : this.#params(tenantId, afterSequence, limit);
   }
 }
 

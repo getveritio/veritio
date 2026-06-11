@@ -34,7 +34,7 @@
   ],
   "scripts": {
     "build": "bun run --cwd sdks/typescript build && bun run --cwd storage build && bun run --cwd adapters/better-auth build && bun run --cwd adapters/next build && bun run --cwd adapters/tanstack-start build && bun run --cwd adapters/sveltekit build && bun run --cwd adapters/react build && bun run --cwd adapters/vue build && bun run --cwd adapters/svelte build",
-    "test": "bun run --cwd sdks/typescript build && bun test sdks/typescript/src && bun test storage/src && bun test adapters/better-auth/src && bun test adapters/next/src && bun test adapters/tanstack-start/src && bun test adapters/sveltekit/src && bun test adapters/react/src && bun test adapters/vue/src && bun test adapters/svelte/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
+    "test": "bun run --cwd sdks/typescript build && bun test sdks/typescript/src && bun run --cwd storage test && bun test adapters/better-auth/src && bun test adapters/next/src && bun test adapters/tanstack-start/src && bun test adapters/sveltekit/src && bun test adapters/react/src && bun test adapters/vue/src && bun test adapters/svelte/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
     "test:ts": "bun test sdks/typescript/src",
     "test:better-auth": "bun run --cwd sdks/typescript build && bun test adapters/better-auth/src",
     "test:storage": "bun run --cwd storage test",

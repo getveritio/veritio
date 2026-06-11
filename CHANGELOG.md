@@ -11,11 +11,13 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 - OSS hygiene scaffold for contribution workflow, security disclosure, GitHub issue templates, pull request review, and release checks.
 - Shared protocol conformance fixtures for canonical JSON, event creation, redaction, event hashing, audit record hashing, and idempotency-key hashing across TypeScript, Python, and Go tests.
 - Runner-neutral storage conformance tests for durable `AuditStore` adapters.
+- Env-gated live storage conformance tests for Postgres-compatible stores, the Neon factory, MySQL, MariaDB, and MongoDB.
 - Runnable Next.js App Router plus Better Auth reference example with server-owned tenant and actor context.
 
 ### Changed
 
 - Storage package exports `@veritio/storage/conformance` for external database adapter checks.
+- Postgres/Neon and MySQL/MariaDB example schemas now match the storage adapter column contract.
 
 ### Fixed
 
