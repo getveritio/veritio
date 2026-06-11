@@ -1,12 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   MemoryAuditStore,
-  canonicalJson,
   createAuditEvent,
-  hashAuditRecord,
-  verifyAuditRecords,
   type AuditRecord,
 } from "@veritio/core";
+import { createAuditStoreConformanceTests, type AuditStoreConformanceCorruption } from "../conformance";
 import {
   MYSQL_AUDIT_RECORDS_SCHEMA_SQL,
   POSTGRES_AUDIT_RECORDS_SCHEMA_SQL,
@@ -30,57 +28,23 @@ describe("SQL AuditStore adapters", () => {
     ["mysql", createMysqlAuditStore],
     ["mariadb", createMariaDbAuditStore],
   ] as const) {
-    test(`${label} appends tenant chains and lists records deterministically`, async () => {
-      const client = createSqlClient();
-      const store = createStore({ client });
-
-      const first = await store.append(makeEvent("evt_01", "org_123", { role: "viewer" }));
-      const second = await store.append(makeEvent("evt_02", "org_123", { policy: "security_1y" }), {
-        expectedPreviousHash: first.hash,
-      });
-      const otherTenant = await store.append(makeEvent("evt_03", "org_456", { role: "admin" }));
-
-      expect(first.sequence).toBe(1);
-      expect(second.sequence).toBe(2);
-      expect(second.previousHash).toBe(first.hash);
-      expect(otherTenant.sequence).toBe(1);
-
-      const listed = await store.list({ tenantId: "org_123" });
-      expect(listed).toEqual([first, second]);
-      expect(verifyAuditRecords(listed)).toEqual({ ok: true });
-      expect(await store.list({ tenantId: "org_123" }, { afterSequence: 1, limit: 1 })).toEqual([second]);
+    describe(`${label} AuditStore conformance`, () => {
+      for (const conformanceTest of createAuditStoreConformanceTests({
+        name: label,
+        createTarget() {
+          const client = createSqlClient();
+          return {
+            store: createStore({ client }),
+            mutateStoredRecord(corruption) {
+              mutateSqlStoredRecord(client, corruption);
+            },
+          };
+        },
+      })) {
+        test(conformanceTest.name, conformanceTest.run);
+      }
     });
   }
-
-  test("SQL stores return idempotent records and reject idempotency conflicts", async () => {
-    const client = createSqlClient();
-    const store = createPostgresAuditStore({ client });
-    const event = makeEvent("evt_01", "org_123", { role: "viewer" });
-
-    const first = await store.append(event, { idempotencyKey: "invite:usr_456" });
-    const repeated = await store.append(event, { idempotencyKey: "invite:usr_456" });
-
-    expect(repeated).toEqual(first);
-    expect(client.rows).toHaveLength(1);
-
-    await expect(
-      store.append(makeEvent("evt_02", "org_123", { role: "admin" }), { idempotencyKey: "invite:usr_456" }),
-    ).rejects.toThrow("idempotency conflict");
-  });
-
-  test("SQL stores fail closed when tenant scope or stored integrity is missing", async () => {
-    const client = createSqlClient();
-    const store = createPostgresAuditStore({ client });
-
-    await expect(store.append(makeEventWithoutTenant("evt_missing_scope"))).rejects.toThrow("scope.tenantId is required");
-
-    await store.append(makeEvent("evt_01", "org_123", { role: "viewer" }));
-    const corrupted = JSON.parse(client.rows[0]?.record_json ?? "{}") as AuditRecord;
-    corrupted.hash = "0".repeat(64);
-    client.rows[0] = { ...client.rows[0]!, record_json: JSON.stringify(corrupted) };
-
-    await expect(store.list({ tenantId: "org_123" })).rejects.toThrow("stored audit record integrity check failed");
-  });
 
   test("SQL schema helpers declare tenant and idempotency constraints", () => {
     expect(POSTGRES_AUDIT_RECORDS_SCHEMA_SQL).toContain("CREATE TABLE IF NOT EXISTS veritio_audit_records");
@@ -91,41 +55,24 @@ describe("SQL AuditStore adapters", () => {
 });
 
 describe("Mongo AuditStore adapter", () => {
-  test("appends records through host-injected transactional collection access", async () => {
-    const collection = createMongoCollection();
-    const store = createMongoAuditStore({
-      collection,
-      transaction: async (run) => run({ collection }),
-    });
-
-    const first = await store.append(makeEvent("evt_01", "org_123", { role: "viewer" }));
-    const second = await store.append(makeEvent("evt_02", "org_123", { policy: "security_1y" }), {
-      expectedPreviousHash: first.hash,
-    });
-
-    expect(second.sequence).toBe(2);
-    expect(second.previousHash).toBe(first.hash);
-    expect(await store.list({ tenantId: "org_123" })).toEqual([first, second]);
-    expect(verifyAuditRecords(await store.list({ tenantId: "org_123" }))).toEqual({ ok: true });
-  });
-
-  test("rejects Mongo idempotency conflicts and corrupted stored records", async () => {
-    const collection = createMongoCollection();
-    const store = createMongoAuditStore({
-      collection,
-      transaction: async (run) => run({ collection }),
-    });
-
-    await store.append(makeEvent("evt_01", "org_123", { role: "viewer" }), { idempotencyKey: "same-key" });
-    await expect(
-      store.append(makeEvent("evt_02", "org_123", { role: "admin" }), { idempotencyKey: "same-key" }),
-    ).rejects.toThrow("idempotency conflict");
-
-    const corrupted = JSON.parse(collection.documents[0]?.recordJson ?? "{}") as AuditRecord;
-    corrupted.event.scope = undefined;
-    collection.documents[0] = { ...collection.documents[0]!, recordJson: JSON.stringify(corrupted) };
-
-    await expect(store.list({ tenantId: "org_123" })).rejects.toThrow("scope.tenantId is required");
+  describe("mongo AuditStore conformance", () => {
+    for (const conformanceTest of createAuditStoreConformanceTests({
+      name: "mongo",
+      createTarget() {
+        const collection = createMongoCollection();
+        return {
+          store: createMongoAuditStore({
+            collection,
+            transaction: async (run) => run({ collection }),
+          }),
+          mutateStoredRecord(corruption) {
+            mutateMongoStoredRecord(collection, corruption);
+          },
+        };
+      },
+    })) {
+      test(conformanceTest.name, conformanceTest.run);
+    }
   });
 });
 
@@ -173,15 +120,36 @@ function makeEvent(id: string, tenantId: string, metadata: Record<string, unknow
   });
 }
 
-function makeEventWithoutTenant(id: string) {
-  return createAuditEvent({
-    id,
-    occurredAt: "2026-06-10T00:00:00.000Z",
-    actor: { type: "user", id: "usr_123" },
-    action: "org.member.invited",
-    target: { type: "organization", id: "org_123" },
-    metadata: {},
-  });
+function mutateSqlStoredRecord(
+  client: SqlAuditExecutor & { rows: SqlAuditRow[] },
+  corruption: AuditStoreConformanceCorruption,
+): void {
+  const index = client.rows.findIndex(
+    (row) => row.tenant_id === corruption.tenantId && row.sequence === corruption.sequence,
+  );
+  if (index === -1) {
+    throw new TypeError("stored audit record not found");
+  }
+  const row = client.rows[index]!;
+  const record = JSON.parse(row.record_json) as AuditRecord;
+  const nextRecord = corruption.mutate(record) ?? record;
+  client.rows[index] = { ...row, record_json: JSON.stringify(nextRecord) };
+}
+
+function mutateMongoStoredRecord(
+  collection: MongoAuditCollection & { documents: MongoAuditDocument[] },
+  corruption: AuditStoreConformanceCorruption,
+): void {
+  const index = collection.documents.findIndex(
+    (document) => document.tenantId === corruption.tenantId && document.sequence === corruption.sequence,
+  );
+  if (index === -1) {
+    throw new TypeError("stored audit record not found");
+  }
+  const document = collection.documents[index]!;
+  const record = JSON.parse(document.recordJson) as AuditRecord;
+  const nextRecord = corruption.mutate(record) ?? record;
+  collection.documents[index] = { ...document, recordJson: JSON.stringify(nextRecord) };
 }
 
 function createSqlClient(): SqlAuditExecutor & { rows: SqlAuditRow[] } {
@@ -262,7 +230,11 @@ function createMongoCollection(): MongoAuditCollection & { documents: MongoAudit
       ) {
         throw new TypeError("duplicate idempotency key");
       }
-      if (this.documents.some((existing) => existing.tenantId === document.tenantId && existing.sequence === document.sequence)) {
+      if (
+        this.documents.some(
+          (existing) => existing.tenantId === document.tenantId && existing.sequence === document.sequence,
+        )
+      ) {
         throw new TypeError("duplicate tenant sequence");
       }
       this.documents.push({ ...document });

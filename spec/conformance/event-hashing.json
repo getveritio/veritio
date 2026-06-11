@@ -1,0 +1,87 @@
+{
+  "name": "event-hashing-v1",
+  "hashAlgorithm": "sha256",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "hashes first event with null previous hash",
+      "event": {
+        "id": "evt_fixture_create_01",
+        "schemaVersion": "2026-06-10",
+        "occurredAt": "2026-06-10T00:00:00.000Z",
+        "actor": {
+          "type": "user",
+          "id": "usr_fixture_123"
+        },
+        "action": "org.member.invited",
+        "target": {
+          "type": "organization",
+          "id": "org_fixture_123"
+        },
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "test"
+        },
+        "requestId": "req_fixture_789",
+        "purpose": "access_management",
+        "lawfulBasis": "contract",
+        "dataCategories": [
+          "access",
+          "account"
+        ],
+        "retention": "security_1y",
+        "metadata": {
+          "invitedEmail": "[redacted]",
+          "nested": {
+            "apiToken": "[redacted]",
+            "note": "stable-id-only"
+          },
+          "role": "viewer"
+        }
+      },
+      "previousHash": null,
+      "expectedHash": "87d4db3d6b751dc67e8496c925a9c48918589cd34673d011c4d97a345a3eb5d4"
+    },
+    {
+      "name": "hashes event with previous hash",
+      "event": {
+        "id": "evt_fixture_create_01",
+        "schemaVersion": "2026-06-10",
+        "occurredAt": "2026-06-10T00:00:00.000Z",
+        "actor": {
+          "type": "user",
+          "id": "usr_fixture_123"
+        },
+        "action": "org.member.invited",
+        "target": {
+          "type": "organization",
+          "id": "org_fixture_123"
+        },
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "test"
+        },
+        "requestId": "req_fixture_789",
+        "purpose": "access_management",
+        "lawfulBasis": "contract",
+        "dataCategories": [
+          "access",
+          "account"
+        ],
+        "retention": "security_1y",
+        "metadata": {
+          "invitedEmail": "[redacted]",
+          "nested": {
+            "apiToken": "[redacted]",
+            "note": "stable-id-only"
+          },
+          "role": "viewer"
+        }
+      },
+      "previousHash": "14396c51f0304f26c9be4ac918daf9d50109c0d9fd238ccb1c87c15632427edf",
+      "expectedHash": "1e58eb11f5b1f214d11a0848fa9bbf2c630f802a8f31aad016aec969c8a89946"
+    }
+  ]
+}

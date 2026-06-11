@@ -1,0 +1,25 @@
+{
+  "name": "canonical-json-v1",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "sorts nested keys and preserves JSON string characters",
+      "input": {
+        "z": 1,
+        "a": {
+          "c": 3,
+          "b": [
+            2,
+            {
+              "y": "yes",
+              "x": "first"
+            }
+          ]
+        },
+        "note": "<&\u2028",
+        "optional": null
+      },
+      "expected": "{\"a\":{\"b\":[2,{\"x\":\"first\",\"y\":\"yes\"}],\"c\":3},\"note\":\"<&\u2028\",\"optional\":null,\"z\":1}"
+    }
+  ]
+}

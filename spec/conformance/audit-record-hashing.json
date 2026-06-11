@@ -1,0 +1,57 @@
+{
+  "name": "audit-record-hashing-v1",
+  "hashAlgorithm": "sha256",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "hashes first tenant audit record and idempotency key",
+      "tenantId": "org_fixture_123",
+      "idempotencyKey": "invite:usr_fixture_member",
+      "expectedIdempotencyKeyHash": "e2f857781cf313401025789ca53293022218a149c7bfd66b1d2b52b72935b9ce",
+      "recordWithoutHash": {
+        "event": {
+          "id": "evt_fixture_create_01",
+          "schemaVersion": "2026-06-10",
+          "occurredAt": "2026-06-10T00:00:00.000Z",
+          "actor": {
+            "type": "user",
+            "id": "usr_fixture_123"
+          },
+          "action": "org.member.invited",
+          "target": {
+            "type": "organization",
+            "id": "org_fixture_123"
+          },
+          "scope": {
+            "tenantId": "org_fixture_123",
+            "workspaceId": "wks_fixture_456",
+            "environment": "test"
+          },
+          "requestId": "req_fixture_789",
+          "purpose": "access_management",
+          "lawfulBasis": "contract",
+          "dataCategories": [
+            "access",
+            "account"
+          ],
+          "retention": "security_1y",
+          "metadata": {
+            "invitedEmail": "[redacted]",
+            "nested": {
+              "apiToken": "[redacted]",
+              "note": "stable-id-only"
+            },
+            "role": "viewer"
+          }
+        },
+        "sequence": 1,
+        "previousHash": null,
+        "hashAlgorithm": "sha256",
+        "canonicalization": "veritio-json-v1",
+        "appendedAt": "2026-06-10T00:00:01.000Z",
+        "idempotencyKeyHash": "e2f857781cf313401025789ca53293022218a149c7bfd66b1d2b52b72935b9ce"
+      },
+      "expectedHash": "9c77fa09d13f779159f76a370feb58931e517f28fd792c99c0f3e1dda4d26f98"
+    }
+  ]
+}

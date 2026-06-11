@@ -1,0 +1,40 @@
+{
+  "name": "metadata-redaction-v1",
+  "cases": [
+    {
+      "name": "redacts sensitive keys recursively and keeps stable identifiers",
+      "metadata": {
+        "apiToken": "token_fixture_value",
+        "authorization": "Bearer fixture-token",
+        "contactEmail": "member@example.invalid",
+        "phoneNumber": "+15550100",
+        "safeCount": 2,
+        "stableRef": "usr_fixture_123",
+        "nested": {
+          "secretNote": "fixture secret",
+          "workspaceRef": "wks_fixture_456"
+        },
+        "tags": [
+          "audit",
+          "invite"
+        ]
+      },
+      "expectedMetadata": {
+        "apiToken": "[redacted]",
+        "authorization": "[redacted]",
+        "contactEmail": "[redacted]",
+        "phoneNumber": "[redacted]",
+        "safeCount": 2,
+        "stableRef": "usr_fixture_123",
+        "nested": {
+          "secretNote": "[redacted]",
+          "workspaceRef": "wks_fixture_456"
+        },
+        "tags": [
+          "audit",
+          "invite"
+        ]
+      }
+    }
+  ]
+}

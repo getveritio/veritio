@@ -1,27 +1,44 @@
 "use server";
 
-import { auditRecorder, resolveReferenceSession } from "../../src/veritio/server";
+import { randomUUID } from "node:crypto";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import {
+  nextAudit,
+  referenceSessionToNextContext,
+  resolveReferenceSession,
+} from "../../src/veritio/server";
 
-export async function recordProfileUpdate(input: {
-  profileId: string;
-  requestId?: string;
-}) {
+export async function recordProfileUpdate(formData: FormData) {
   const session = await resolveReferenceSession();
+  const profileId = readRequiredIdentifier(formData, "profileId");
+  const requestId = `ref_${randomUUID()}`;
 
-  return auditRecorder.record(
-    {
-      actor: { type: "user", id: session.actorUserId },
-      action: "profile.updated",
-      target: { type: "profile", id: input.profileId },
-      scope: { tenantId: session.tenantId, environment: "reference" },
-      requestId: input.requestId,
-      purpose: "account_management",
-      lawfulBasis: "contract",
-      retention: "security_1y",
-      metadata: {},
-    },
-    {
-      idempotencyKey: `profile-updated:${session.tenantId}:${input.profileId}:${input.requestId ?? "manual"}`,
-    },
-  );
+  await nextAudit.recordServerAction({
+    context: referenceSessionToNextContext(session, requestId),
+    action: "profile.updated",
+    target: { type: "profile", id: profileId },
+    purpose: "account_management",
+    lawfulBasis: "contract",
+    retention: "security_1y",
+    metadata: { source: "app_router_server_action" },
+    idempotencyKey: `nextjs:profile-updated:${profileId}:${requestId}`,
+  });
+
+  revalidatePath("/");
+  revalidatePath("/audit");
+  redirect("/audit");
+}
+
+function readRequiredIdentifier(formData: FormData, field: string): string {
+  const value = formData.get(field);
+  if (typeof value !== "string") {
+    throw new TypeError(`${field} is required`);
+  }
+
+  const trimmed = value.trim();
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(trimmed)) {
+    throw new TypeError(`${field} must be 1-80 URL-safe identifier characters`);
+  }
+  return trimmed;
 }

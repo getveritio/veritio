@@ -21,3 +21,19 @@ bun run typecheck
 
 This example contains no Redis URL or credentials. Veritio supports evidence
 workflows; it is not legal advice.
+
+## External Cache Check
+
+Redis is cache-only in Veritio. Do not run the durable `AuditStore`
+conformance suite against Redis and do not treat Redis tips as audit evidence on
+their own. A host integration test may create a real Redis client, inject it
+into `createRedisServerTipCache`, and assert only cache behavior such as
+validated tenant-tip read/write and TTL handling beside a durable store.
+
+```sh
+bun run --cwd ../../storage build
+bun test path/to/redis-tip-cache.test.ts
+```
+
+Connection URLs and credentials belong in the host test bootstrap or CI secret
+setup, not in `@veritio/storage`.

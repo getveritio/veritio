@@ -7,13 +7,20 @@
     "build": "next build",
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth",
+    "../../adapters/next"
+  ],
   "dependencies": {
-    "@veritio/better-auth": "file:../../adapters/better-auth",
-    "@veritio/core": "file:../../sdks/typescript",
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "@veritio/next": "workspace:*",
     "better-auth": "*",
     "next": "*",
     "react": "*",
-    "react-dom": "*"
+    "react-dom": "*",
+    "server-only": "*"
   },
   "devDependencies": {
     "@types/node": "*",

@@ -1,65 +1,69 @@
 package veritio
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+)
 
-func TestCanonicalJSONSortsKeysRecursively(t *testing.T) {
-	actual, err := CanonicalJSON(map[string]any{
-		"z": 1,
-		"a": map[string]any{
-			"c": 3,
-			"b": []any{2, map[string]any{"y": "yes", "x": "first"}},
-		},
-	})
-	if err != nil {
-		t.Fatalf("CanonicalJSON returned error: %v", err)
-	}
+func TestCanonicalJSONMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "canonical-json.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			actual, err := CanonicalJSON(conformanceCase["input"])
+			if err != nil {
+				t.Fatalf("CanonicalJSON returned error: %v", err)
+			}
 
-	expected := `{"a":{"b":[2,{"x":"first","y":"yes"}],"c":3},"z":1}`
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+			expected := stringValue(t, conformanceCase["expected"])
+			if actual != expected {
+				t.Fatalf("expected %s, got %s", expected, actual)
+			}
+		})
 	}
 }
 
-func TestCanonicalJSONPreservesNullAndDoesNotHTMLEscapeStrings(t *testing.T) {
-	lineSeparator := string(rune(0x2028))
-	actual, err := CanonicalJSON(map[string]any{
-		"note": "<&" + lineSeparator,
-		"a":    nil,
-	})
-	if err != nil {
-		t.Fatalf("CanonicalJSON returned error: %v", err)
-	}
+func TestCreateAuditEventMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "event-creation.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			event, err := CreateAuditEvent(decodeValue[AuditEventInput](t, conformanceCase["input"]))
+			if err != nil {
+				t.Fatalf("CreateAuditEvent returned error: %v", err)
+			}
 
-	expected := `{"a":null,"note":"<&` + lineSeparator + `"}`
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+			actual := toJSONMap(t, event)
+			expected := mapValue(t, conformanceCase["expected"])
+			if !reflect.DeepEqual(actual, expected) {
+				t.Fatalf("expected %#v, got %#v", expected, actual)
+			}
+		})
 	}
 }
 
-func TestCreateAuditEventRedactsSensitiveMetadata(t *testing.T) {
-	event, err := CreateAuditEvent(AuditEventInput{
-		ID:         "evt_01",
-		OccurredAt: "2026-06-10T00:00:00.000Z",
-		Actor:      Principal{Type: "user", ID: "usr_123"},
-		Action:     "org.member.invited",
-		Target:     Resource{Type: "organization", ID: "org_123"},
-		Metadata: map[string]any{
-			"invitedEmail": "member@example.com",
-			"role":         "viewer",
-		},
-	})
-	if err != nil {
-		t.Fatalf("CreateAuditEvent returned error: %v", err)
-	}
+func TestRedactionMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "redaction.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			event, err := CreateAuditEvent(AuditEventInput{
+				ID:         "evt_redaction_fixture",
+				OccurredAt: "2026-06-10T00:00:00.000Z",
+				Actor:      Principal{Type: "user", ID: "usr_fixture_123"},
+				Action:     "org.member.invited",
+				Target:     Resource{Type: "organization", ID: "org_fixture_123"},
+				Metadata:   mapValue(t, conformanceCase["metadata"]),
+			})
+			if err != nil {
+				t.Fatalf("CreateAuditEvent returned error: %v", err)
+			}
 
-	if event.SchemaVersion != "2026-06-10" {
-		t.Fatalf("unexpected schema version: %s", event.SchemaVersion)
-	}
-	if event.Metadata["invitedEmail"] != "[redacted]" {
-		t.Fatalf("expected invitedEmail to be redacted, got %#v", event.Metadata["invitedEmail"])
-	}
-	if event.Metadata["role"] != "viewer" {
-		t.Fatalf("expected role to remain safe, got %#v", event.Metadata["role"])
+			expected := mapValue(t, conformanceCase["expectedMetadata"])
+			if !reflect.DeepEqual(event.Metadata, expected) {
+				t.Fatalf("expected %#v, got %#v", expected, event.Metadata)
+			}
+		})
 	}
 }
 
@@ -80,53 +84,161 @@ func TestCreateAuditEventRejectsInvalidAction(t *testing.T) {
 	}
 }
 
-func TestHashIdempotencyKeyMatchesProtocolVector(t *testing.T) {
-	actual, err := HashIdempotencyKey("org_123", "evt_01")
-	if err != nil {
-		t.Fatalf("HashIdempotencyKey returned error: %v", err)
-	}
+func TestHashAuditEventMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "event-hashing.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			event := decodeValue[AuditEvent](t, conformanceCase["event"])
+			actual, err := HashAuditEvent(event, optionalStringPointer(t, conformanceCase["previousHash"]))
+			if err != nil {
+				t.Fatalf("HashAuditEvent returned error: %v", err)
+			}
 
-	expected := "e18c21b684554d90c197722b0b121e63bd5eadf5bf2f844c70f31be0825016f8"
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+			expected := stringValue(t, conformanceCase["expectedHash"])
+			if actual != expected {
+				t.Fatalf("expected %s, got %s", expected, actual)
+			}
+		})
 	}
 }
 
-func TestHashAuditRecordMatchesProtocolVector(t *testing.T) {
-	lineSeparator := string(rune(0x2028))
-	idempotencyKeyHash, err := HashIdempotencyKey("org_123", "evt_01")
-	if err != nil {
-		t.Fatalf("HashIdempotencyKey returned error: %v", err)
+func TestAuditRecordHashingMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "audit-record-hashing.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			idempotencyKeyHash, err := HashIdempotencyKey(
+				stringValue(t, conformanceCase["tenantId"]),
+				stringValue(t, conformanceCase["idempotencyKey"]),
+			)
+			if err != nil {
+				t.Fatalf("HashIdempotencyKey returned error: %v", err)
+			}
+
+			expectedIdempotencyKeyHash := stringValue(t, conformanceCase["expectedIdempotencyKeyHash"])
+			if idempotencyKeyHash != expectedIdempotencyKeyHash {
+				t.Fatalf("expected %s, got %s", expectedIdempotencyKeyHash, idempotencyKeyHash)
+			}
+
+			actual, err := HashAuditRecord(decodeValue[AuditRecord](t, conformanceCase["recordWithoutHash"]))
+			if err != nil {
+				t.Fatalf("HashAuditRecord returned error: %v", err)
+			}
+
+			expected := stringValue(t, conformanceCase["expectedHash"])
+			if actual != expected {
+				t.Fatalf("expected %s, got %s", expected, actual)
+			}
+		})
+	}
+}
+
+func fixtureCases(t *testing.T, fileName string) []map[string]any {
+	t.Helper()
+	fixture := loadFixture(t, fileName)
+	rawCases, ok := fixture["cases"].([]any)
+	if !ok {
+		t.Fatalf("%s cases must be an array", fileName)
 	}
 
-	actual, err := HashAuditRecord(AuditRecord{
-		Event: AuditEvent{
-			ID:            "evt_01",
-			SchemaVersion: SchemaVersion,
-			OccurredAt:    "2026-06-10T00:00:00.000Z",
-			Actor:         Principal{Type: "user", ID: "usr_123"},
-			Action:        "org.member.invited",
-			Target:        Resource{Type: "organization", ID: "org_123"},
-			Scope:         &EvidenceScope{TenantID: "org_123", Environment: "test"},
-			Metadata: map[string]any{
-				"note":     "<&" + lineSeparator,
-				"optional": nil,
-				"role":     "viewer",
-			},
-		},
-		Sequence:           1,
-		PreviousHash:       nil,
-		HashAlgorithm:      HashAlgorithm,
-		Canonicalization:   Canonicalization,
-		AppendedAt:         "2026-06-10T00:00:01.000Z",
-		IdempotencyKeyHash: idempotencyKeyHash,
-	})
+	cases := make([]map[string]any, 0, len(rawCases))
+	for _, rawCase := range rawCases {
+		cases = append(cases, mapValue(t, rawCase))
+	}
+	return cases
+}
+
+func loadFixture(t *testing.T, fileName string) map[string]any {
+	t.Helper()
+	bytes, err := os.ReadFile(filepath.Join(findConformanceDir(t), fileName))
 	if err != nil {
-		t.Fatalf("HashAuditRecord returned error: %v", err)
+		t.Fatalf("failed to read fixture %s: %v", fileName, err)
 	}
 
-	expected := "14396c51f0304f26c9be4ac918daf9d50109c0d9fd238ccb1c87c15632427edf"
-	if actual != expected {
-		t.Fatalf("expected %s, got %s", expected, actual)
+	var fixture map[string]any
+	if err := json.Unmarshal(bytes, &fixture); err != nil {
+		t.Fatalf("failed to parse fixture %s: %v", fileName, err)
 	}
+	return fixture
+}
+
+func findConformanceDir(t *testing.T) string {
+	t.Helper()
+	current, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to read current directory: %v", err)
+	}
+
+	for {
+		candidate := filepath.Join(current, "spec", "conformance")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	t.Fatal("failed to locate spec/conformance")
+	return ""
+}
+
+func decodeValue[T any](t *testing.T, value any) T {
+	t.Helper()
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("failed to encode fixture value: %v", err)
+	}
+
+	var decoded T
+	if err := json.Unmarshal(bytes, &decoded); err != nil {
+		t.Fatalf("failed to decode fixture value: %v", err)
+	}
+	return decoded
+}
+
+func toJSONMap(t *testing.T, value any) map[string]any {
+	t.Helper()
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("failed to encode value: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(bytes, &decoded); err != nil {
+		t.Fatalf("failed to decode value: %v", err)
+	}
+	return decoded
+}
+
+func caseName(t *testing.T, conformanceCase map[string]any) string {
+	t.Helper()
+	return stringValue(t, conformanceCase["name"])
+}
+
+func mapValue(t *testing.T, value any) map[string]any {
+	t.Helper()
+	typed, ok := value.(map[string]any)
+	if !ok {
+		t.Fatalf("expected object, got %#v", value)
+	}
+	return typed
+}
+
+func stringValue(t *testing.T, value any) string {
+	t.Helper()
+	typed, ok := value.(string)
+	if !ok {
+		t.Fatalf("expected string, got %#v", value)
+	}
+	return typed
+}
+
+func optionalStringPointer(t *testing.T, value any) *string {
+	t.Helper()
+	if value == nil {
+		return nil
+	}
+	typed := stringValue(t, value)
+	return &typed
 }

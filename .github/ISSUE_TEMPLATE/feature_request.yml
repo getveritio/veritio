@@ -1,0 +1,61 @@
+name: Feature request
+description: Propose a protocol, SDK, adapter, storage, server, or docs improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Veritio supports application evidence workflows. Feature proposals should avoid claims of legal advice or automatic compliance.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What evidence-support workflow, audit trail, records-of-processing need, data subject workflow, retention need, or integration gap should this address?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Protocol or schema
+        - TypeScript SDK
+        - Python SDK
+        - Go SDK
+        - Framework adapter
+        - Storage helper
+        - Server module
+        - Documentation
+        - Packaging or CI
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: Describe the change and how it fits the protocol-first model.
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Protocol impact
+      description: Note any changes to event fields, audit records, canonical JSON, hashing, redaction, idempotency, retention, tenant scope, or cross-SDK semantics.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundaries
+      options:
+        - label: The feature can work without a hosted Veritio account, or the hosted-only boundary is explicit.
+          required: true
+        - label: The feature does not make a framework adapter authoritative for the core event model.
+          required: true
+        - label: The feature avoids unnecessary personal data collection by default.
+          required: true

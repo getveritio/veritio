@@ -1,17 +1,78 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import {
   HASH_ALGORITHM,
   MemoryAuditStore,
   canonicalJson,
   createAuditRecorder,
   createAuditEvent,
+  hashAuditEvent,
   hashAuditRecord,
   hashIdempotencyKey,
   verifyAuditRecords,
 } from "../index";
+import type { AuditEvent, AuditEventInput, JsonObject } from "../index";
+
+const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");
+
+interface CanonicalJsonFixture {
+  cases: Array<{
+    name: string;
+    input: unknown;
+    expected: string;
+  }>;
+}
+
+interface RedactionFixture {
+  cases: Array<{
+    name: string;
+    metadata: Record<string, unknown>;
+    expectedMetadata: JsonObject;
+  }>;
+}
+
+interface EventCreationFixture {
+  cases: Array<{
+    name: string;
+    input: AuditEventInput;
+    expected: AuditEvent;
+  }>;
+}
+
+interface EventHashingFixture {
+  cases: Array<{
+    name: string;
+    event: AuditEvent;
+    previousHash: string | null;
+    expectedHash: string;
+  }>;
+}
+
+interface AuditRecordHashingFixture {
+  cases: Array<{
+    name: string;
+    tenantId: string;
+    idempotencyKey: string;
+    expectedIdempotencyKeyHash: string;
+    recordWithoutHash: Parameters<typeof hashAuditRecord>[0];
+    expectedHash: string;
+  }>;
+}
+
+async function loadConformanceFixture<T>(fileName: string): Promise<T> {
+  return (await Bun.file(join(CONFORMANCE_DIR, fileName)).json()) as T;
+}
 
 describe("canonicalJson", () => {
-  test("sorts object keys recursively and omits undefined values", () => {
+  test("matches conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<CanonicalJsonFixture>("canonical-json.json");
+
+    for (const conformanceCase of fixture.cases) {
+      expect(canonicalJson(conformanceCase.input)).toBe(conformanceCase.expected);
+    }
+  });
+
+  test("omits undefined values", () => {
     const actual = canonicalJson({
       z: 1,
       a: {
@@ -22,14 +83,6 @@ describe("canonicalJson", () => {
     });
 
     expect(actual).toBe('{"a":{"b":[2,{"x":"first","y":"yes"}],"c":3},"z":1}');
-  });
-
-  test("preserves null and does not HTML-escape JSON strings", () => {
-    const lineSeparator = String.fromCharCode(0x2028);
-
-    expect(canonicalJson({ note: `<&${lineSeparator}`, a: null })).toBe(
-      `{"a":null,"note":"<&${lineSeparator}"}`,
-    );
   });
 });
 
@@ -82,36 +135,29 @@ describe("audit record schema", () => {
 });
 
 describe("createAuditEvent", () => {
-  test("normalizes event fields and redacts sensitive metadata", () => {
-    const event = createAuditEvent({
-      id: "evt_01",
-      occurredAt: "2026-06-10T00:00:00.000Z",
-      actor: { type: "user", id: "usr_123" },
-      action: "org.member.invited",
-      target: { type: "organization", id: "org_123" },
-      scope: { tenantId: "org_123", environment: "production" },
-      purpose: "access_management",
-      lawfulBasis: "contract",
-      retention: "security_1y",
-      metadata: {
-        invitedEmail: "member@example.com",
-        role: "viewer",
-        nested: {
-          apiToken: "secret-token",
-          note: "safe",
-        },
-      },
-    });
+  test("matches event creation conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<EventCreationFixture>("event-creation.json");
 
-    expect(event.schemaVersion).toBe("2026-06-10");
-    expect(event.metadata).toEqual({
-      invitedEmail: "[redacted]",
-      role: "viewer",
-      nested: {
-        apiToken: "[redacted]",
-        note: "safe",
-      },
-    });
+    for (const conformanceCase of fixture.cases) {
+      expect(createAuditEvent(conformanceCase.input)).toEqual(conformanceCase.expected);
+    }
+  });
+
+  test("matches redaction conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<RedactionFixture>("redaction.json");
+
+    for (const conformanceCase of fixture.cases) {
+      const event = createAuditEvent({
+        id: "evt_redaction_fixture",
+        occurredAt: "2026-06-10T00:00:00.000Z",
+        actor: { type: "user", id: "usr_fixture_123" },
+        action: "org.member.invited",
+        target: { type: "organization", id: "org_fixture_123" },
+        metadata: conformanceCase.metadata,
+      });
+
+      expect(event.metadata).toEqual(conformanceCase.expectedMetadata);
+    }
   });
 
   test("rejects actions outside the protocol pattern", () => {
@@ -125,6 +171,18 @@ describe("createAuditEvent", () => {
         metadata: {},
       }),
     ).toThrow("action must use dotted lowercase protocol form");
+  });
+});
+
+describe("hashAuditEvent", () => {
+  test("matches conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<EventHashingFixture>("event-hashing.json");
+
+    for (const conformanceCase of fixture.cases) {
+      expect(
+        hashAuditEvent(conformanceCase.event, conformanceCase.previousHash),
+      ).toBe(conformanceCase.expectedHash);
+    }
   });
 });
 
@@ -207,36 +265,15 @@ describe("MemoryAuditStore", () => {
     expect(record.hash).toBe(hashAuditRecord(record));
   });
 
-  test("hashes idempotency keys with the protocol preimage", () => {
-    expect(hashIdempotencyKey("org_123", "evt_01")).toBe(
-      "e18c21b684554d90c197722b0b121e63bd5eadf5bf2f844c70f31be0825016f8",
-    );
-  });
+  test("matches audit record hashing and idempotency conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<AuditRecordHashingFixture>("audit-record-hashing.json");
 
-  test("hashes audit records with the protocol vector", () => {
-    const lineSeparator = String.fromCharCode(0x2028);
-    const idempotencyKeyHash = hashIdempotencyKey("org_123", "evt_01");
-
-    expect(
-      hashAuditRecord({
-        event: {
-          id: "evt_01",
-          schemaVersion: "2026-06-10",
-          occurredAt: "2026-06-10T00:00:00.000Z",
-          actor: { type: "user", id: "usr_123" },
-          action: "org.member.invited",
-          target: { type: "organization", id: "org_123" },
-          scope: { tenantId: "org_123", environment: "test" },
-          metadata: { note: `<&${lineSeparator}`, optional: null, role: "viewer" },
-        },
-        sequence: 1,
-        previousHash: null,
-        hashAlgorithm: HASH_ALGORITHM,
-        canonicalization: "veritio-json-v1",
-        appendedAt: "2026-06-10T00:00:01.000Z",
-        idempotencyKeyHash,
-      }),
-    ).toBe("14396c51f0304f26c9be4ac918daf9d50109c0d9fd238ccb1c87c15632427edf");
+    for (const conformanceCase of fixture.cases) {
+      expect(
+        hashIdempotencyKey(conformanceCase.tenantId, conformanceCase.idempotencyKey),
+      ).toBe(conformanceCase.expectedIdempotencyKeyHash);
+      expect(hashAuditRecord(conformanceCase.recordWithoutHash)).toBe(conformanceCase.expectedHash);
+    }
   });
 });
 
