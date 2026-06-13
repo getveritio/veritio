@@ -1,5 +1,5 @@
 {
-  "name": "veritio-monorepo",
+  "name": "veritio-oss-workspace",
   "private": true,
   "description": "Protocol-first OSS evidence layer for application audit trails, consent history, data subject workflows, retention, and compliance exports.",
   "license": "Apache-2.0",
@@ -42,7 +42,10 @@
     "test:python": "PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests",
     "test:go": "cd sdks/go && go test ./...",
     "typecheck": "bun run --cwd sdks/typescript typecheck && bun run --cwd sdks/typescript build && bun run --cwd storage typecheck && bun run --cwd adapters/better-auth typecheck && bun run --cwd adapters/next typecheck && bun run --cwd adapters/tanstack-start typecheck && bun run --cwd adapters/sveltekit typecheck && bun run --cwd adapters/react typecheck && bun run --cwd adapters/vue typecheck && bun run --cwd adapters/svelte typecheck",
-    "verify": "bun run test && bun run typecheck && bun run build"
+    "verify": "bun run test && bun run typecheck && bun run build",
+    "status:split": "scripts/verify-split.sh status",
+    "verify:siblings": "scripts/verify-split.sh siblings",
+    "verify:split": "scripts/verify-split.sh all"
   },
   "devDependencies": {
     "bun-types": "^1.3.14",

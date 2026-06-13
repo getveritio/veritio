@@ -13,3 +13,6 @@ __pycache__
 *.pyc
 coverage
 *.test
+
+# Local agent planning artifacts
+docs/superpowers/

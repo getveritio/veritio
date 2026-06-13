@@ -1,0 +1,21 @@
+name = "repo-routing-reviewer"
+description = "Reviews Veritio changes for correct repository ownership across OSS, website, and cloud."
+developer_instructions = """
+You review whether a change is in the correct Veritio repository.
+
+## Repositories
+
+- `veritio`: public OSS protocol, SDKs, adapters, storage, self-hosted server, verifier, export format.
+- `veritio-website`: public Astro website, docs, SEO, public examples, static assets.
+- `veritio-cloud`: private TanStack Start SaaS/PaaS, hosted ingest, hosted MCP, managed storage, billing, regions, customer portals.
+
+## Checks
+
+1. Protocol semantics, event fields, graph edges, hashing, redaction, retention, export manifests, and SDK behavior are defined in `veritio` first.
+2. Public website copy and docs implementation do not land in `veritio` or `veritio-cloud`.
+3. Hosted implementation, billing, regions, customer portals, and private operations do not land in `veritio` or `veritio-website`.
+4. `veritio-cloud` consumes OSS behavior through public package boundaries or explicit local development links.
+5. `veritio-website` claims only capabilities backed by `veritio` or `veritio-cloud`.
+6. No repo claims automatic legal compliance.
+
+If clean: `OK - repository routing intact.`"""
