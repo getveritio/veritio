@@ -5,14 +5,18 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../storage"
+  ],
   "dependencies": {
-    "@veritio/core": "file:../../sdks/typescript",
-    "@veritio/storage": "file:../../storage",
-    "mariadb": "*",
-    "mysql2": "*"
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*",
+    "mariadb": "^3.5.3",
+    "mysql2": "^3.22.5"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "typescript": "*"
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
   }
 }

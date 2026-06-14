@@ -54,6 +54,10 @@ export interface TanStackStartVeritioAdapter {
   withServerFunction<T>(input: TanStackStartVeritioEventInput, handler: () => MaybePromise<T>): Promise<T>;
 }
 
+/**
+ * Creates a thin TanStack Start adapter that records route handlers and server
+ * functions through an injected recorder and host-resolved context.
+ */
 export function createTanStackStartVeritioAdapter(
   options: TanStackStartVeritioAdapterOptions,
 ): TanStackStartVeritioAdapter {
@@ -65,14 +69,24 @@ export function createTanStackStartVeritioAdapter(
   };
 
   return {
+    /**
+     * Records evidence for a TanStack Start route handler through the shared
+     * adapter path.
+     */
     recordRouteHandler(input) {
       return record(input);
     },
 
+    /**
+     * Records evidence for an explicitly instrumented TanStack server function.
+     */
     recordServerFunction(input) {
       return record(input);
     },
 
+    /**
+     * Runs a server function first and records evidence only after it succeeds.
+     */
     async withServerFunction(input, handler) {
       const result = await handler();
       await record(input);
@@ -81,6 +95,10 @@ export function createTanStackStartVeritioAdapter(
   };
 }
 
+/**
+ * Resolves host-owned tenant and actor context from explicit input or the
+ * configured callback, then validates it before event construction.
+ */
 async function resolveContext(
   options: TanStackStartVeritioAdapterOptions,
   input: TanStackStartVeritioRequestInput,
@@ -92,6 +110,10 @@ async function resolveContext(
   return validateContext(context);
 }
 
+/**
+ * Fails closed when TanStack Start context does not provide tenant scope or actor
+ * identity.
+ */
 function validateContext(context: TanStackStartVeritioContext): TanStackStartVeritioContext {
   requireNonEmpty(context.tenantId, "tenantId");
   requireNonEmpty(context.actor?.type, "actor.type");
@@ -99,6 +121,10 @@ function validateContext(context: TanStackStartVeritioContext): TanStackStartVer
   return context;
 }
 
+/**
+ * Maps a TanStack Start operation into the portable Veritio audit-event input
+ * while keeping optional privacy and retention fields host-controlled.
+ */
 function buildAuditEvent(
   input: TanStackStartVeritioEventInput,
   context: TanStackStartVeritioContext,
@@ -129,6 +155,10 @@ function buildAuditEvent(
   return event;
 }
 
+/**
+ * Builds Veritio evidence scope from host context and the adapter environment
+ * fallback without reading process state directly.
+ */
 function buildScope(
   context: TanStackStartVeritioContext,
   fallbackEnvironment: string | undefined,
@@ -146,12 +176,19 @@ function buildScope(
   return scope;
 }
 
+/**
+ * Validates target identity before it becomes part of a hashed audit event.
+ */
 function validateTarget(target: Resource): Resource {
   requireNonEmpty(target?.type, "target.type");
   requireNonEmpty(target?.id, "target.id");
   return target;
 }
 
+/**
+ * Converts adapter append options and shorthand idempotency keys into the core
+ * AuditStore append contract.
+ */
 function buildAppendOptions(input: TanStackStartVeritioEventInput): AuditStoreAppendOptions | undefined {
   const appendOptions: AuditStoreAppendOptions = { ...(input.append ?? {}) };
   if (input.idempotencyKey !== undefined) {
@@ -160,6 +197,9 @@ function buildAppendOptions(input: TanStackStartVeritioEventInput): AuditStoreAp
   return Object.keys(appendOptions).length > 0 ? appendOptions : undefined;
 }
 
+/**
+ * Requires non-empty framework context fields before recording evidence.
+ */
 function requireNonEmpty(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);

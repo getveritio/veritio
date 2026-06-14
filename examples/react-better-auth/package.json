@@ -3,27 +3,32 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host localhost",
     "dev:server": "tsx server/index.ts",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth"
+  ],
   "dependencies": {
-    "@veritio/better-auth": "file:../../adapters/better-auth",
-    "@veritio/core": "file:../../sdks/typescript",
-    "@vitejs/plugin-react": "*",
-    "better-auth": "*",
-    "express": "*",
-    "react": "*",
-    "react-dom": "*",
-    "vite": "*"
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "@vitejs/plugin-react": "^6.0.2",
+    "better-auth": "^1.6.18",
+    "express": "^5.2.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "vite": "^8.0.16"
   },
   "devDependencies": {
-    "@types/express": "*",
-    "@types/node": "*",
-    "@types/react": "*",
-    "@types/react-dom": "*",
-    "tsx": "*",
-    "typescript": "*"
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   }
 }

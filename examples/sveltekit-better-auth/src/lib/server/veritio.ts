@@ -16,14 +16,21 @@ export interface ReferenceSession {
   actorUserId: string;
 }
 
+/**
+ * Reference-only server boundary. Replace this with Better Auth session and
+ * organization membership lookup; never trust browser-supplied tenant ids.
+ */
 export async function resolveReferenceSession(_event: unknown): Promise<ReferenceSession> {
-  // Replace this stub with Better Auth session and organization membership lookup.
   return {
     tenantId: "tenant_demo",
     actorUserId: "user_demo",
   };
 }
 
+/**
+ * Lists audit records only for the server-resolved tenant in the reference
+ * example.
+ */
 export async function listAuditTrailForTenant(input: {
   tenantId: string;
   limit?: number;

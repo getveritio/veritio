@@ -19,6 +19,10 @@ export interface SvelteVeritioAttributes {
 const SERVER_ONLY_KEY_PATTERN =
   /(recorder|store|storage|scope|tenantId|workspaceId|actor|metadata|secret|token|password|authorization|api[_-]?key|connection[_-]?string|database[_-]?url|database)/i;
 
+/**
+ * Creates inert client-side data attributes for Svelte elements while rejecting
+ * tenant scope, recorder, storage, and secret-like fields that belong on servers.
+ */
 export function createSvelteVeritioAttributes(input: SvelteVeritioAttributeInput): SvelteVeritioAttributes {
   rejectServerOnlyKeys(input as unknown as Record<string, unknown>);
   rejectServerOnlyKeys(input.target as unknown as Record<string, unknown>);
@@ -39,6 +43,9 @@ export function createSvelteVeritioAttributes(input: SvelteVeritioAttributeInput
 
 export const createVeritioAttributes = createSvelteVeritioAttributes;
 
+/**
+ * Blocks server-only evidence context from leaking into client-rendered attrs.
+ */
 function rejectServerOnlyKeys(value: Record<string, unknown>): void {
   for (const key of Object.keys(value)) {
     if (SERVER_ONLY_KEY_PATTERN.test(key)) {
@@ -47,6 +54,9 @@ function rejectServerOnlyKeys(value: Record<string, unknown>): void {
   }
 }
 
+/**
+ * Requires visible client attribute identifiers before rendering them.
+ */
 function requireNonEmpty(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);

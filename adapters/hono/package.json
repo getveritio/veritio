@@ -12,7 +12,7 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "hono": "*",
+    "hono": ">=4.12.25",
     "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {

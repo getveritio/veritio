@@ -1,0 +1,34 @@
+{
+  "name": "veritio",
+  "version": "0.0.0",
+  "description": "Local Veritio CLI for Workbench and MCP development.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "cli"
+  },
+  "type": "module",
+  "bin": {
+    "veritio": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bun run --cwd ../sdks/typescript build && bun run --cwd ../server/node build && node ../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "bun run --cwd ../sdks/typescript build && bun run --cwd ../server/node build && node ../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run --cwd ../sdks/typescript build && bun run --cwd ../server/node build && bun test src"
+  },
+  "dependencies": {
+    "@veritio/server": "workspace:*"
+  }
+}

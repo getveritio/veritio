@@ -2,7 +2,16 @@ import json
 import unittest
 from pathlib import Path
 
-from veritio import canonical_json, create_audit_event, hash_audit_event, hash_audit_record, hash_idempotency_key
+from veritio import (
+    canonical_json,
+    create_audit_event,
+    create_evidence_edge,
+    hash_audit_event,
+    hash_audit_record,
+    hash_evidence_edge,
+    hash_evidence_edge_record,
+    hash_idempotency_key,
+)
 
 CONFORMANCE_DIR = Path(__file__).resolve().parents[3] / "spec" / "conformance"
 
@@ -77,6 +86,63 @@ class EventTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     hash_audit_record(conformance_case["recordWithoutHash"]),
+                    conformance_case["expectedHash"],
+                )
+
+    def test_create_evidence_edge_matches_conformance_fixtures(self):
+        fixture = load_fixture("edge-creation.json")
+
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(create_evidence_edge(conformance_case["input"]), conformance_case["expected"])
+
+    def test_create_evidence_edge_rejects_invalid_relation(self):
+        with self.assertRaisesRegex(TypeError, "relation must be a supported evidence graph relation"):
+            create_evidence_edge(
+                {
+                    "id": "edge_invalid_relation",
+                    "occurredAt": "2026-06-13T00:00:00.000Z",
+                    "from": {"type": "agent_session", "id": "agt_sess_123"},
+                    "relation": "linked_to",
+                    "to": {"type": "file", "id": "file_123"},
+                    "metadata": {},
+                }
+            )
+
+    def test_create_evidence_edge_requires_entity_references(self):
+        with self.assertRaisesRegex(TypeError, "from.id is required"):
+            create_evidence_edge(
+                {
+                    "id": "edge_missing_entity_id",
+                    "occurredAt": "2026-06-13T00:00:00.000Z",
+                    "from": {"type": "agent_session", "id": ""},
+                    "relation": "created",
+                    "to": {"type": "file", "id": "file_123"},
+                    "metadata": {},
+                }
+            )
+
+    def test_hash_evidence_edge_matches_conformance_fixtures(self):
+        fixture = load_fixture("edge-hashing.json")
+
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(
+                    hash_evidence_edge(conformance_case["edge"], conformance_case["previousHash"]),
+                    conformance_case["expectedHash"],
+                )
+
+    def test_edge_record_hashing_matches_conformance_fixtures(self):
+        fixture = load_fixture("edge-record-hashing.json")
+
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(
+                    hash_idempotency_key(conformance_case["tenantId"], conformance_case["idempotencyKey"]),
+                    conformance_case["expectedIdempotencyKeyHash"],
+                )
+                self.assertEqual(
+                    hash_evidence_edge_record(conformance_case["recordWithoutHash"]),
                     conformance_case["expectedHash"],
                 )
 

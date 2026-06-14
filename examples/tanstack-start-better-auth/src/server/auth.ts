@@ -6,6 +6,10 @@ export interface BetterAuthTenantBoundary {
   readRequestId?(context: unknown): string | undefined;
 }
 
+/**
+ * Creates the reference Better Auth instance with server-owned tenant resolution
+ * before emitting Veritio audit events from database hooks.
+ */
 export function createAuth(boundary: BetterAuthTenantBoundary) {
   return betterAuth({
     databaseHooks: {

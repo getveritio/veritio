@@ -12,7 +12,7 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "express": "*",
+    "express": ">=5.2.1",
     "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {

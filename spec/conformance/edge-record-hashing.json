@@ -1,0 +1,49 @@
+{
+  "name": "edge-record-hashing-v1",
+  "hashAlgorithm": "sha256",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "hashes first tenant graph edge record and idempotency key",
+      "tenantId": "org_fixture_123",
+      "idempotencyKey": "edge:agent-file",
+      "expectedIdempotencyKeyHash": "bdcdff6bdaca8c711b3028422e2c20314408fabbb6aec0d7366f2aa35629b882",
+      "recordWithoutHash": {
+        "edge": {
+          "id": "edge_fixture_agent_file_01",
+          "schemaVersion": "2026-06-13",
+          "occurredAt": "2026-06-13T00:00:00.000Z",
+          "scope": {
+            "tenantId": "org_fixture_123",
+            "workspaceId": "wks_fixture_456",
+            "environment": "test"
+          },
+          "from": {
+            "type": "agent_session",
+            "id": "agt_sess_fixture_123"
+          },
+          "relation": "created",
+          "to": {
+            "type": "file",
+            "id": "file_fixture_billing_plan",
+            "pathHash": "sha256:path_fixture_123"
+          },
+          "metadata": {
+            "commandOutputToken": "[redacted]",
+            "hunkHashes": [
+              "sha256:hunk_fixture_001"
+            ],
+            "reason": "ai_agent"
+          }
+        },
+        "sequence": 1,
+        "previousHash": null,
+        "hashAlgorithm": "sha256",
+        "canonicalization": "veritio-json-v1",
+        "appendedAt": "2026-06-13T00:00:01.000Z",
+        "idempotencyKeyHash": "bdcdff6bdaca8c711b3028422e2c20314408fabbb6aec0d7366f2aa35629b882"
+      },
+      "expectedHash": "9d45b02561fa1d24e51dc1c072d134676c8c744da3d2a06125e188850358ef65"
+    }
+  ]
+}

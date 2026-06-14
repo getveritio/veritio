@@ -2,6 +2,10 @@ import type { Actions } from "./$types";
 import { auditRecorder, resolveReferenceSession } from "$lib/server/veritio";
 
 export const actions: Actions = {
+  /**
+   * Records a profile update through server-resolved tenant scope before
+   * returning the appended audit sequence.
+   */
   updateProfile: async (event) => {
     const session = await resolveReferenceSession(event);
     const form = await event.request.formData();

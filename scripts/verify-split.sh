@@ -7,6 +7,8 @@ PARENT_DIR="$(dirname "$ROOT_DIR")"
 WEBSITE_DIR="${VERITIO_WEBSITE_DIR:-$PARENT_DIR/veritio-website}"
 CLOUD_DIR="${VERITIO_CLOUD_DIR:-$PARENT_DIR/veritio-cloud}"
 
+# Prints supported split verification modes for agents running from the control
+# repo.
 usage() {
   cat <<'USAGE'
 Usage: scripts/verify-split.sh [all|oss|website|cloud|siblings|status]
@@ -27,6 +29,8 @@ Environment overrides:
 USAGE
 }
 
+# Fails early when a sibling repo path is missing instead of silently skipping a
+# verification surface.
 require_dir() {
   local label="$1"
   local dir="$2"
@@ -36,6 +40,8 @@ require_dir() {
   fi
 }
 
+# Runs one verification command in a named repo and prints the path for readable
+# multi-repo logs.
 run_step() {
   local label="$1"
   local dir="$2"
@@ -48,6 +54,7 @@ run_step() {
   (cd "$dir" && "$@")
 }
 
+# Prints the git status for one split repo without modifying its worktree.
 status_step() {
   local label="$1"
   local dir="$2"
@@ -63,14 +70,17 @@ status_step() {
   fi
 }
 
+# Verifies the OSS protocol, SDK, adapter, server, and CLI workspace.
 verify_oss() {
   run_step "veritio" "$ROOT_DIR" bun run verify
 }
 
+# Verifies the public website sibling from the control repo.
 verify_website() {
   run_step "veritio-website" "$WEBSITE_DIR" sh -c 'bun run check && bun run build'
 }
 
+# Verifies the private hosted cloud sibling from the control repo.
 verify_cloud() {
   run_step "veritio-cloud" "$CLOUD_DIR" sh -c 'bun run typecheck && bun run build'
 }

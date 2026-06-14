@@ -3,6 +3,9 @@ import { getReferenceAuditTrail } from "../../../src/veritio/server";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Returns the reference audit trail for the server-resolved tenant.
+ */
 export async function GET() {
   const trail = await getReferenceAuditTrail(100);
 

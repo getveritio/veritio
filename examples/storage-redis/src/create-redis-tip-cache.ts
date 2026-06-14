@@ -5,9 +5,13 @@ export interface RedisTipCacheHost {
   keyPrefix?: string;
 }
 
+/**
+ * Creates a Redis tenant-tip cache from a host-injected client. This cache is
+ * not an AuditStore and must not become the durable evidence source of truth.
+ */
 export function createRedisServerTipCache(host: RedisTipCacheHost) {
   return createRedisAuditTipCache({
     client: host.client,
-    keyPrefix: host.keyPrefix,
+    ...(host.keyPrefix === undefined ? {} : { keyPrefix: host.keyPrefix }),
   });
 }

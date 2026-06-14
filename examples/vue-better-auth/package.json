@@ -3,25 +3,30 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host localhost",
     "dev:server": "tsx server/index.ts",
     "build": "vite build",
     "typecheck": "vue-tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth"
+  ],
   "dependencies": {
-    "@vitejs/plugin-vue": "*",
-    "@veritio/better-auth": "file:../../adapters/better-auth",
-    "@veritio/core": "file:../../sdks/typescript",
-    "better-auth": "*",
-    "express": "*",
-    "vite": "*",
-    "vue": "*"
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "better-auth": "^1.6.18",
+    "express": "^5.2.1",
+    "vite": "^8.0.16",
+    "vue": "^3.5.38"
   },
   "devDependencies": {
-    "@types/express": "*",
-    "@types/node": "*",
-    "tsx": "*",
-    "typescript": "*",
-    "vue-tsc": "*"
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vue-tsc": "^3.3.5"
   }
 }

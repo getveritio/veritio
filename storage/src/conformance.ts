@@ -35,6 +35,11 @@ const TENANT_A = "org_conformance_a";
 const TENANT_B = "org_conformance_b";
 const BAD_HASH = "0".repeat(64);
 
+/**
+ * Returns reusable conformance tests that every storage adapter must satisfy.
+ * The suite protects tenant-local ordering, idempotent append behavior, cloning,
+ * and fail-closed integrity checks across SQL, Mongo, and future stores.
+ */
 export function createAuditStoreConformanceTests(options: AuditStoreConformanceOptions): AuditStoreConformanceTest[] {
   return [
     {
@@ -130,6 +135,9 @@ export function createAuditStoreConformanceTests(options: AuditStoreConformanceO
         await target.mutateStoredRecord({
           tenantId: TENANT_A,
           sequence: first.sequence,
+          /**
+           * Corrupts the stored hash to prove adapters reject tampered records.
+           */
           mutate(record) {
             record.hash = BAD_HASH;
           },
@@ -145,6 +153,10 @@ export function createAuditStoreConformanceTests(options: AuditStoreConformanceO
   ];
 }
 
+/**
+ * Creates and closes a conformance target around one test case so adapter
+ * resources cannot leak between tenant-chain checks.
+ */
 async function withTarget<T>(
   options: AuditStoreConformanceOptions,
   run: (target: AuditStoreConformanceTarget) => Promise<T>,
@@ -157,6 +169,9 @@ async function withTarget<T>(
   }
 }
 
+/**
+ * Builds a valid tenant-scoped conformance event with deterministic timestamps.
+ */
 function makeConformanceEvent(id: string, tenantId: string, metadata: Record<string, unknown>) {
   return createAuditEvent({
     id,
@@ -169,6 +184,9 @@ function makeConformanceEvent(id: string, tenantId: string, metadata: Record<str
   });
 }
 
+/**
+ * Builds an event that intentionally lacks tenant scope for fail-closed tests.
+ */
 function makeConformanceEventWithoutTenant(id: string) {
   const input: AuditEventInput = {
     id,

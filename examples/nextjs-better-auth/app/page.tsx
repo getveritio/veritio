@@ -66,6 +66,10 @@ export default async function HomePage() {
   );
 }
 
+/**
+ * Renders recent audit records without exposing raw record metadata in the
+ * reference dashboard.
+ */
 function RecordList({
   records,
 }: Readonly<{

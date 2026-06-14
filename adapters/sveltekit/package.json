@@ -40,7 +40,7 @@
     "test": "bun test src"
   },
   "peerDependencies": {
-    "@sveltejs/kit": "*",
+    "@sveltejs/kit": ">=2.65.1",
     "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {

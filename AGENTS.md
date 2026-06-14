@@ -57,6 +57,32 @@ local development links. Hosted-only fields must not become protocol semantics.
 - Storage adapters must fail closed when required fields, tenant scope, or integrity data are missing.
 - Avoid vendor lock-in in OSS modules. Hosted-provider features belong behind optional clients or server modules.
 - If a change affects event semantics, graph edges, canonical JSON, hashing, redaction, idempotency, or export manifests, update this OSS repo before hosted code.
+- Every named function, exported helper, class method with protocol/storage
+  behavior, route handler, and CLI entrypoint must have a leading documentation
+  comment so future agents can preserve intent. TypeScript/JavaScript should use
+  the slash-star JSDoc form:
+  ```ts
+  /**
+   * Describe the boundary, invariant, side effect, or framework contract this
+   * function protects. Mention tenant scope, hashing, redaction, idempotency,
+   * storage ordering, or hosted/OSS boundaries when relevant.
+   */
+  ```
+- In Python use function docstrings; in Go use Go doc comments; in shell use
+  `#` comment blocks. Keep the same level of detail even when the language
+  cannot use slash-star comments.
+- Do not add empty comments that only restate the function name. If a function
+  is worth keeping, document why it exists, what it must not break, and any
+  non-obvious runtime or framework assumption.
+- Before using framework or build-tool APIs that may have changed recently
+  (TanStack Start, Vinxi, Vite, Better Auth, Cloudflare Workers, SvelteKit,
+  Next.js, Astro, tRPC, etc.), verify current official docs or installed package
+  behavior. Do not rely on stale training-memory assumptions; record the current
+  source of truth in comments or docs when it prevents repeat failures.
+- For TanStack Start specifically, current React docs configure Start through
+  Vite/Rsbuild build-tool plugins and Vite scripts such as `vite dev` and
+  `vite build`; do not reintroduce old `vinxi dev` / `vinxi build` assumptions
+  unless current package docs or installed package metadata prove that is correct.
 
 ## Naming
 

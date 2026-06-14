@@ -2,29 +2,30 @@
 
 Veritio is an open-source evidence layer for modern applications.
 
-It gives product teams a shared protocol and SDKs for audit events, consent history, data-subject workflows, retention policies, tamper-evident records, and compliance exports across frameworks and languages.
+It gives product teams a shared protocol and SDKs for audit events, evidence graph edges, consent history, data-subject workflows, retention policies, tamper-evident records, and compliance exports across frameworks and languages.
 
 ## What Veritio Is
 
-- A protocol-first event model for app-level evidence.
+- A protocol-first event and graph-edge model for app-level evidence.
 - SDKs for TypeScript, Python, and Go.
 - A first Better Auth adapter for server-side auth lifecycle evidence.
 - Thin framework adapters for Next.js, TanStack Start, SvelteKit, React, Vue, and Svelte.
 - Initial storage helpers for PostgreSQL/Neon, MySQL/MariaDB, MongoDB, and Redis tenant-tip caching.
 - Planned framework adapters for Express, Hono, tRPC, and FastAPI.
 - A planned self-hostable server path plus a future managed provider path.
-- Planned UI surfaces for audit logs, consent history, and data-subject requests.
+- A local Workbench and MCP development loop for inspecting local evidence quality.
+- Planned hosted UI surfaces for audit logs, consent history, and data-subject requests.
 
 ## What Veritio Is Not
 
 - It is not legal advice.
 - It does not make an application automatically GDPR, EAA, SOC 2, HIPAA, DORA, or NIS2 compliant.
-- It is not only an audit-log table. The product boundary includes event evidence, retention, DSAR workflows, records of processing, export, and verification.
+- It is not only an audit-log table. The product boundary includes event evidence, graph links, retention, DSAR workflows, records of processing, export, and verification.
 
 ## TypeScript Quick Start
 
 ```ts
-import { MemoryAuditStore, createAuditEvent } from "@veritio/core";
+import { MemoryAuditStore, createAuditEvent, createEvidenceEdge } from "@veritio/core";
 
 const store = new MemoryAuditStore();
 
@@ -45,18 +46,49 @@ const event = createAuditEvent({
 });
 
 await store.append(event);
+
+const edge = createEvidenceEdge({
+  id: "edge_01",
+  occurredAt: "2026-06-10T00:00:01.000Z",
+  scope: { tenantId: "org_123", environment: "production" },
+  from: { type: "actor", id: "usr_123", actorType: "user" },
+  relation: "created",
+  to: { type: "runtime_event", id: "evt_01" },
+  metadata: {
+    reason: "member_invite"
+  }
+});
 ```
+
+## Local Workbench
+
+```sh
+veritio dev --mcp
+```
+
+This starts the OSS local Workbench at `http://127.0.0.1:4983` with:
+
+- local event and edge ingest endpoints
+- evidence graph query
+- chain verification
+- export bundle preview
+- browser Workbench UI
+- MCP JSON-RPC endpoint at `/mcp`
+
+MCP write tools are disabled by default. Use `--allow-write-tools` only for
+explicit local development sessions.
 
 ## Repository Layout
 
 ```txt
-spec/                 Language-neutral event and audit-record schemas
+spec/                 Language-neutral event, edge, and record schemas
 sdks/typescript/      JS/TS SDK
 sdks/python/          Python SDK
 sdks/go/              Go SDK
 storage/              Host-injected storage adapters
 adapters/             Framework and library adapters
 server/node/          Self-hosted ingestion/query API surface
+cli/                  Local Workbench and MCP CLI
 docs/                 Product, architecture, and hosted-provider docs
 examples/             Integration guides and runnable examples
 .agents/              Codex-style local skills

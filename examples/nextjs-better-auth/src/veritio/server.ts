@@ -39,16 +39,19 @@ export interface ReferenceAuditTrail {
   verification: VerificationResult;
 }
 
+/**
+ * Reference-only server boundary. Host apps must replace this with a Better Auth
+ * session lookup plus tenant or organization membership lookup. Do not accept
+ * tenantId or actorUserId from form fields, query params, or browser storage.
+ */
 export async function resolveReferenceSession(_input?: unknown): Promise<ReferenceSession> {
-  /*
-   * Reference-only server boundary. Host apps must replace this with a Better
-   * Auth session lookup plus tenant or organization membership lookup. Do not
-   * accept tenantId or actorUserId from form fields, query params, or browser
-   * storage.
-   */
   return { ...referenceSession };
 }
 
+/**
+ * Converts a server-resolved reference session into the Next adapter context
+ * expected by the Veritio audit recorder.
+ */
 export function referenceSessionToNextContext(
   session: ReferenceSession,
   requestId?: string,
@@ -64,6 +67,10 @@ export function referenceSessionToNextContext(
   return context;
 }
 
+/**
+ * Lists audit records only for the server-resolved tenant in the reference
+ * example.
+ */
 export async function listAuditTrailForTenant(input: {
   tenantId: string;
   limit?: number;
@@ -71,6 +78,10 @@ export async function listAuditTrailForTenant(input: {
   return auditStore.list({ tenantId: input.tenantId }, { limit: input.limit ?? 50 });
 }
 
+/**
+ * Returns the example session, tenant-scoped records, and verification status for
+ * the reference UI.
+ */
 export async function getReferenceAuditTrail(limit = 50): Promise<ReferenceAuditTrail> {
   const session = await resolveReferenceSession();
   const records = await listAuditTrailForTenant({ tenantId: session.tenantId, limit });
@@ -81,6 +92,10 @@ export async function getReferenceAuditTrail(limit = 50): Promise<ReferenceAudit
   };
 }
 
+/**
+ * Reuses one MemoryAuditStore across Next dev reloads so the reference audit
+ * trail remains visible during local testing.
+ */
 function getReferenceAuditStore(): MemoryAuditStore {
   const referenceGlobal = globalThis as typeof globalThis & {
     __veritioNextBetterAuthAuditStore?: MemoryAuditStore;

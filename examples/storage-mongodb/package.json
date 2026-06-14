@@ -5,13 +5,17 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../storage"
+  ],
   "dependencies": {
-    "@veritio/core": "file:../../sdks/typescript",
-    "@veritio/storage": "file:../../storage",
-    "mongodb": "*"
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*",
+    "mongodb": "^7.3.0"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "typescript": "*"
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
   }
 }

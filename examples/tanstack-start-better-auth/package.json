@@ -3,24 +3,29 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vinxi dev",
-    "build": "vinxi build",
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth"
+  ],
   "dependencies": {
-    "@tanstack/react-router": "*",
-    "@tanstack/react-start": "*",
-    "@veritio/better-auth": "file:../../adapters/better-auth",
-    "@veritio/core": "file:../../sdks/typescript",
-    "better-auth": "*",
-    "react": "*",
-    "react-dom": "*",
-    "vinxi": "*"
+    "@tanstack/react-router": "^1.170.15",
+    "@tanstack/react-start": "^1.168.25",
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "better-auth": "^1.6.18",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "@types/react": "*",
-    "@types/react-dom": "*",
-    "typescript": "*"
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/node": "^25.9.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "h3": "^1.15.11"
   }
 }

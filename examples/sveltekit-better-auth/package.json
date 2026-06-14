@@ -3,23 +3,31 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host localhost",
     "build": "vite build",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth"
+  ],
   "dependencies": {
-    "@sveltejs/adapter-auto": "*",
-    "@sveltejs/kit": "*",
-    "@sveltejs/vite-plugin-svelte": "*",
-    "@veritio/better-auth": "file:../../adapters/better-auth",
-    "@veritio/core": "file:../../sdks/typescript",
-    "better-auth": "*",
-    "svelte": "*",
-    "vite": "*"
+    "@sveltejs/adapter-auto": "^7.0.1",
+    "@sveltejs/kit": "^2.65.1",
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "better-auth": "^1.6.18",
+    "svelte": "^5.56.3",
+    "vite": "^8.0.16"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "svelte-check": "*",
-    "typescript": "*"
+    "@cloudflare/workers-types": "^4.20260613.1",
+    "@types/node": "^25.9.3",
+    "svelte-check": "^4.6.0",
+    "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "cookie": "^0.7.2"
   }
 }
