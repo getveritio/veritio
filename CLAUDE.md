@@ -8,10 +8,10 @@ This repo is the public OSS/SDK/protocol repo. The public website belongs in
 `veritio-website`; the private hosted SaaS/PaaS product belongs in
 `veritio-cloud`.
 
-Read `docs/repo-map.md` and `docs/repository-spec.md` before changing split
-boundaries or implementing work that may belong in a sibling repo.
-Read `docs/split-orchestration.md` when this repo is used to coordinate work
-across `veritio`, `veritio-website`, and `veritio-cloud`.
+Read any local hidden execution specs under `.codex/private/specs/` when
+present. Those files are intentionally ignored and must not be committed.
+Use the split boundaries in this file before changing work that may belong in a
+sibling repo.
 
 ## Operating Mode
 
@@ -22,6 +22,8 @@ across `veritio`, `veritio-website`, and `veritio-cloud`.
 - Keep product copy clear that Veritio supports compliance evidence; it does not guarantee legal compliance.
 - Treat generated/reviewer output as critique, not truth. Verify claims locally before patching.
 - Do not add public website or hosted SaaS/PaaS implementation code to this repo.
+- Do not publish internal product specs, execution prompts, roadmap details, or
+  private orchestration notes in public docs.
 
 ## Workflow Routing
 
@@ -31,6 +33,20 @@ across `veritio`, `veritio-website`, and `veritio-cloud`.
 - Multi-repo coordination from this repo: use `split-orchestrator`.
 - Cross-repo ownership checks: use `repo-routing-reviewer`.
 - Before claiming done: run the strongest feasible verification command, usually `bun run verify`.
+
+## Split Routing
+
+- `veritio`: public protocol, schemas, SDKs, framework adapters, storage
+  helpers, self-hosted server modules, verifier, export format, conformance
+  fixtures, and public examples.
+- `veritio-website`: public Astro website, docs pages, SEO metadata, marketing
+  copy, public examples, and static assets.
+- `veritio-cloud`: private hosted SaaS/PaaS implementation, hosted ingest,
+  hosted MCP, managed storage, billing, regions, customer portals, admin, and
+  operational jobs.
+- For multi-repo features, define portable protocol and SDK behavior here first,
+  implement managed behavior in `veritio-cloud`, then publish website claims in
+  `veritio-website`.
 
 ## Non-Negotiables
 

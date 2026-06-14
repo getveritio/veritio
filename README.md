@@ -89,4 +89,5 @@ Apache-2.0.
 
 ## Agent Setup
 
-See `docs/agent-setup.md` for Codex and Claude Code guidance.
+See `AGENTS.md` and `CLAUDE.md` for agent guidance. Local execution specs, if
+present, live under ignored `.codex/private/specs/` paths and are not published.
