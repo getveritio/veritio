@@ -42,7 +42,7 @@
   },
   "peerDependencies": {
     "@veritio/core": ">=0.0.0",
-    "better-auth": "*"
+    "better-auth": ">=1.6.18"
   },
   "peerDependenciesMeta": {
     "better-auth": {

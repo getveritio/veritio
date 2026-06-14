@@ -39,7 +39,7 @@
     "test": "bun test src"
   },
   "peerDependencies": {
-    "@tanstack/react-start": "*",
+    "@tanstack/react-start": ">=1.168.25",
     "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {

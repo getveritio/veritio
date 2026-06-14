@@ -39,7 +39,7 @@
     "test": "bun test src"
   },
   "peerDependencies": {
-    "vue": "*"
+    "vue": ">=3.5.38"
   },
   "peerDependenciesMeta": {
     "vue": {

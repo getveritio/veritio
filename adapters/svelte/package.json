@@ -39,7 +39,7 @@
     "test": "bun test src"
   },
   "peerDependencies": {
-    "svelte": "*"
+    "svelte": ">=5.56.3"
   },
   "peerDependenciesMeta": {
     "svelte": {

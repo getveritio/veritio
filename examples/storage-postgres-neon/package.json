@@ -5,15 +5,19 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../storage"
+  ],
   "dependencies": {
-    "@neondatabase/serverless": "*",
-    "@veritio/core": "file:../../sdks/typescript",
-    "@veritio/storage": "file:../../storage",
-    "pg": "*"
+    "@neondatabase/serverless": "^1.1.0",
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*",
+    "pg": "^8.21.0"
   },
   "devDependencies": {
-    "@types/node": "*",
-    "@types/pg": "*",
-    "typescript": "*"
+    "@types/node": "^25.9.3",
+    "@types/pg": "^8.20.0",
+    "typescript": "^6.0.3"
   }
 }

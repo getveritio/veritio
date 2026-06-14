@@ -8,6 +8,6 @@ export interface RedisTipCacheHost {
 export function createRedisServerTipCache(host: RedisTipCacheHost) {
   return createRedisAuditTipCache({
     client: host.client,
-    keyPrefix: host.keyPrefix,
+    ...(host.keyPrefix === undefined ? {} : { keyPrefix: host.keyPrefix }),
   });
 }

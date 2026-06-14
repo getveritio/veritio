@@ -41,7 +41,7 @@
   },
   "peerDependencies": {
     "@veritio/core": ">=0.0.0",
-    "next": "*"
+    "next": ">=16.2.9"
   },
   "peerDependenciesMeta": {
     "next": {

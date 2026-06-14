@@ -12,7 +12,7 @@
   },
   "files": ["dist"],
   "peerDependencies": {
-    "@trpc/server": "*",
+    "@trpc/server": ">=11.17.0",
     "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {
