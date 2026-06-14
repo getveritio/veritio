@@ -1,3 +1,3 @@
-module github.com/ep93/veritio/sdks/go
+module github.com/getveritio/veritio/sdks/go
 
 go 1.22

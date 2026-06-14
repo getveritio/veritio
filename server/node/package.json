@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/EP93/veritio.git",
+    "url": "git+https://github.com/getveritio/veritio.git",
     "directory": "server/node"
   },
   "keywords": [

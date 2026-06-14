@@ -81,7 +81,7 @@ examples/             Integration guides and runnable examples
 - `@veritio/trpc`: planned tRPC adapter.
 - `veritio-fastapi`: planned FastAPI adapter.
 - `veritio`: Python SDK package.
-- `github.com/ep93/veritio/sdks/go`: Go SDK module.
+- `github.com/getveritio/veritio/sdks/go`: Go SDK module.
 
 ## License
 
