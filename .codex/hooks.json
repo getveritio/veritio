@@ -22,6 +22,18 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "project_dir=\"${CODEX_PROJECT_DIR:-$PWD}\"; \"$project_dir/.codex/hooks/biome-format-on-edit.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

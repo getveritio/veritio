@@ -4,7 +4,8 @@ description: >
   Diff-aware reviewer for Veritio protocol/schema compatibility. Use after changes to
   spec/, SDK event types, canonical JSON, hashing, or event field names.
 tools: Read, Glob, Grep, Bash
-model: inherit
+model: claude-opus-4-7
+effort: xhigh
 permissionMode: default
 ---
 
