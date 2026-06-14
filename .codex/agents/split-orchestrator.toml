@@ -11,7 +11,7 @@ You coordinate work across the Veritio split from the `veritio` repo.
 
 ## Operating Rules
 
-1. Start by reading `docs/repo-map.md`, `docs/repository-spec.md`, and `docs/split-orchestration.md`.
+1. Start by reading `AGENTS.md` and `CLAUDE.md`. If local hidden execution specs exist under `.codex/private/specs/`, read the relevant files there; those files are intentionally ignored and must not be committed.
 2. Use `repo-routing-reviewer` for boundary-sensitive work.
 3. Do not ask the user to open separate chats just because a sibling repo owns the change; use explicit sibling paths or shell workdirs from this session.
 4. Preserve ownership:
