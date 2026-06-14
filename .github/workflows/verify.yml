@@ -13,6 +13,60 @@ jobs:
   verify:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: veritio
+          POSTGRES_PASSWORD: veritio
+          POSTGRES_DB: veritio
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U veritio -d veritio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: veritio
+          MYSQL_DATABASE: veritio
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -pveritio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-start-period 20s
+          --health-retries 10
+
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: veritio
+          MARIADB_DATABASE: veritio
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd "mariadb-admin ping -h 127.0.0.1 -uroot -pveritio"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-start-period 20s
+          --health-retries 10
+
+      mongo:
+        image: mongo:7
+        command: --replSet rs0 --bind_ip_all
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 }).ok'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -36,5 +90,31 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Initialize MongoDB replica set
+        run: |
+          container_id="$(docker ps --format '{{.ID}} {{.Image}}' | awk '$2 ~ /^mongo:7/ { print $1; exit }')"
+          if [ -z "$container_id" ]; then
+            docker ps
+            exit 1
+          fi
+
+          docker exec "$container_id" mongosh --quiet --eval 'try { rs.status().ok } catch (error) { rs.initiate({_id:"rs0",members:[{_id:0,host:"127.0.0.1:27017"}]}) }'
+
+          for _ in $(seq 1 30); do
+            if docker exec "$container_id" mongosh --quiet --eval 'rs.status().ok' | grep -q '1'; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker exec "$container_id" mongosh --quiet --eval 'rs.status()'
+          exit 1
+
       - name: Verify
+        env:
+          VERITIO_POSTGRES_TEST_URL: postgresql://veritio:veritio@127.0.0.1:5432/veritio
+          VERITIO_NEON_TEST_URL: postgresql://veritio:veritio@127.0.0.1:5432/veritio
+          VERITIO_MYSQL_TEST_URL: mysql://root:veritio@127.0.0.1:3306/veritio
+          VERITIO_MARIADB_TEST_URL: mysql://root:veritio@127.0.0.1:3307/veritio
+          VERITIO_MONGODB_TEST_URL: mongodb://127.0.0.1:27017/veritio?replicaSet=rs0
         run: bun run verify

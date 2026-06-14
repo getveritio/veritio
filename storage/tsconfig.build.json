@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@veritio/core": ["../sdks/typescript/dist/index.d.ts"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@veritio/example-storage-mongodb",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@veritio/core": "file:../../sdks/typescript",
+    "@veritio/storage": "file:../../storage",
+    "mongodb": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "typescript": "*"
+  }
+}

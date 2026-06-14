@@ -1,7 +1,20 @@
 {
   "name": "@veritio/tanstack-start",
   "version": "0.0.0",
-  "private": true,
+  "description": "TanStack Start adapter for recording Veritio audit trail evidence from server functions and route handlers.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "adapters/tanstack-start"
+  },
+  "keywords": [
+    "tanstack-start",
+    "audit-trail",
+    "evidence",
+    "server-functions",
+    "typescript"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -10,17 +23,31 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/index.js.map",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun test src"
+  },
   "peerDependencies": {
     "@tanstack/react-start": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {
     "@tanstack/react-start": {
       "optional": true
-    },
-    "veritio": {
-      "optional": true
     }
+  },
+  "devDependencies": {
+    "@veritio/core": "workspace:*"
   }
 }

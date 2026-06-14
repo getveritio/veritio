@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const SCHEMA_VERSION = "2026-06-10";
 export const HASH_ALGORITHM = "sha256";
+const ACTION_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -68,16 +69,47 @@ export interface AuditEvent {
 
 export interface AuditRecord {
   event: AuditEvent;
+  sequence: number;
   previousHash: string | null;
   hash: string;
   hashAlgorithm: typeof HASH_ALGORITHM;
   canonicalization: "veritio-json-v1";
   appendedAt: string;
+  idempotencyKeyHash: string;
+}
+
+export interface AuditStoreAppendOptions {
+  idempotencyKey?: string;
+  expectedPreviousHash?: string | null;
+}
+
+export interface AuditStoreListOptions {
+  afterSequence?: number;
+  limit?: number;
+}
+
+export interface AuditStore {
+  append(event: AuditEvent, options?: AuditStoreAppendOptions): Promise<AuditRecord>;
+  list(scope: EvidenceScope & { tenantId: string }, options?: AuditStoreListOptions): Promise<AuditRecord[]>;
+}
+
+export interface AuditRecorder {
+  record(input: AuditEventInput, options?: AuditStoreAppendOptions): Promise<AuditRecord>;
 }
 
 export type VerificationResult =
   | { ok: true }
-  | { ok: false; index: number; reason: "previous_hash_mismatch" | "hash_mismatch" };
+  | {
+      ok: false;
+      index: number;
+      reason:
+        | "missing_tenant_scope"
+        | "unsupported_hash_algorithm"
+        | "unsupported_canonicalization"
+        | "sequence_mismatch"
+        | "previous_hash_mismatch"
+        | "hash_mismatch";
+    };
 
 const SENSITIVE_KEY_PATTERN = /(password|secret|token|api[_-]?key|authorization|email|phone|ssn)/i;
 
@@ -91,6 +123,9 @@ export function createAuditEvent(input: AuditEventInput): AuditEvent {
   assertNonEmpty(input.action, "action");
   assertNonEmpty(input.target?.id, "target.id");
   assertNonEmpty(input.target?.type, "target.type");
+  if (!ACTION_PATTERN.test(input.action)) {
+    throw new TypeError("action must use dotted lowercase protocol form");
+  }
 
   const event: AuditEvent = {
     id: input.id ?? `evt_${randomUUID()}`,
@@ -134,41 +169,114 @@ export function hashAuditEvent(event: AuditEvent, previousHash: string | null = 
   );
 }
 
+export function hashAuditRecord(record: AuditRecord | Omit<AuditRecord, "hash">): string {
+  const { hash: _hash, ...hashInput } = record as AuditRecord;
+  return sha256Hex(canonicalJson(hashInput));
+}
+
 export function verifyAuditRecords(records: readonly AuditRecord[]): VerificationResult {
-  let previousHash: string | null = null;
+  const tenantState = new Map<string, { previousHash: string | null; sequence: number }>();
 
   for (const [index, record] of records.entries()) {
-    if (record.previousHash !== previousHash) {
+    if (!record.event.scope?.tenantId) {
+      return { ok: false, index, reason: "missing_tenant_scope" };
+    }
+    if (record.hashAlgorithm !== HASH_ALGORITHM) {
+      return { ok: false, index, reason: "unsupported_hash_algorithm" };
+    }
+    if (record.canonicalization !== "veritio-json-v1") {
+      return { ok: false, index, reason: "unsupported_canonicalization" };
+    }
+
+    const state = tenantState.get(record.event.scope.tenantId) ?? { previousHash: null, sequence: 0 };
+    if (record.sequence !== state.sequence + 1) {
+      return { ok: false, index, reason: "sequence_mismatch" };
+    }
+    if (record.previousHash !== state.previousHash) {
       return { ok: false, index, reason: "previous_hash_mismatch" };
     }
 
-    const expectedHash = hashAuditEvent(record.event, previousHash);
+    const expectedHash = hashAuditRecord(record);
     if (record.hash !== expectedHash) {
       return { ok: false, index, reason: "hash_mismatch" };
     }
 
-    previousHash = record.hash;
+    tenantState.set(record.event.scope.tenantId, {
+      previousHash: record.hash,
+      sequence: record.sequence,
+    });
   }
 
   return { ok: true };
 }
 
-export class MemoryAuditStore {
-  #records: AuditRecord[] = [];
+export function createAuditRecorder(options: { store: AuditStore }): AuditRecorder {
+  return {
+    async record(input, appendOptions) {
+      return options.store.append(createAuditEvent(input), appendOptions);
+    },
+  };
+}
 
-  async append(event: AuditEvent): Promise<AuditRecord> {
-    const previousHash = this.#records.at(-1)?.hash ?? null;
-    const record: AuditRecord = {
-      event,
+export class MemoryAuditStore implements AuditStore {
+  #records: AuditRecord[] = [];
+  #idempotencyRecords = new Map<string, { eventCanonical: string; record: AuditRecord }>();
+  #tenantTips = new Map<string, AuditRecord>();
+
+  async append(event: AuditEvent, options: AuditStoreAppendOptions = {}): Promise<AuditRecord> {
+    const tenantId = requireTenantId(event);
+    const idempotencyKeyHash = hashIdempotencyKey(tenantId, options.idempotencyKey ?? event.id);
+    const eventCanonical = canonicalJson(event);
+    const storedEvent = cloneEvent(event);
+    const existing = this.#idempotencyRecords.get(idempotencyKeyHash);
+    if (existing) {
+      if (existing.eventCanonical !== eventCanonical) {
+        throw new TypeError("idempotency conflict");
+      }
+      return cloneRecord(existing.record);
+    }
+
+    const previousRecord = this.#tenantTips.get(tenantId);
+    const previousHash = previousRecord?.hash ?? null;
+    if (options.expectedPreviousHash !== undefined && options.expectedPreviousHash !== previousHash) {
+      throw new TypeError("expectedPreviousHash does not match tenant chain tip");
+    }
+
+    const recordWithoutHash: Omit<AuditRecord, "hash"> = {
+      event: storedEvent,
+      sequence: (previousRecord?.sequence ?? 0) + 1,
       previousHash,
-      hash: hashAuditEvent(event, previousHash),
       hashAlgorithm: HASH_ALGORITHM,
       canonicalization: "veritio-json-v1",
       appendedAt: new Date().toISOString(),
+      idempotencyKeyHash,
+    };
+    const record: AuditRecord = {
+      ...recordWithoutHash,
+      hash: hashAuditRecord(recordWithoutHash),
     };
 
     this.#records.push(record);
+    this.#tenantTips.set(tenantId, record);
+    this.#idempotencyRecords.set(idempotencyKeyHash, { eventCanonical, record });
     return cloneRecord(record);
+  }
+
+  async list(scope: EvidenceScope & { tenantId: string }, options: AuditStoreListOptions = {}): Promise<AuditRecord[]> {
+    assertNonEmpty(scope.tenantId, "scope.tenantId");
+    if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 0)) {
+      throw new TypeError("limit must be a non-negative integer");
+    }
+    if (options.afterSequence !== undefined && (!Number.isInteger(options.afterSequence) || options.afterSequence < 0)) {
+      throw new TypeError("afterSequence must be a non-negative integer");
+    }
+
+    const afterSequence = options.afterSequence ?? 0;
+    const records = this.#records.filter((record) => {
+      return record.event.scope?.tenantId === scope.tenantId && record.sequence > afterSequence;
+    });
+    const limited = options.limit === undefined ? records : records.slice(0, options.limit);
+    return limited.map(cloneRecord);
   }
 
   records(): AuditRecord[] {
@@ -294,6 +402,24 @@ function cleanScope(value: EvidenceScope): EvidenceScope | undefined {
     scope.environment = value.environment;
   }
   return Object.keys(scope).length > 0 ? scope : undefined;
+}
+
+function requireTenantId(event: AuditEvent): string {
+  const tenantId = event.scope?.tenantId;
+  if (typeof tenantId !== "string" || tenantId.trim().length === 0) {
+    throw new TypeError("scope.tenantId is required");
+  }
+  return tenantId;
+}
+
+export function hashIdempotencyKey(tenantId: string, idempotencyKey: string): string {
+  assertNonEmpty(tenantId, "tenantId");
+  assertNonEmpty(idempotencyKey, "idempotencyKey");
+  return sha256Hex(`${tenantId}\u0000${idempotencyKey}`);
+}
+
+function cloneEvent(event: AuditEvent): AuditEvent {
+  return JSON.parse(JSON.stringify(event)) as AuditEvent;
 }
 
 function cloneRecord(record: AuditRecord): AuditRecord {

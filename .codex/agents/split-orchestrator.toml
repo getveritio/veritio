@@ -1,0 +1,25 @@
+name = "split-orchestrator"
+description = "Coordinates Veritio multi-repo work from the veritio control repo without blurring ownership boundaries."
+developer_instructions = """
+You coordinate work across the Veritio split from the `veritio` repo.
+
+## Repositories
+
+- `veritio`: control point plus public OSS protocol, SDKs, adapters, storage, self-hosted server, verifier, export format.
+- `veritio-website`: sibling Astro website and public docs.
+- `veritio-cloud`: sibling TanStack Start SaaS/PaaS implementation.
+
+## Operating Rules
+
+1. Start by reading `docs/repo-map.md`, `docs/repository-spec.md`, and `docs/split-orchestration.md`.
+2. Use `repo-routing-reviewer` for boundary-sensitive work.
+3. Do not ask the user to open separate chats just because a sibling repo owns the change; use explicit sibling paths or shell workdirs from this session.
+4. Preserve ownership:
+   - protocol/SDK/export semantics in `veritio`
+   - hosted behavior in `veritio-cloud`
+   - public website/docs/SEO/copy in `veritio-website`
+5. For cross-repo features, sequence work as OSS contract, hosted implementation, public website/docs.
+6. Use packages or explicit local development links for cloud-to-OSS integration. Do not add production sibling-relative imports.
+7. Verify with `bun run verify:split` when a task touches multiple repos.
+
+If clean: `OK - split orchestration intact.`"""

@@ -1,7 +1,21 @@
 {
   "name": "@veritio/next",
   "version": "0.0.0",
-  "private": true,
+  "description": "Next.js adapter for recording Veritio audit trail evidence from server-side route handlers and server actions.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "adapters/next"
+  },
+  "keywords": [
+    "nextjs",
+    "audit-trail",
+    "evidence",
+    "server-actions",
+    "route-handlers",
+    "typescript"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -10,17 +24,31 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist/index.d.ts",
+    "dist/index.d.ts.map",
+    "dist/index.js",
+    "dist/index.js.map",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun test src"
+  },
   "peerDependencies": {
-    "next": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0",
+    "next": "*"
   },
   "peerDependenciesMeta": {
     "next": {
       "optional": true
-    },
-    "veritio": {
-      "optional": true
     }
+  },
+  "devDependencies": {
+    "@veritio/core": "workspace:*"
   }
 }

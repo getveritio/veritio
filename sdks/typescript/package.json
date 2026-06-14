@@ -1,7 +1,23 @@
 {
-  "name": "veritio",
+  "name": "@veritio/core",
   "version": "0.0.0",
-  "private": true,
+  "description": "Protocol-first TypeScript SDK for application audit trails, consent history, retention, and data subject workflow evidence.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "sdks/typescript"
+  },
+  "keywords": [
+    "audit-trail",
+    "evidence",
+    "tamper-evident",
+    "consent-history",
+    "records-of-processing",
+    "data-subject-requests",
+    "retention",
+    "typescript"
+  ],
   "type": "module",
   "exports": {
     ".": {
@@ -11,11 +27,15 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
     "test": "bun test src"
   }
 }

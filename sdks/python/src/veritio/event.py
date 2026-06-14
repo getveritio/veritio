@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 SCHEMA_VERSION = "2026-06-10"
+HASH_ALGORITHM = "sha256"
 _SENSITIVE_KEY_PATTERN = re.compile(r"(password|secret|token|api[_-]?key|authorization|email|phone|ssn)", re.I)
+_ACTION_PATTERN = re.compile(r"^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$")
 
 
 def canonical_json(value: Any) -> str:
@@ -21,6 +23,8 @@ def create_audit_event(input_event: dict[str, Any]) -> dict[str, Any]:
     _assert_non_empty(input_event.get("action"), "action")
     _assert_non_empty(input_event.get("target", {}).get("id"), "target.id")
     _assert_non_empty(input_event.get("target", {}).get("type"), "target.type")
+    if not _ACTION_PATTERN.fullmatch(input_event["action"]):
+        raise TypeError("action must use dotted lowercase protocol form")
 
     event = {
         "id": input_event.get("id") or f"evt_{uuid.uuid4()}",
@@ -43,6 +47,17 @@ def create_audit_event(input_event: dict[str, Any]) -> dict[str, Any]:
 def hash_audit_event(event: dict[str, Any], previous_hash: str | None = None) -> str:
     payload = canonical_json({"event": event, "previousHash": previous_hash})
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def hash_audit_record(record: dict[str, Any]) -> str:
+    payload = {key: value for key, value in record.items() if key != "hash"}
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def hash_idempotency_key(tenant_id: str, idempotency_key: str) -> str:
+    _assert_non_empty(tenant_id, "tenantId")
+    _assert_non_empty(idempotency_key, "idempotencyKey")
+    return hashlib.sha256(f"{tenant_id}\0{idempotency_key}".encode("utf-8")).hexdigest()
 
 
 def _redact_metadata(value: dict[str, Any]) -> dict[str, Any]:
@@ -74,7 +89,6 @@ def _normalize_json(value: Any) -> Any:
         return {
             key: _normalize_json(nested_value)
             for key, nested_value in sorted(value.items())
-            if nested_value is not None
         }
     raise TypeError(f"unsupported JSON value type: {type(value).__name__}")
 

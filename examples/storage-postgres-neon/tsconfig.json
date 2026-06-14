@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@veritio/core": ["../../sdks/typescript/src/index.ts"],
+      "@veritio/storage": ["../../storage/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

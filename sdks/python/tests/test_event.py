@@ -1,54 +1,84 @@
+import json
 import unittest
+from pathlib import Path
 
-from veritio import canonical_json, create_audit_event, hash_audit_event
+from veritio import canonical_json, create_audit_event, hash_audit_event, hash_audit_record, hash_idempotency_key
+
+CONFORMANCE_DIR = Path(__file__).resolve().parents[3] / "spec" / "conformance"
+
+
+def load_fixture(file_name):
+    return json.loads((CONFORMANCE_DIR / file_name).read_text(encoding="utf-8"))
 
 
 class EventTests(unittest.TestCase):
-    def test_canonical_json_sorts_keys_recursively(self):
-        actual = canonical_json(
-            {
-                "z": 1,
-                "a": {
-                    "c": 3,
-                    "b": [2, {"y": "yes", "x": "first"}],
-                },
-            }
-        )
+    def test_canonical_json_matches_conformance_fixtures(self):
+        fixture = load_fixture("canonical-json.json")
 
-        self.assertEqual(actual, '{"a":{"b":[2,{"x":"first","y":"yes"}],"c":3},"z":1}')
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(canonical_json(conformance_case["input"]), conformance_case["expected"])
 
-    def test_create_audit_event_redacts_sensitive_metadata(self):
-        event = create_audit_event(
-            {
-                "id": "evt_01",
-                "occurredAt": "2026-06-10T00:00:00.000Z",
-                "actor": {"type": "user", "id": "usr_123"},
-                "action": "org.member.invited",
-                "target": {"type": "organization", "id": "org_123"},
-                "metadata": {
-                    "invitedEmail": "member@example.com",
-                    "role": "viewer",
-                },
-            }
-        )
+    def test_create_audit_event_matches_conformance_fixtures(self):
+        fixture = load_fixture("event-creation.json")
 
-        self.assertEqual(event["schemaVersion"], "2026-06-10")
-        self.assertEqual(event["metadata"]["invitedEmail"], "[redacted]")
-        self.assertEqual(event["metadata"]["role"], "viewer")
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(create_audit_event(conformance_case["input"]), conformance_case["expected"])
 
-    def test_hash_audit_event_is_deterministic(self):
-        event = create_audit_event(
-            {
-                "id": "evt_01",
-                "occurredAt": "2026-06-10T00:00:00.000Z",
-                "actor": {"type": "system", "id": "sys_1"},
-                "action": "retention.policy.applied",
-                "target": {"type": "organization", "id": "org_123"},
-                "metadata": {"policy": "security_1y"},
-            }
-        )
+    def test_redaction_matches_conformance_fixtures(self):
+        fixture = load_fixture("redaction.json")
 
-        self.assertEqual(hash_audit_event(event), hash_audit_event(event))
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                event = create_audit_event(
+                    {
+                        "id": "evt_redaction_fixture",
+                        "occurredAt": "2026-06-10T00:00:00.000Z",
+                        "actor": {"type": "user", "id": "usr_fixture_123"},
+                        "action": "org.member.invited",
+                        "target": {"type": "organization", "id": "org_fixture_123"},
+                        "metadata": conformance_case["metadata"],
+                    }
+                )
+                self.assertEqual(event["metadata"], conformance_case["expectedMetadata"])
+
+    def test_create_audit_event_rejects_invalid_action(self):
+        with self.assertRaisesRegex(TypeError, "action must use dotted lowercase protocol form"):
+            create_audit_event(
+                {
+                    "id": "evt_01",
+                    "occurredAt": "2026-06-10T00:00:00.000Z",
+                    "actor": {"type": "user", "id": "usr_123"},
+                    "action": "OrgMemberInvited",
+                    "target": {"type": "organization", "id": "org_123"},
+                    "metadata": {},
+                }
+            )
+
+    def test_hash_audit_event_matches_conformance_fixtures(self):
+        fixture = load_fixture("event-hashing.json")
+
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(
+                    hash_audit_event(conformance_case["event"], conformance_case["previousHash"]),
+                    conformance_case["expectedHash"],
+                )
+
+    def test_audit_record_hashing_matches_conformance_fixtures(self):
+        fixture = load_fixture("audit-record-hashing.json")
+
+        for conformance_case in fixture["cases"]:
+            with self.subTest(conformance_case["name"]):
+                self.assertEqual(
+                    hash_idempotency_key(conformance_case["tenantId"], conformance_case["idempotencyKey"]),
+                    conformance_case["expectedIdempotencyKeyHash"],
+                )
+                self.assertEqual(
+                    hash_audit_record(conformance_case["recordWithoutHash"]),
+                    conformance_case["expectedHash"],
+                )
 
 
 if __name__ == "__main__":

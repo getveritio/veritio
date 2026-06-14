@@ -21,7 +21,8 @@ Veritio is protocol-first. SDKs and framework adapters emit the same event shape
    - Data adapters for ORM and query-layer mutation evidence.
 
 4. **Storage**
-   - Postgres is the first durable target.
+   - PostgreSQL/Neon, MySQL/MariaDB, and MongoDB are durable host-injected targets.
+   - Redis support is a tenant-tip cache helper unless paired with a durable store.
    - Storage receives normalized events and writes append-only records with previous-hash links.
 
 5. **Server**
@@ -34,13 +35,17 @@ Veritio is protocol-first. SDKs and framework adapters emit the same event shape
 
 ## Integrity Model
 
+Canonical JSON v1 sorts object keys recursively, preserves JSON `null`, omits unsupported `undefined` values where the host language has them, and emits UTF-8 JSON strings without HTML escaping.
+
 Each persisted record stores:
 
 - normalized event payload
+- tenant-local sequence number
 - previous record hash
 - current record hash
 - canonicalization version
 - hash algorithm
 - append timestamp
+- tenant-scoped idempotency-key hash
 
-Verification recomputes the chain from canonical event payloads and detects mutation, deletion, and reordering within a checked sequence.
+Persisted record hashes use `sha256(veritio-json-v1(record without hash))`. The tenant-scoped idempotency-key hash uses `sha256(tenantId + "\u0000" + idempotencyKey)`. If the host does not pass an idempotency key, SDK recorders use the event id as the idempotency key. Verification recomputes each record envelope hash and validates tenant scope, hash algorithm, canonicalization version, per-tenant sequence, and previous-hash links to detect mutation, deletion, and reordering within a checked sequence.

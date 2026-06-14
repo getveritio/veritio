@@ -1,0 +1,25 @@
+{
+  "name": "@veritio/example-sveltekit-better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-auto": "*",
+    "@sveltejs/kit": "*",
+    "@sveltejs/vite-plugin-svelte": "*",
+    "@veritio/better-auth": "file:../../adapters/better-auth",
+    "@veritio/core": "file:../../sdks/typescript",
+    "better-auth": "*",
+    "svelte": "*",
+    "vite": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "svelte-check": "*",
+    "typescript": "*"
+  }
+}

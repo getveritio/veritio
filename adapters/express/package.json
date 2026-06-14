@@ -13,13 +13,10 @@
   "files": ["dist"],
   "peerDependencies": {
     "express": "*",
-    "veritio": ">=0.0.0"
+    "@veritio/core": ">=0.0.0"
   },
   "peerDependenciesMeta": {
     "express": {
-      "optional": true
-    },
-    "veritio": {
       "optional": true
     }
   }

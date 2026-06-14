@@ -1,0 +1,31 @@
+{
+  "name": "@veritio/example-nextjs-better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit"
+  },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../adapters/better-auth",
+    "../../adapters/next"
+  ],
+  "dependencies": {
+    "@veritio/better-auth": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "@veritio/next": "workspace:*",
+    "better-auth": "*",
+    "next": "*",
+    "react": "*",
+    "react-dom": "*",
+    "server-only": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "typescript": "*"
+  }
+}

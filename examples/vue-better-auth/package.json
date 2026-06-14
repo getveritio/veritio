@@ -1,0 +1,27 @@
+{
+  "name": "@veritio/example-vue-better-auth",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:server": "tsx server/index.ts",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-vue": "*",
+    "@veritio/better-auth": "file:../../adapters/better-auth",
+    "@veritio/core": "file:../../sdks/typescript",
+    "better-auth": "*",
+    "express": "*",
+    "vite": "*",
+    "vue": "*"
+  },
+  "devDependencies": {
+    "@types/express": "*",
+    "@types/node": "*",
+    "tsx": "*",
+    "typescript": "*",
+    "vue-tsc": "*"
+  }
+}

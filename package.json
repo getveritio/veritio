@@ -1,26 +1,51 @@
 {
-  "name": "veritio-monorepo",
+  "name": "veritio-oss-workspace",
   "private": true,
+  "description": "Protocol-first OSS evidence layer for application audit trails, consent history, data subject workflows, retention, and compliance exports.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git"
+  },
+  "keywords": [
+    "audit-trail",
+    "evidence",
+    "consent-history",
+    "records-of-processing",
+    "data-subject-requests",
+    "retention"
+  ],
   "type": "module",
   "packageManager": "bun@1.3.10",
   "workspaces": [
     "sdks/typescript",
+    "storage",
     "adapters/better-auth",
     "adapters/next",
     "adapters/tanstack-start",
     "adapters/sveltekit",
+    "adapters/react",
+    "adapters/vue",
+    "adapters/svelte",
     "adapters/express",
     "adapters/hono",
     "adapters/trpc",
     "server/node"
   ],
   "scripts": {
-    "test": "bun test sdks/typescript/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
+    "build": "bun run --cwd sdks/typescript build && bun run --cwd storage build && bun run --cwd adapters/better-auth build && bun run --cwd adapters/next build && bun run --cwd adapters/tanstack-start build && bun run --cwd adapters/sveltekit build && bun run --cwd adapters/react build && bun run --cwd adapters/vue build && bun run --cwd adapters/svelte build",
+    "test": "bun run --cwd sdks/typescript build && bun test sdks/typescript/src && bun run --cwd storage test && bun test adapters/better-auth/src && bun test adapters/next/src && bun test adapters/tanstack-start/src && bun test adapters/sveltekit/src && bun test adapters/react/src && bun test adapters/vue/src && bun test adapters/svelte/src && PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests && cd sdks/go && go test ./...",
     "test:ts": "bun test sdks/typescript/src",
+    "test:better-auth": "bun run --cwd sdks/typescript build && bun test adapters/better-auth/src",
+    "test:storage": "bun run --cwd storage test",
+    "test:adapters": "bun run --cwd sdks/typescript build && bun test adapters/better-auth/src adapters/next/src adapters/tanstack-start/src adapters/sveltekit/src adapters/react/src adapters/vue/src adapters/svelte/src",
     "test:python": "PYTHONPATH=sdks/python/src python3 -m unittest discover -s sdks/python/tests",
     "test:go": "cd sdks/go && go test ./...",
-    "typecheck": "bun run --cwd sdks/typescript typecheck",
-    "verify": "bun run test && bun run typecheck"
+    "typecheck": "bun run --cwd sdks/typescript typecheck && bun run --cwd sdks/typescript build && bun run --cwd storage typecheck && bun run --cwd adapters/better-auth typecheck && bun run --cwd adapters/next typecheck && bun run --cwd adapters/tanstack-start typecheck && bun run --cwd adapters/sveltekit typecheck && bun run --cwd adapters/react typecheck && bun run --cwd adapters/vue typecheck && bun run --cwd adapters/svelte typecheck",
+    "verify": "bun run test && bun run typecheck && bun run build",
+    "status:split": "scripts/verify-split.sh status",
+    "verify:siblings": "scripts/verify-split.sh siblings",
+    "verify:split": "scripts/verify-split.sh all"
   },
   "devDependencies": {
     "bun-types": "^1.3.14",
