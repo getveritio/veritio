@@ -135,6 +135,11 @@ const WRITE_TOOLS = [
   "veritio.create_export_bundle",
 ] as const;
 
+/**
+ * In-memory evidence store for local Workbench and MCP development. It keeps
+ * audit records and evidence-edge records in separate tenant-scoped chains so
+ * local workflows can model production evidence without hosted services.
+ */
 export class LocalEvidenceStore {
   #auditRecords: AuditRecord[] = [];
   #edgeRecords: EvidenceEdgeRecord[] = [];
@@ -143,6 +148,10 @@ export class LocalEvidenceStore {
   #auditTips = new Map<string, AuditRecord>();
   #edgeTips = new Map<string, EvidenceEdgeRecord>();
 
+  /**
+   * Records an audit event or normalized event input into the tenant audit
+   * chain. Idempotency and expected-tip checks mirror the SDK AuditStore rules.
+   */
   async recordEvent(input: AuditEventInput | AuditEvent, options: AuditStoreAppendOptions = {}): Promise<AuditRecord> {
     const event = isAuditEvent(input) ? clone(input) : createAuditEvent(input);
     const tenantId = requireTenantId(event.scope, "scope.tenantId");
@@ -179,6 +188,11 @@ export class LocalEvidenceStore {
     return clone(record);
   }
 
+  /**
+   * Records an evidence graph edge into its separate tenant edge chain. Audit
+   * events and graph edges stay independent so graph projection never mutates
+   * the protocol audit record contract.
+   */
   async recordEdge(input: EvidenceEdgeInput | EvidenceEdge, options: AuditStoreAppendOptions = {}): Promise<EvidenceEdgeRecord> {
     const edge = isEvidenceEdge(input) ? clone(input) : createEvidenceEdge(input);
     const tenantId = requireTenantId(edge.scope, "scope.tenantId");
@@ -215,6 +229,9 @@ export class LocalEvidenceStore {
     return clone(record);
   }
 
+  /**
+   * Lists audit records for one tenant with optional sequence and limit controls.
+   */
   async listEvents(scope: EvidenceScope & { tenantId: string }, options: LocalEvidenceStoreListOptions = {}): Promise<AuditRecord[]> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     validateListOptions(options);
@@ -224,6 +241,10 @@ export class LocalEvidenceStore {
     return limited(records, options.limit).map(clone);
   }
 
+  /**
+   * Lists evidence-edge records for one tenant with optional sequence and limit
+   * controls.
+   */
   async listEdges(scope: EvidenceScope & { tenantId: string }, options: LocalEvidenceStoreListOptions = {}): Promise<EvidenceEdgeRecord[]> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     validateListOptions(options);
@@ -233,16 +254,26 @@ export class LocalEvidenceStore {
     return limited(records, options.limit).map(clone);
   }
 
+  /**
+   * Looks up a cloned audit record by event id for Workbench detail views.
+   */
   async getEvent(id: string): Promise<AuditRecord | null> {
     const record = this.#auditRecords.find((candidate) => candidate.event.id === id);
     return record ? clone(record) : null;
   }
 
+  /**
+   * Looks up a cloned evidence-edge record by edge id for Workbench detail views.
+   */
   async getEdge(id: string): Promise<EvidenceEdgeRecord | null> {
     const record = this.#edgeRecords.find((candidate) => candidate.edge.id === id);
     return record ? clone(record) : null;
   }
 
+  /**
+   * Verifies both local audit and edge chains for a tenant and returns separate
+   * reports so graph failures do not hide audit-chain failures.
+   */
   async verify(scope: EvidenceScope & { tenantId: string }): Promise<VerificationReport> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     const audit = verifyAuditRecords(await this.listEvents({ tenantId }));
@@ -250,6 +281,10 @@ export class LocalEvidenceStore {
     return { ok: audit.ok && edges.ok, audit, edges };
   }
 
+  /**
+   * Projects tenant-scoped edge records into a sorted graph that the Workbench can
+   * inspect without changing stored records.
+   */
   async getEvidenceGraph(query: EvidenceGraphQuery): Promise<EvidenceGraph> {
     const tenantId = requireTenantId({ tenantId: query.tenantId }, "tenantId");
     const listOptions: LocalEvidenceStoreListOptions = {};
@@ -276,6 +311,9 @@ export class LocalEvidenceStore {
     return graph;
   }
 
+  /**
+   * Builds a deterministic preview of exportable JSONL artifacts for one tenant.
+   */
   async previewExportBundle(scope: EvidenceScope & { tenantId: string }): Promise<ExportBundlePreview> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     const events = await this.listEvents({ tenantId });
@@ -310,6 +348,9 @@ export class LocalEvidenceStore {
     };
   }
 
+  /**
+   * Clears all in-memory state for repeatable local tests and demos.
+   */
   async reset(): Promise<void> {
     this.#auditRecords = [];
     this.#edgeRecords = [];
@@ -320,6 +361,11 @@ export class LocalEvidenceStore {
   }
 }
 
+/**
+ * Seeds a local store with an agent-session-to-runtime-event scenario that
+ * demonstrates how audit records and graph edges connect code changes to runtime
+ * evidence.
+ */
 export async function runIntegrationScenario(
   store: LocalEvidenceStore,
   options: { tenantId?: string } = {},
@@ -385,16 +431,27 @@ export async function runIntegrationScenario(
   };
 }
 
+/**
+ * Creates a fetch-compatible Workbench app around an injected LocalEvidenceStore.
+ * The app boundary keeps storage injection explicit for tests and CLI startup.
+ */
 export function createWorkbenchApp(options: WorkbenchAppOptions = {}): WorkbenchApp {
   const store = options.store ?? new LocalEvidenceStore();
   return {
     store,
+    /**
+     * Handles one Workbench request through the fetch-compatible app boundary.
+     */
     async fetch(request) {
       return handleWorkbenchRequest(store, request, { allowWriteTools: options.allowWriteTools ?? false });
     },
   };
 }
 
+/**
+ * Starts the Node HTTP Workbench server and returns its local URL plus a close
+ * hook. The default host remains loopback-only for local development.
+ */
 export async function startWorkbenchServer(options: StartWorkbenchServerOptions = {}): Promise<StartedWorkbenchServer> {
   const host = options.host ?? "127.0.0.1";
   const requestedPort = options.port ?? 4983;
@@ -419,6 +476,9 @@ export async function startWorkbenchServer(options: StartWorkbenchServerOptions 
     host,
     port,
     url: `http://${host}:${port}`,
+    /**
+     * Stops the local HTTP server and resolves after Node releases the listener.
+     */
     close() {
       return new Promise((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
@@ -427,6 +487,10 @@ export async function startWorkbenchServer(options: StartWorkbenchServerOptions 
   };
 }
 
+/**
+ * Handles the local MCP JSON-RPC endpoint. Read tools are always exposed; write
+ * tools require explicit allowWriteTools opt-in to avoid accidental mutation.
+ */
 export async function handleMcpRequest(
   store: LocalEvidenceStore,
   request: McpRequest,
@@ -490,6 +554,10 @@ export async function handleMcpRequest(
   }
 }
 
+/**
+ * Routes Workbench HTTP requests across UI, local API reads, JSONL previews, and
+ * MCP transport while preserving tenant parameters at every evidence boundary.
+ */
 async function handleWorkbenchRequest(
   store: LocalEvidenceStore,
   request: Request,
@@ -540,6 +608,10 @@ async function handleWorkbenchRequest(
   }
 }
 
+/**
+ * Renders the minimal Workbench shell. Runtime functionality stays behind the
+ * local JSON APIs so static HTML does not embed mutable evidence state.
+ */
 function renderWorkbenchHtml(): string {
   return `<!doctype html>
 <html lang="en">
@@ -576,6 +648,9 @@ function renderWorkbenchHtml(): string {
   <script>
     const tenantId = "tenant_local_demo";
     const output = document.getElementById("output");
+    /**
+     * Loads the current tenant graph through the local Workbench API.
+     */
     async function showGraph() {
       const response = await fetch("/v1/graph?tenantId=" + encodeURIComponent(tenantId));
       output.textContent = JSON.stringify(await response.json(), null, 2);
@@ -590,6 +665,10 @@ function renderWorkbenchHtml(): string {
 </html>`;
 }
 
+/**
+ * Converts Node IncomingMessage/ServerResponse objects into Fetch Request and
+ * Response objects so the app can be tested through a single fetch boundary.
+ */
 async function handleNodeRequest(app: WorkbenchApp, incoming: IncomingMessage, outgoing: ServerResponse): Promise<void> {
   try {
     const body = await readIncomingBody(incoming);
@@ -620,6 +699,9 @@ async function handleNodeRequest(app: WorkbenchApp, incoming: IncomingMessage, o
   }
 }
 
+/**
+ * Reads an incoming Node request body into a Buffer for the Fetch Request bridge.
+ */
 function readIncomingBody(request: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -629,30 +711,51 @@ function readIncomingBody(request: IncomingMessage): Promise<Buffer> {
   });
 }
 
+/**
+ * Detects already-normalized audit events before recording local scenario input.
+ */
 function isAuditEvent(value: AuditEventInput | AuditEvent): value is AuditEvent {
   return (value as AuditEvent).schemaVersion === "2026-06-10";
 }
 
+/**
+ * Detects already-normalized evidence edges before recording local scenario input.
+ */
 function isEvidenceEdge(value: EvidenceEdgeInput | EvidenceEdge): value is EvidenceEdge {
   return (value as EvidenceEdge).schemaVersion === "2026-06-13";
 }
 
+/**
+ * Narrows untrusted JSON or URL-derived values to plain objects.
+ */
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Requires tenant scope on API calls that operate on stored evidence.
+ */
 function requireTenantId(scope: EvidenceScope | undefined, field: string): string {
   return requireString(scope?.tenantId, field);
 }
 
+/**
+ * Reads a tenant id from URL query parameters for Workbench HTTP APIs.
+ */
 function requireTenantParam(url: URL): string {
   return requireString(url.searchParams.get("tenantId"), "tenantId");
 }
 
+/**
+ * Reads a tenant id from MCP tool arguments.
+ */
 function requireTenantArg(args: Record<string, unknown>): string {
   return requireString(args.tenantId, "tenantId");
 }
 
+/**
+ * Requires a non-empty string from untrusted request or tool input.
+ */
 function requireString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);
@@ -660,10 +763,16 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
+/**
+ * Reads optional string input while rejecting non-string values.
+ */
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
 }
 
+/**
+ * Validates local list pagination controls before they are used to slice records.
+ */
 function validateListOptions(options: LocalEvidenceStoreListOptions): void {
   if (options.afterSequence !== undefined && (!Number.isInteger(options.afterSequence) || options.afterSequence < 0)) {
     throw new TypeError("afterSequence must be a non-negative integer");
@@ -673,6 +782,9 @@ function validateListOptions(options: LocalEvidenceStoreListOptions): void {
   }
 }
 
+/**
+ * Converts MCP JSON arguments into list options.
+ */
 function listOptions(value: Record<string, unknown>): LocalEvidenceStoreListOptions {
   const options: LocalEvidenceStoreListOptions = {};
   if (typeof value.afterSequence === "number") {
@@ -684,6 +796,9 @@ function listOptions(value: Record<string, unknown>): LocalEvidenceStoreListOpti
   return options;
 }
 
+/**
+ * Converts Workbench URL parameters into list options.
+ */
 function listOptionsFromUrl(url: URL): LocalEvidenceStoreListOptions {
   const options: LocalEvidenceStoreListOptions = {};
   const afterSequence = url.searchParams.get("afterSequence");
@@ -697,6 +812,9 @@ function listOptionsFromUrl(url: URL): LocalEvidenceStoreListOptions {
   return options;
 }
 
+/**
+ * Converts MCP JSON arguments into an evidence graph query.
+ */
 function graphQuery(value: Record<string, unknown>): EvidenceGraphQuery {
   const query: EvidenceGraphQuery = { tenantId: requireTenantArg(value) };
   const rootId = optionalString(value.rootId);
@@ -710,6 +828,9 @@ function graphQuery(value: Record<string, unknown>): EvidenceGraphQuery {
   return query;
 }
 
+/**
+ * Converts Workbench URL parameters into an evidence graph query.
+ */
 function graphQueryFromUrl(url: URL): EvidenceGraphQuery {
   const query: EvidenceGraphQuery = { tenantId: requireTenantParam(url) };
   const rootId = url.searchParams.get("rootId");
@@ -723,20 +844,34 @@ function graphQueryFromUrl(url: URL): EvidenceGraphQuery {
   return query;
 }
 
+/**
+ * Builds the optional scenario seed configuration while omitting undefined
+ * tenant ids so SDK default behavior remains visible.
+ */
 function scenarioOptions(tenantId: string | undefined): { tenantId?: string } {
   return tenantId ? { tenantId } : {};
 }
 
+/**
+ * Applies an optional result limit after records have already been validated.
+ */
 function limited<T>(records: readonly T[], limit: number | undefined): T[] {
   return limit === undefined ? [...records] : records.slice(0, limit);
 }
 
+/**
+ * Adds or preserves an evidence graph node keyed by stable entity identity.
+ */
 function addGraphNode(nodes: Map<string, EvidenceGraphNode>, entity: EvidenceEntity): void {
   if (!nodes.has(entity.id)) {
     nodes.set(entity.id, { id: entity.id, type: entity.type });
   }
 }
 
+/**
+ * Converts a stored edge record into the graph edge shape returned by Workbench
+ * APIs.
+ */
 function edgeRecordToGraphEdge(record: EvidenceEdgeRecord): EvidenceGraphEdge {
   return {
     id: record.edge.id,
@@ -748,14 +883,23 @@ function edgeRecordToGraphEdge(record: EvidenceEdgeRecord): EvidenceGraphEdge {
   };
 }
 
+/**
+ * Sorts graph nodes deterministically for stable API responses.
+ */
 function compareNodes(left: EvidenceGraphNode, right: EvidenceGraphNode): number {
   return left.id.localeCompare(right.id);
 }
 
+/**
+ * Serializes export preview records as newline-delimited canonical JSON.
+ */
 function toJsonl(records: readonly unknown[]): string {
   return records.map((record) => canonicalJson(record)).join("\n");
 }
 
+/**
+ * Creates a JSON Response with the Workbench API content type.
+ */
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
@@ -763,20 +907,32 @@ function jsonResponse(value: unknown, status = 200): Response {
   });
 }
 
+/**
+ * Creates an HTML Response for the Workbench shell.
+ */
 function htmlResponse(value: string): Response {
   return new Response(value, {
     headers: { "content-type": "text/html; charset=utf-8" },
   });
 }
 
+/**
+ * Builds a successful JSON-RPC envelope.
+ */
 function rpcResult(id: string | number | null, result: unknown): Record<string, any> {
   return { jsonrpc: "2.0", id, result };
 }
 
+/**
+ * Builds an error JSON-RPC envelope with a stable code and message.
+ */
 function rpcError(id: string | number | null, code: number, message: string): Record<string, any> {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
+/**
+ * Provides tool descriptions for MCP clients without changing the tool schemas.
+ */
 function toolDescription(name: string): string {
   switch (name) {
     case "veritio.record_event":
@@ -790,10 +946,16 @@ function toolDescription(name: string): string {
   }
 }
 
+/**
+ * Computes SHA-256 identifiers for graph nodes and export bundle manifests.
+ */
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Deep-clones local store values before returning them to callers.
+ */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }

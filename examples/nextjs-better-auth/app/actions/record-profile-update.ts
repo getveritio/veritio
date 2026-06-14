@@ -9,6 +9,10 @@ import {
   resolveReferenceSession,
 } from "../../src/veritio/server";
 
+/**
+ * Records a profile update after resolving the server-side reference session,
+ * then redirects to the tenant-scoped audit trail.
+ */
 export async function recordProfileUpdate(formData: FormData) {
   const session = await resolveReferenceSession();
   const profileId = readRequiredIdentifier(formData, "profileId");
@@ -30,6 +34,10 @@ export async function recordProfileUpdate(formData: FormData) {
   redirect("/audit");
 }
 
+/**
+ * Validates a form identifier before it becomes a resource id or idempotency key
+ * component.
+ */
 function readRequiredIdentifier(formData: FormData, field: string): string {
   const value = formData.get(field);
   if (typeof value !== "string") {

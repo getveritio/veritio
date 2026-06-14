@@ -172,6 +172,10 @@ type EvidenceEdgeRecord struct {
 	IdempotencyKeyHash string       `json:"idempotencyKeyHash"`
 }
 
+/*
+CanonicalJSON returns the Veritio canonical JSON string used by hashes and
+cross-language fixtures.
+*/
 func CanonicalJSON(value any) (string, error) {
 	normalized, err := normalizeJSON(value)
 	if err != nil {
@@ -186,6 +190,11 @@ func CanonicalJSON(value any) (string, error) {
 	return unescapeJSONLineTerminators(strings.TrimSuffix(encoded.String(), "\n")), nil
 }
 
+/*
+CreateAuditEvent normalizes host input into the language-neutral audit event
+schema while enforcing required fields, action format, sorted data categories,
+and deterministic metadata redaction.
+*/
 func CreateAuditEvent(input AuditEventInput) (AuditEvent, error) {
 	if input.Actor.ID == "" {
 		return AuditEvent{}, errors.New("actor.id is required")
@@ -237,6 +246,10 @@ func CreateAuditEvent(input AuditEventInput) (AuditEvent, error) {
 	return event, nil
 }
 
+/*
+CreateEvidenceEdge validates evidence graph endpoints and relation vocabulary
+without adding framework-specific semantics to audit events.
+*/
 func CreateEvidenceEdge(input EvidenceEdgeInput) (EvidenceEdge, error) {
 	from, err := cleanEvidenceEntity(input.From, "from")
 	if err != nil {
@@ -275,6 +288,9 @@ func CreateEvidenceEdge(input EvidenceEdgeInput) (EvidenceEdge, error) {
 	return edge, nil
 }
 
+/*
+HashAuditEvent hashes an audit event with the previous tenant-chain hash.
+*/
 func HashAuditEvent(event AuditEvent, previousHash *string) (string, error) {
 	payload := map[string]any{
 		"event":        event,
@@ -288,6 +304,9 @@ func HashAuditEvent(event AuditEvent, previousHash *string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+/*
+HashEvidenceEdge hashes an evidence edge with the previous edge-chain hash.
+*/
 func HashEvidenceEdge(edge EvidenceEdge, previousHash *string) (string, error) {
 	payload := map[string]any{
 		"edge":         edge,
@@ -301,6 +320,10 @@ func HashEvidenceEdge(edge EvidenceEdge, previousHash *string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+/*
+HashAuditRecord recomputes an audit record envelope hash while excluding the
+stored hash field.
+*/
 func HashAuditRecord(record AuditRecord) (string, error) {
 	payload := map[string]any{
 		"event":              record.Event,
@@ -319,6 +342,10 @@ func HashAuditRecord(record AuditRecord) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+/*
+HashEvidenceEdgeRecord recomputes an evidence-edge record envelope hash while
+excluding the stored hash field.
+*/
 func HashEvidenceEdgeRecord(record EvidenceEdgeRecord) (string, error) {
 	payload := map[string]any{
 		"edge":               record.Edge,
@@ -337,6 +364,10 @@ func HashEvidenceEdgeRecord(record EvidenceEdgeRecord) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+/*
+HashIdempotencyKey binds idempotency keys to tenant scope so identical host keys
+cannot collide across tenant chains.
+*/
 func HashIdempotencyKey(tenantID string, idempotencyKey string) (string, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return "", errors.New("tenantId is required")
@@ -348,6 +379,10 @@ func HashIdempotencyKey(tenantID string, idempotencyKey string) (string, error) 
 	return hex.EncodeToString(sum[:]), nil
 }
 
+/*
+cleanEvidenceEntity validates graph entities against the public evidence
+vocabulary before edges are hashed or exported.
+*/
 func cleanEvidenceEntity(value EvidenceEntity, field string) (EvidenceEntity, error) {
 	if value.Type == "" {
 		return EvidenceEntity{}, fmt.Errorf("%s.type is required", field)
@@ -361,6 +396,10 @@ func cleanEvidenceEntity(value EvidenceEntity, field string) (EvidenceEntity, er
 	return value, nil
 }
 
+/*
+redactMetadata applies deterministic sensitive-key redaction before metadata is
+included in canonical JSON or hashes.
+*/
 func redactMetadata(value map[string]any) map[string]any {
 	if value == nil {
 		return map[string]any{}
@@ -372,6 +411,10 @@ func redactMetadata(value map[string]any) map[string]any {
 	return redacted
 }
 
+/*
+redactAny recursively converts metadata to JSON-compatible values while
+replacing sensitive-key values with the stable redaction marker.
+*/
 func redactAny(value any, key string) any {
 	if sensitiveKeyPattern.MatchString(key) {
 		return "[redacted]"
@@ -403,6 +446,10 @@ func redactAny(value any, key string) any {
 	}
 }
 
+/*
+normalizeJSON converts Go values into the canonical JSON value domain shared
+with the TypeScript and Python SDKs.
+*/
 func normalizeJSON(value any) (any, error) {
 	switch typed := value.(type) {
 	case nil, string, bool, int, int64, float64, float32:
@@ -442,6 +489,10 @@ func normalizeJSON(value any) (any, error) {
 	}
 }
 
+/*
+unescapeJSONLineTerminators keeps U+2028 and U+2029 aligned with JavaScript JSON
+stringification for cross-language canonical JSON fixtures.
+*/
 func unescapeJSONLineTerminators(value string) string {
 	var builder strings.Builder
 	for index := 0; index < len(value); {
@@ -461,6 +512,10 @@ func unescapeJSONLineTerminators(value string) string {
 	return builder.String()
 }
 
+/*
+isUnescapedJSONBackslash detects whether a JSON escape sequence is active or
+itself escaped.
+*/
 func isUnescapedJSONBackslash(value string, index int) bool {
 	count := 0
 	for cursor := index - 1; cursor >= 0 && value[cursor] == '\\'; cursor-- {
@@ -469,6 +524,9 @@ func isUnescapedJSONBackslash(value string, index int) bool {
 	return count%2 == 0
 }
 
+/*
+uniqueSorted returns sorted unique values for deterministic dataCategories.
+*/
 func uniqueSorted(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -485,6 +543,10 @@ func uniqueSorted(values []string) []string {
 	return out
 }
 
+/*
+randomHex creates protocol ids without adding a process-wide dependency on host
+configuration.
+*/
 func randomHex(byteCount int) string {
 	bytes := make([]byte, byteCount)
 	if _, err := rand.Read(bytes); err != nil {

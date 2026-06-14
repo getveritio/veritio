@@ -18,6 +18,15 @@ sibling repo.
 - Reality over assumptions: read current code, specs, and docs before changing behavior.
 - Implement by default when the request is actionable.
 - Do not invent framework APIs, compliance claims, package names, or hosted-provider behavior that is not represented in the repo.
+- Before using framework or build-tool APIs that may have changed recently
+  (TanStack Start, Vinxi, Vite, Better Auth, Cloudflare Workers, SvelteKit,
+  Next.js, Astro, tRPC, etc.), verify current official docs or installed package
+  behavior instead of trusting stale model knowledge. Capture the current source
+  of truth in a nearby comment or doc when it prevents a likely repeat failure.
+- For TanStack Start specifically, current React docs configure Start through
+  Vite/Rsbuild build-tool plugins and Vite scripts such as `vite dev` and
+  `vite build`; do not reintroduce old `vinxi dev` / `vinxi build` assumptions
+  unless current package docs or installed package metadata prove that is correct.
 - Preserve user changes. Never revert unrelated dirty work.
 - Keep product copy clear that Veritio supports compliance evidence; it does not guarantee legal compliance.
 - Treat generated/reviewer output as critique, not truth. Verify claims locally before patching.
@@ -59,6 +68,22 @@ sibling repo.
 - Hosted-only fields, billing concepts, hosted region behavior, private admin operations, and customer portal logic must not become protocol semantics here.
 - Do not ask the user to open separate chats merely because a sibling repo owns
   a change. Coordinate from this repo with explicit sibling paths when feasible.
+- Every named function, exported helper, class method with protocol/storage
+  behavior, route handler, and CLI entrypoint needs a leading documentation
+  comment. TypeScript/JavaScript should use the slash-star JSDoc form:
+  ```ts
+  /**
+   * Describe the boundary, invariant, side effect, or framework contract this
+   * function protects. Mention tenant scope, hashing, redaction, idempotency,
+   * storage ordering, or hosted/OSS boundaries when relevant.
+   */
+  ```
+- In Python use function docstrings; in Go use Go doc comments; in shell use
+  `#` comment blocks. Keep the same level of detail even when the language
+  cannot use slash-star comments.
+- Comments must be useful to the next AI or human maintainer. Do not add empty
+  narration that only repeats the function name; document why the function
+  exists, what it must not break, and any non-obvious runtime assumption.
 
 ## Commands
 

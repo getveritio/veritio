@@ -3,7 +3,10 @@ declare module "bun:sqlite" {
 }
 
 interface Timer {
+  /** Keeps Better Auth's optional Node timer typing available in browser builds. */
   ref(): Timer
+  /** Keeps Better Auth's optional Node timer typing available in browser builds. */
   unref(): Timer
+  /** Keeps Better Auth's optional Node timer typing available in browser builds. */
   hasRef(): boolean
 }

@@ -3,6 +3,10 @@ import { ref } from "vue";
 
 const status = ref("idle");
 
+/**
+ * Calls the server-owned audit endpoint without sending tenant identity from the
+ * browser.
+ */
 async function loadAuditTrail() {
   status.value = "loading";
   const response = await fetch("/api/audit");

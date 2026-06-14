@@ -66,8 +66,15 @@ export interface BetterAuthVeritioAdapter {
   recordInvitationAccepted(input: BetterAuthInvitationAcceptedContext): Promise<AuditRecord>;
 }
 
+/**
+ * Creates Better Auth lifecycle recorders that translate auth and organization
+ * events into Veritio audit events without persisting raw email metadata.
+ */
 export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapterOptions): BetterAuthVeritioAdapter {
   return {
+    /**
+     * Records a Better Auth user creation event without storing raw email data.
+     */
     recordUserCreated(input) {
       const tenantId = requireNonEmpty(input.tenantId, "tenantId");
       const userId = requireNonEmpty(input.user.id, "user.id");
@@ -87,6 +94,9 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
       );
     },
 
+    /**
+     * Records a session creation event scoped to the tenant that owns the user.
+     */
     recordSessionCreated(input) {
       const tenantId = requireNonEmpty(input.tenantId, "tenantId");
       const userId = requireNonEmpty(input.user.id, "user.id");
@@ -107,6 +117,9 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
       );
     },
 
+    /**
+     * Records a session revocation event using the stable Better Auth session id.
+     */
     recordSessionRevoked(input) {
       const tenantId = requireNonEmpty(input.tenantId, "tenantId");
       const userId = requireNonEmpty(input.user.id, "user.id");
@@ -127,6 +140,9 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
       );
     },
 
+    /**
+     * Records an organization invitation while preserving role metadata only.
+     */
     recordInvitationCreated(input) {
       const tenantId = requireNonEmpty(input.organization.id, "organization.id");
       const invitationId = requireNonEmpty(input.invitation.id, "invitation.id");
@@ -147,6 +163,10 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
       );
     },
 
+    /**
+     * Records invitation acceptance with member and invitation ids for evidence
+     * discovery, still omitting raw invited email metadata.
+     */
     recordInvitationAccepted(input) {
       const tenantId = requireNonEmpty(input.organization.id, "organization.id");
       const memberId = requireNonEmpty(input.member.id, "member.id");
@@ -173,10 +193,18 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
   };
 }
 
+/**
+ * Adds request correlation only when the host provided it, keeping the default
+ * event payload minimal.
+ */
 function withRequestId(input: Omit<AuditEventInput, "requestId">, requestId: string | undefined): AuditEventInput {
   return requestId ? { ...input, requestId } : input;
 }
 
+/**
+ * Builds tenant-scoped evidence scope for Better Auth events, with environment
+ * supplied by the host application rather than the adapter reading globals.
+ */
 function buildScope(tenantId: string, environment: string | undefined): EvidenceScope & { tenantId: string } {
   const scope: EvidenceScope & { tenantId: string } = { tenantId };
   if (environment) {
@@ -185,6 +213,9 @@ function buildScope(tenantId: string, environment: string | undefined): Evidence
   return scope;
 }
 
+/**
+ * Keeps role information useful while avoiding raw invitation email metadata.
+ */
 function roleMetadata(role: string | string[] | null | undefined): JsonObject {
   if (typeof role === "string" && role.trim().length > 0) {
     return { role };
@@ -196,6 +227,10 @@ function roleMetadata(role: string | string[] | null | undefined): JsonObject {
   return {};
 }
 
+/**
+ * Requires Better Auth identifiers before they become tenant scope, actors,
+ * targets, or idempotency key material.
+ */
 function requireNonEmpty(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);

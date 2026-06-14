@@ -9,6 +9,10 @@ export interface BetterAuthTenantBoundary {
   readRequestId?(context: unknown): string | undefined;
 }
 
+/**
+ * Creates the reference Better Auth instance with server-owned tenant resolution
+ * before emitting Veritio audit events from database hooks.
+ */
 export function createAuth(boundary: BetterAuthTenantBoundary) {
   return betterAuth({
     databaseHooks: {
@@ -27,6 +31,10 @@ export function createAuth(boundary: BetterAuthTenantBoundary) {
   });
 }
 
+/**
+ * Provides the example tenant boundary. Real apps must replace this with a
+ * Better Auth session plus organization membership lookup.
+ */
 export function createReferenceTenantBoundary(): BetterAuthTenantBoundary {
   return {
     async resolveTenantId(context) {
@@ -38,12 +46,20 @@ export function createReferenceTenantBoundary(): BetterAuthTenantBoundary {
 
 export const auth = createAuth(createReferenceTenantBoundary());
 
+/**
+ * Reads correlation ids from Better Auth request context without trusting client
+ * form fields for tenant identity.
+ */
 function readRequestIdFromBetterAuthContext(context: unknown): string | undefined {
   const headers = readHeaders(context);
   const value = headers?.get("x-request-id") ?? headers?.get("x-correlation-id");
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+/**
+ * Extracts Headers from the Better Auth hook context when the framework exposes
+ * them.
+ */
 function readHeaders(context: unknown): Headers | undefined {
   if (!context || typeof context !== "object") {
     return undefined;

@@ -55,6 +55,10 @@ export interface SvelteKitVeritioAdapter {
   withAction<T>(input: SvelteKitVeritioEventInput, handler: () => MaybePromise<T>): Promise<T>;
 }
 
+/**
+ * Creates a thin SvelteKit adapter that records actions and endpoints through an
+ * injected recorder and host-resolved locals/request context.
+ */
 export function createSvelteKitVeritioAdapter(options: SvelteKitVeritioAdapterOptions): SvelteKitVeritioAdapter {
   const record = async (input: SvelteKitVeritioEventInput) => {
     const context = await resolveContext(options, input);
@@ -64,14 +68,24 @@ export function createSvelteKitVeritioAdapter(options: SvelteKitVeritioAdapterOp
   };
 
   return {
+    /**
+     * Records evidence for a SvelteKit form action through the shared adapter
+     * path.
+     */
     recordAction(input) {
       return record(input);
     },
 
+    /**
+     * Records evidence for a SvelteKit endpoint through the shared adapter path.
+     */
     recordEndpoint(input) {
       return record(input);
     },
 
+    /**
+     * Runs a SvelteKit action first and records evidence only after it succeeds.
+     */
     async withAction(input, handler) {
       const result = await handler();
       await record(input);
@@ -80,6 +94,10 @@ export function createSvelteKitVeritioAdapter(options: SvelteKitVeritioAdapterOp
   };
 }
 
+/**
+ * Resolves host-owned tenant and actor context from explicit input or the
+ * configured callback, then validates it before event construction.
+ */
 async function resolveContext(
   options: SvelteKitVeritioAdapterOptions,
   input: SvelteKitVeritioRequestInput,
@@ -91,6 +109,10 @@ async function resolveContext(
   return validateContext(context);
 }
 
+/**
+ * Fails closed when SvelteKit locals/context do not provide tenant scope or actor
+ * identity.
+ */
 function validateContext(context: SvelteKitVeritioContext): SvelteKitVeritioContext {
   requireNonEmpty(context.tenantId, "tenantId");
   requireNonEmpty(context.actor?.type, "actor.type");
@@ -98,6 +120,10 @@ function validateContext(context: SvelteKitVeritioContext): SvelteKitVeritioCont
   return context;
 }
 
+/**
+ * Maps a SvelteKit operation into the portable Veritio audit-event input while
+ * keeping optional privacy and retention fields host-controlled.
+ */
 function buildAuditEvent(
   input: SvelteKitVeritioEventInput,
   context: SvelteKitVeritioContext,
@@ -128,6 +154,10 @@ function buildAuditEvent(
   return event;
 }
 
+/**
+ * Builds Veritio evidence scope from host context and the adapter environment
+ * fallback without reading process state directly.
+ */
 function buildScope(
   context: SvelteKitVeritioContext,
   fallbackEnvironment: string | undefined,
@@ -145,12 +175,19 @@ function buildScope(
   return scope;
 }
 
+/**
+ * Validates target identity before it becomes part of a hashed audit event.
+ */
 function validateTarget(target: Resource): Resource {
   requireNonEmpty(target?.type, "target.type");
   requireNonEmpty(target?.id, "target.id");
   return target;
 }
 
+/**
+ * Converts adapter append options and shorthand idempotency keys into the core
+ * AuditStore append contract.
+ */
 function buildAppendOptions(input: SvelteKitVeritioEventInput): AuditStoreAppendOptions | undefined {
   const appendOptions: AuditStoreAppendOptions = { ...(input.append ?? {}) };
   if (input.idempotencyKey !== undefined) {
@@ -159,6 +196,9 @@ function buildAppendOptions(input: SvelteKitVeritioEventInput): AuditStoreAppend
   return Object.keys(appendOptions).length > 0 ? appendOptions : undefined;
 }
 
+/**
+ * Requires non-empty framework context fields before recording evidence.
+ */
 function requireNonEmpty(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);

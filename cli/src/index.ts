@@ -30,6 +30,10 @@ export interface CliRunResult {
 
 const USAGE = "Usage: veritio dev --mcp [--host 127.0.0.1] [--port 4983] [--allow-write-tools] [--scenario]";
 
+/**
+ * Parses the local Workbench CLI contract and rejects unsupported commands before
+ * any server or MCP write-tool state can be started.
+ */
 export function parseCliArgs(args: readonly string[]): DevCommandOptions {
   if (args[0] !== "dev") {
     throw new TypeError(USAGE);
@@ -73,6 +77,10 @@ export function parseCliArgs(args: readonly string[]): DevCommandOptions {
   return options;
 }
 
+/**
+ * Starts the local Workbench/MCP server with injected dependencies for tests.
+ * Scenario seeding and write tools stay explicit CLI choices.
+ */
 export async function runCli(
   args: readonly string[] = process.argv.slice(2),
   dependencies: Partial<CliDependencies> = {},
@@ -102,6 +110,9 @@ export async function runCli(
   }
 }
 
+/**
+ * Reads the value after a CLI option and fails if the option is missing input.
+ */
 function requireNext(args: readonly string[], index: number, option: string): string {
   const value = args[index];
   if (!value || value.startsWith("--")) {
@@ -110,6 +121,9 @@ function requireNext(args: readonly string[], index: number, option: string): st
   return value;
 }
 
+/**
+ * Parses and bounds a TCP port before it reaches Node server startup.
+ */
 function parsePort(value: string): number {
   const port = Number(value);
   if (!Number.isInteger(port) || port < 0 || port > 65535) {
@@ -118,6 +132,9 @@ function parsePort(value: string): number {
   return port;
 }
 
+/**
+ * Detects direct CLI execution across ESM file URLs and relative argv paths.
+ */
 export function isCliEntrypoint(metaUrl: string, argvPath: string | undefined, cwd = process.cwd()): boolean {
   if (!argvPath) {
     return false;

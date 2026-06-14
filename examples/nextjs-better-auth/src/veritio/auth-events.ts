@@ -8,6 +8,10 @@ const veritioAuth = createBetterAuthVeritioAdapter({
   environment: "reference",
 });
 
+/**
+ * Records a user-created lifecycle event after Better Auth has persisted the
+ * user, using tenant scope resolved by the server boundary.
+ */
 export async function recordBetterAuthUserCreated(input: {
   userId: string;
   tenantId: string;
@@ -20,6 +24,10 @@ export async function recordBetterAuthUserCreated(input: {
   });
 }
 
+/**
+ * Records a session-created lifecycle event with tenant scope and a stable
+ * Better Auth session id target.
+ */
 export async function recordBetterAuthSessionCreated(input: {
   userId: string;
   sessionId: string;
