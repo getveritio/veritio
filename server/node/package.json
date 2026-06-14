@@ -1,7 +1,7 @@
 {
   "name": "@veritio/server",
   "version": "0.0.0",
-  "description": "Placeholder for the planned self-hosted Veritio Node server; kept private until the implementation is ready.",
+  "description": "Local and self-hosted Veritio Node server for Workbench, MCP, graph query, verification, and export preview.",
   "private": true,
   "license": "Apache-2.0",
   "repository": {
@@ -28,6 +28,11 @@
     "dist",
     "README.md"
   ],
+  "scripts": {
+    "build": "bun run --cwd ../../sdks/typescript build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "bun run --cwd ../../sdks/typescript build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run --cwd ../../sdks/typescript build && bun test src"
+  },
   "dependencies": {
     "@veritio/core": "workspace:*"
   }

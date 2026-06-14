@@ -1,8 +1,60 @@
 import { createHash, randomUUID } from "node:crypto";
 
 export const SCHEMA_VERSION = "2026-06-10";
+export const EDGE_SCHEMA_VERSION = "2026-06-13";
 export const HASH_ALGORITHM = "sha256";
 const ACTION_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+
+export const EVIDENCE_ENTITY_TYPES = [
+  "tenant",
+  "actor",
+  "data_subject",
+  "resource",
+  "data_category",
+  "purpose",
+  "policy",
+  "consent",
+  "processor",
+  "system",
+  "repository",
+  "branch",
+  "commit",
+  "pull_request",
+  "file",
+  "diff_hunk",
+  "agent_session",
+  "tool_call",
+  "ci_run",
+  "artifact",
+  "deployment",
+  "runtime_event",
+  "subject_request",
+  "export_bundle",
+] as const;
+
+export const EVIDENCE_EDGE_RELATIONS = [
+  "caused_by",
+  "part_of",
+  "read",
+  "modified",
+  "created",
+  "deleted",
+  "derived_from",
+  "reviewed_by",
+  "approved_by",
+  "waived_by",
+  "built_by",
+  "deployed_as",
+  "observed_in",
+  "attests_to",
+  "exports",
+  "satisfies_policy",
+  "violates_policy",
+  "subject_of",
+  "processed_for",
+  "retained_under",
+  "sent_to",
+] as const;
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
@@ -25,6 +77,39 @@ export interface EvidenceScope {
   tenantId?: string;
   workspaceId?: string;
   environment?: string;
+}
+
+export type EvidenceEntityType = (typeof EVIDENCE_ENTITY_TYPES)[number];
+export type EvidenceEdgeRelation = (typeof EVIDENCE_EDGE_RELATIONS)[number];
+
+export interface EvidenceEntity {
+  type: EvidenceEntityType;
+  id: string;
+  actorType?: "user" | "service" | "system" | "ai_agent";
+  resourceType?: string;
+  version?: string;
+  pathHash?: string;
+}
+
+export interface EvidenceEdgeInput {
+  id?: string;
+  occurredAt?: string | Date;
+  scope?: EvidenceScope;
+  from: EvidenceEntity;
+  relation: EvidenceEdgeRelation;
+  to: EvidenceEntity;
+  metadata?: Record<string, unknown>;
+}
+
+export interface EvidenceEdge {
+  id: string;
+  schemaVersion: typeof EDGE_SCHEMA_VERSION;
+  occurredAt: string;
+  scope?: EvidenceScope;
+  from: EvidenceEntity;
+  relation: EvidenceEdgeRelation;
+  to: EvidenceEntity;
+  metadata: JsonObject;
 }
 
 export type LawfulBasis =
@@ -69,6 +154,17 @@ export interface AuditEvent {
 
 export interface AuditRecord {
   event: AuditEvent;
+  sequence: number;
+  previousHash: string | null;
+  hash: string;
+  hashAlgorithm: typeof HASH_ALGORITHM;
+  canonicalization: "veritio-json-v1";
+  appendedAt: string;
+  idempotencyKeyHash: string;
+}
+
+export interface EvidenceEdgeRecord {
+  edge: EvidenceEdge;
   sequence: number;
   previousHash: string | null;
   hash: string;
@@ -160,6 +256,31 @@ export function createAuditEvent(input: AuditEventInput): AuditEvent {
   return event;
 }
 
+export function createEvidenceEdge(input: EvidenceEdgeInput): EvidenceEdge {
+  const from = cleanEvidenceEntity(input.from, "from");
+  const to = cleanEvidenceEntity(input.to, "to");
+  if (!isEvidenceEdgeRelation(input.relation)) {
+    throw new TypeError("relation must be a supported evidence graph relation");
+  }
+
+  const edge: EvidenceEdge = {
+    id: input.id ?? `edge_${randomUUID()}`,
+    schemaVersion: EDGE_SCHEMA_VERSION,
+    occurredAt: normalizeDate(input.occurredAt ?? new Date()),
+    from,
+    relation: input.relation,
+    to,
+    metadata: redactMetadata(input.metadata ?? {}),
+  };
+
+  const scope = input.scope ? cleanScope(input.scope) : undefined;
+  if (scope) {
+    edge.scope = scope;
+  }
+
+  return edge;
+}
+
 export function hashAuditEvent(event: AuditEvent, previousHash: string | null = null): string {
   return sha256Hex(
     canonicalJson({
@@ -169,8 +290,22 @@ export function hashAuditEvent(event: AuditEvent, previousHash: string | null = 
   );
 }
 
+export function hashEvidenceEdge(edge: EvidenceEdge, previousHash: string | null = null): string {
+  return sha256Hex(
+    canonicalJson({
+      edge,
+      previousHash,
+    }),
+  );
+}
+
 export function hashAuditRecord(record: AuditRecord | Omit<AuditRecord, "hash">): string {
   const { hash: _hash, ...hashInput } = record as AuditRecord;
+  return sha256Hex(canonicalJson(hashInput));
+}
+
+export function hashEvidenceEdgeRecord(record: EvidenceEdgeRecord | Omit<EvidenceEdgeRecord, "hash">): string {
+  const { hash: _hash, ...hashInput } = record as EvidenceEdgeRecord;
   return sha256Hex(canonicalJson(hashInput));
 }
 
@@ -202,6 +337,42 @@ export function verifyAuditRecords(records: readonly AuditRecord[]): Verificatio
     }
 
     tenantState.set(record.event.scope.tenantId, {
+      previousHash: record.hash,
+      sequence: record.sequence,
+    });
+  }
+
+  return { ok: true };
+}
+
+export function verifyEvidenceEdgeRecords(records: readonly EvidenceEdgeRecord[]): VerificationResult {
+  const tenantState = new Map<string, { previousHash: string | null; sequence: number }>();
+
+  for (const [index, record] of records.entries()) {
+    if (!record.edge.scope?.tenantId) {
+      return { ok: false, index, reason: "missing_tenant_scope" };
+    }
+    if (record.hashAlgorithm !== HASH_ALGORITHM) {
+      return { ok: false, index, reason: "unsupported_hash_algorithm" };
+    }
+    if (record.canonicalization !== "veritio-json-v1") {
+      return { ok: false, index, reason: "unsupported_canonicalization" };
+    }
+
+    const state = tenantState.get(record.edge.scope.tenantId) ?? { previousHash: null, sequence: 0 };
+    if (record.sequence !== state.sequence + 1) {
+      return { ok: false, index, reason: "sequence_mismatch" };
+    }
+    if (record.previousHash !== state.previousHash) {
+      return { ok: false, index, reason: "previous_hash_mismatch" };
+    }
+
+    const expectedHash = hashEvidenceEdgeRecord(record);
+    if (record.hash !== expectedHash) {
+      return { ok: false, index, reason: "hash_mismatch" };
+    }
+
+    tenantState.set(record.edge.scope.tenantId, {
       previousHash: record.hash,
       sequence: record.sequence,
     });
@@ -388,6 +559,37 @@ function cleanPrincipal(value: Principal): Principal {
 
 function cleanResource(value: Resource): Resource {
   return value.display ? { type: value.type, id: value.id, display: value.display } : { type: value.type, id: value.id };
+}
+
+function cleanEvidenceEntity(value: EvidenceEntity, field: string): EvidenceEntity {
+  assertNonEmpty(value?.type, `${field}.type`);
+  assertNonEmpty(value?.id, `${field}.id`);
+  if (!isEvidenceEntityType(value.type)) {
+    throw new TypeError(`${field}.type must be a supported evidence graph entity type`);
+  }
+
+  const entity: EvidenceEntity = { type: value.type, id: value.id };
+  if (value.actorType) {
+    entity.actorType = value.actorType;
+  }
+  if (value.resourceType) {
+    entity.resourceType = value.resourceType;
+  }
+  if (value.version) {
+    entity.version = value.version;
+  }
+  if (value.pathHash) {
+    entity.pathHash = value.pathHash;
+  }
+  return entity;
+}
+
+function isEvidenceEntityType(value: string): value is EvidenceEntityType {
+  return (EVIDENCE_ENTITY_TYPES as readonly string[]).includes(value);
+}
+
+function isEvidenceEdgeRelation(value: string): value is EvidenceEdgeRelation {
+  return (EVIDENCE_EDGE_RELATIONS as readonly string[]).includes(value);
 }
 
 function cleanScope(value: EvidenceScope): EvidenceScope | undefined {

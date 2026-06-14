@@ -1,6 +1,6 @@
 # @veritio/core
 
-Protocol-first TypeScript SDK for Veritio audit trail evidence.
+Protocol-first TypeScript SDK for Veritio audit trail and evidence graph records.
 
 ## Install
 
@@ -11,7 +11,7 @@ npm install @veritio/core
 ## Usage
 
 ```ts
-import { MemoryAuditStore, createAuditEvent } from "@veritio/core";
+import { MemoryAuditStore, createAuditEvent, createEvidenceEdge, hashEvidenceEdge } from "@veritio/core";
 
 const store = new MemoryAuditStore();
 
@@ -24,6 +24,16 @@ const event = createAuditEvent({
 });
 
 await store.append(event);
+
+const edge = createEvidenceEdge({
+  from: { type: "actor", id: "usr_123", actorType: "user" },
+  relation: "created",
+  to: { type: "runtime_event", id: event.id },
+  scope: { tenantId: "org_123", environment: "production" },
+  metadata: { reason: "member_invite" }
+});
+
+const edgeHash = hashEvidenceEdge(edge);
 ```
 
 Veritio supports evidence collection and verification workflows. It is not legal advice and does not make an application automatically compliant with any regulation or framework.

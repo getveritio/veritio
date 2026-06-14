@@ -1,0 +1,39 @@
+{
+  "name": "edge-hashing-v1",
+  "hashAlgorithm": "sha256",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "hashes graph edge with null previous hash",
+      "edge": {
+        "id": "edge_fixture_agent_file_01",
+        "schemaVersion": "2026-06-13",
+        "occurredAt": "2026-06-13T00:00:00.000Z",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "test"
+        },
+        "from": {
+          "type": "agent_session",
+          "id": "agt_sess_fixture_123"
+        },
+        "relation": "created",
+        "to": {
+          "type": "file",
+          "id": "file_fixture_billing_plan",
+          "pathHash": "sha256:path_fixture_123"
+        },
+        "metadata": {
+          "commandOutputToken": "[redacted]",
+          "hunkHashes": [
+            "sha256:hunk_fixture_001"
+          ],
+          "reason": "ai_agent"
+        }
+      },
+      "previousHash": null,
+      "expectedHash": "48a4dd593bc0f924ee902a14dbc18826334e3832944bcb188fa965315e23542c"
+    }
+  ]
+}

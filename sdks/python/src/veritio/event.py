@@ -8,9 +8,59 @@ from datetime import datetime, timezone
 from typing import Any
 
 SCHEMA_VERSION = "2026-06-10"
+EDGE_SCHEMA_VERSION = "2026-06-13"
 HASH_ALGORITHM = "sha256"
 _SENSITIVE_KEY_PATTERN = re.compile(r"(password|secret|token|api[_-]?key|authorization|email|phone|ssn)", re.I)
 _ACTION_PATTERN = re.compile(r"^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$")
+_EVIDENCE_ENTITY_TYPES = {
+    "tenant",
+    "actor",
+    "data_subject",
+    "resource",
+    "data_category",
+    "purpose",
+    "policy",
+    "consent",
+    "processor",
+    "system",
+    "repository",
+    "branch",
+    "commit",
+    "pull_request",
+    "file",
+    "diff_hunk",
+    "agent_session",
+    "tool_call",
+    "ci_run",
+    "artifact",
+    "deployment",
+    "runtime_event",
+    "subject_request",
+    "export_bundle",
+}
+_EVIDENCE_EDGE_RELATIONS = {
+    "caused_by",
+    "part_of",
+    "read",
+    "modified",
+    "created",
+    "deleted",
+    "derived_from",
+    "reviewed_by",
+    "approved_by",
+    "waived_by",
+    "built_by",
+    "deployed_as",
+    "observed_in",
+    "attests_to",
+    "exports",
+    "satisfies_policy",
+    "violates_policy",
+    "subject_of",
+    "processed_for",
+    "retained_under",
+    "sent_to",
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -44,12 +94,41 @@ def create_audit_event(input_event: dict[str, Any]) -> dict[str, Any]:
     return _without_none(event)
 
 
+def create_evidence_edge(input_edge: dict[str, Any]) -> dict[str, Any]:
+    from_entity = _clean_evidence_entity(input_edge.get("from", {}), "from")
+    to_entity = _clean_evidence_entity(input_edge.get("to", {}), "to")
+    if input_edge.get("relation") not in _EVIDENCE_EDGE_RELATIONS:
+        raise TypeError("relation must be a supported evidence graph relation")
+
+    edge = {
+        "id": input_edge.get("id") or f"edge_{uuid.uuid4()}",
+        "schemaVersion": EDGE_SCHEMA_VERSION,
+        "occurredAt": _normalize_datetime(input_edge.get("occurredAt") or datetime.now(timezone.utc)),
+        "scope": _without_none(input_edge["scope"]) if input_edge.get("scope") else None,
+        "from": from_entity,
+        "relation": input_edge["relation"],
+        "to": to_entity,
+        "metadata": _redact_metadata(input_edge.get("metadata") or {}),
+    }
+    return _without_none(edge)
+
+
 def hash_audit_event(event: dict[str, Any], previous_hash: str | None = None) -> str:
     payload = canonical_json({"event": event, "previousHash": previous_hash})
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+def hash_evidence_edge(edge: dict[str, Any], previous_hash: str | None = None) -> str:
+    payload = canonical_json({"edge": edge, "previousHash": previous_hash})
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 def hash_audit_record(record: dict[str, Any]) -> str:
+    payload = {key: value for key, value in record.items() if key != "hash"}
+    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def hash_evidence_edge_record(record: dict[str, Any]) -> str:
     payload = {key: value for key, value in record.items() if key != "hash"}
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
@@ -102,6 +181,24 @@ def _normalize_datetime(value: str | datetime) -> str:
         date = date.replace(tzinfo=timezone.utc)
     date = date.astimezone(timezone.utc)
     return date.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _clean_evidence_entity(value: dict[str, Any], field: str) -> dict[str, Any]:
+    _assert_non_empty(value.get("type"), f"{field}.type")
+    _assert_non_empty(value.get("id"), f"{field}.id")
+    if value["type"] not in _EVIDENCE_ENTITY_TYPES:
+        raise TypeError(f"{field}.type must be a supported evidence graph entity type")
+
+    return _without_none(
+        {
+            "type": value["type"],
+            "id": value["id"],
+            "actorType": value.get("actorType"),
+            "resourceType": value.get("resourceType"),
+            "version": value.get("version"),
+            "pathHash": value.get("pathHash"),
+        }
+    )
 
 
 def _assert_non_empty(value: Any, field: str) -> None:

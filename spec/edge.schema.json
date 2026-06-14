@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/edge.schema.json",
+  "title": "Veritio Evidence Edge",
+  "description": "A separate evidence record payload that links stable graph entity references without embedding raw payloads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schemaVersion",
+    "occurredAt",
+    "from",
+    "relation",
+    "to",
+    "metadata"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schemaVersion": {
+      "type": "string",
+      "const": "2026-06-13"
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "scope": {
+      "$ref": "#/$defs/scope"
+    },
+    "from": {
+      "$ref": "#/$defs/entity"
+    },
+    "relation": {
+      "enum": [
+        "caused_by",
+        "part_of",
+        "read",
+        "modified",
+        "created",
+        "deleted",
+        "derived_from",
+        "reviewed_by",
+        "approved_by",
+        "waived_by",
+        "built_by",
+        "deployed_as",
+        "observed_in",
+        "attests_to",
+        "exports",
+        "satisfies_policy",
+        "violates_policy",
+        "subject_of",
+        "processed_for",
+        "retained_under",
+        "sent_to"
+      ]
+    },
+    "to": {
+      "$ref": "#/$defs/entity"
+    },
+    "metadata": {
+      "$ref": "#/$defs/jsonObject"
+    }
+  },
+  "$defs": {
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": {
+          "enum": [
+            "tenant",
+            "actor",
+            "data_subject",
+            "resource",
+            "data_category",
+            "purpose",
+            "policy",
+            "consent",
+            "processor",
+            "system",
+            "repository",
+            "branch",
+            "commit",
+            "pull_request",
+            "file",
+            "diff_hunk",
+            "agent_session",
+            "tool_call",
+            "ci_run",
+            "artifact",
+            "deployment",
+            "runtime_event",
+            "subject_request",
+            "export_bundle"
+          ]
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "actorType": {
+          "enum": ["user", "service", "system", "ai_agent"]
+        },
+        "resourceType": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "pathHash": {
+          "type": "string"
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tenantId": {
+          "type": "string"
+        },
+        "workspaceId": {
+          "type": "string"
+        },
+        "environment": {
+          "type": "string"
+        }
+      }
+    },
+    "jsonObject": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/jsonValue"
+      }
+    },
+    "jsonValue": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/jsonValue"
+          }
+        },
+        {
+          "$ref": "#/$defs/jsonObject"
+        }
+      ]
+    }
+  }
+}
