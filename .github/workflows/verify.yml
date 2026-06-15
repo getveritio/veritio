@@ -118,3 +118,6 @@ jobs:
           VERITIO_MARIADB_TEST_URL: mysql://root:veritio@127.0.0.1:3307/veritio
           VERITIO_MONGODB_TEST_URL: mongodb://127.0.0.1:27017/veritio?replicaSet=rs0
         run: bun run verify
+
+      - name: Verify examples
+        run: bun run verify:examples

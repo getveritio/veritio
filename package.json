@@ -44,6 +44,7 @@
     "test:go": "cd sdks/go && go test ./...",
     "typecheck": "bun run --cwd sdks/typescript typecheck && bun run --cwd sdks/typescript build && bun run --cwd storage typecheck && bun run --cwd adapters/better-auth typecheck && bun run --cwd adapters/next typecheck && bun run --cwd adapters/tanstack-start typecheck && bun run --cwd adapters/sveltekit typecheck && bun run --cwd adapters/react typecheck && bun run --cwd adapters/vue typecheck && bun run --cwd adapters/svelte typecheck && bun run --cwd server/node typecheck && bun run --cwd cli typecheck",
     "verify": "bun run test && bun run typecheck && bun run build",
+    "verify:examples": "scripts/verify-examples.sh",
     "status:split": "scripts/verify-split.sh status",
     "verify:siblings": "scripts/verify-split.sh siblings",
     "verify:split": "scripts/verify-split.sh all",
