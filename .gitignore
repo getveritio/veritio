@@ -1,6 +1,10 @@
 node_modules
 dist
 .svelte-kit
+.next
+.output
+.tanstack
+.nitro
 *.tsbuildinfo
 .DS_Store
 .env
