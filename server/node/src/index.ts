@@ -80,6 +80,13 @@ export interface ExportBundlePreview {
   };
 }
 
+export interface ScenarioResult {
+  tenantId: string;
+  graph: EvidenceGraph;
+  verification: VerificationReport;
+  exportPreview: ExportBundlePreview;
+}
+
 export interface WorkbenchAppOptions {
   store?: LocalEvidenceStore;
   allowWriteTools?: boolean;
@@ -126,6 +133,7 @@ const READ_TOOLS = [
   "veritio.verify_chain",
   "veritio.preview_export_bundle",
   "veritio.run_integration_scenario",
+  "veritio.run_change_provenance_scenario",
 ] as const;
 
 const WRITE_TOOLS = [
@@ -369,7 +377,7 @@ export class LocalEvidenceStore {
 export async function runIntegrationScenario(
   store: LocalEvidenceStore,
   options: { tenantId?: string } = {},
-): Promise<{ tenantId: string; graph: EvidenceGraph; verification: VerificationReport; exportPreview: ExportBundlePreview }> {
+): Promise<ScenarioResult> {
   const tenantId = options.tenantId ?? "tenant_local_demo";
   await store.recordEvent({
     id: "evt_agent_session_started",
@@ -422,6 +430,347 @@ export async function runIntegrationScenario(
     to: { type: "runtime_event", id: "evt_runtime_member_invited" },
     metadata: { route: "/api/invitations" },
   });
+
+  return {
+    tenantId,
+    graph: await store.getEvidenceGraph({ tenantId }),
+    verification: await store.verify({ tenantId }),
+    exportPreview: await store.previewExportBundle({ tenantId }),
+  };
+}
+
+/**
+ * Seeds a detailed app-builder-style provenance tree. The records model a user
+ * request flowing through an AI agent session, tool calls, accepted and rejected
+ * file changes, review, CI, deployment, and runtime evidence without storing raw
+ * prompts, file contents, diffs, or command output.
+ */
+export async function runChangeProvenanceScenario(
+  store: LocalEvidenceStore,
+  options: { tenantId?: string } = {},
+): Promise<ScenarioResult> {
+  const tenantId = options.tenantId ?? "tenant_change_provenance_demo";
+  const scope = { tenantId, workspaceId: "workspace_app_builder", environment: "dev" };
+  const occurredAt = [
+    "2026-06-14T00:10:00.000Z",
+    "2026-06-14T00:10:02.000Z",
+    "2026-06-14T00:10:04.000Z",
+    "2026-06-14T00:10:06.000Z",
+    "2026-06-14T00:10:08.000Z",
+    "2026-06-14T00:10:10.000Z",
+    "2026-06-14T00:10:12.000Z",
+    "2026-06-14T00:10:14.000Z",
+    "2026-06-14T00:10:16.000Z",
+  ] as const;
+
+  await store.recordEvent({
+    id: "evt_change_request_received",
+    occurredAt: occurredAt[0],
+    actor: { type: "user", id: "usr_builder" },
+    action: "change.requested",
+    target: { type: "change_request", id: "req_track_error_toasts" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      requestHash: "sha256:req_track_error_toasts",
+      summary: "Track a Studio build/deployment UI change without raw prompt text.",
+    },
+  });
+  await store.recordEvent({
+    id: "evt_agent_session_started_detailed",
+    occurredAt: occurredAt[1],
+    actor: { type: "ai_agent", id: "agent_opencode" },
+    action: "agent.session.started",
+    target: { type: "agent_session", id: "agt_sess_app_builder_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      provider: "opencode",
+      model: "local-fixture",
+      promptHash: "sha256:prompt_track_error_toasts",
+      contextHash: "sha256:context_repo_slice",
+      policyHash: "sha256:opencode_policy_v1",
+      configHash: "sha256:provider_config_v1",
+      sandboxId: "sandbox_app_builder_01",
+    },
+  });
+  await store.recordEvent({
+    id: "evt_tool_call_apply_edits",
+    occurredAt: occurredAt[2],
+    actor: { type: "ai_agent", id: "agent_opencode" },
+    action: "agent.tool.called",
+    target: { type: "tool_call", id: "tool_apply_edits_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      tool: "apply_edits",
+      phase: "completed",
+      approval: "auto_allowed",
+      inputHash: "sha256:apply_edits_input",
+      filesystemScope: ["apps/studio/**"],
+      status: "succeeded",
+      latencyMs: 1840,
+    },
+  });
+  await store.recordEvent({
+    id: "evt_change_proposal_created",
+    occurredAt: occurredAt[3],
+    actor: { type: "ai_agent", id: "agent_opencode" },
+    action: "change.proposal.created",
+    target: { type: "change_proposal", id: "proposal_safe_toasts_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      baseVersion: 41,
+      resultVersion: 42,
+      proposalSignature: "sha256:proposal_safe_toasts_01",
+      acceptedPathHashes: ["sha256:path_build_shared", "sha256:path_deployments_tab"],
+      rejectedPathHashes: ["sha256:path_package_lock"],
+      deletedPathHashes: [],
+      reason: "ai_agent",
+    },
+  });
+  await store.recordEvent({
+    id: "evt_change_files_changed",
+    occurredAt: occurredAt[4],
+    actor: { type: "ai_agent", id: "agent_opencode" },
+    action: "change.files.changed",
+    target: { type: "source_tree", id: "source_tree_app_builder_dev" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      baseVersion: 41,
+      resultVersion: 42,
+      rootHash: "sha256:root_after_safe_toasts",
+      manifestDigest: "sha256:manifest_after_safe_toasts",
+      files: [
+        {
+          pathHash: "sha256:path_build_shared",
+          beforeHash: "sha256:before_build_shared",
+          afterHash: "sha256:after_build_shared",
+          hunkHashes: ["sha256:hunk_build_shared_01"],
+          action: "upsert",
+          sizeBytes: 1842,
+        },
+        {
+          pathHash: "sha256:path_deployments_tab",
+          beforeHash: "sha256:before_deployments_tab",
+          afterHash: "sha256:after_deployments_tab",
+          hunkHashes: ["sha256:hunk_deployments_tab_01"],
+          action: "upsert",
+          sizeBytes: 3921,
+        },
+      ],
+    },
+  });
+  await store.recordEvent({
+    id: "evt_review_approval_recorded",
+    occurredAt: occurredAt[5],
+    actor: { type: "user", id: "usr_reviewer" },
+    action: "review.approval.recorded",
+    target: { type: "pull_request", id: "pr_safe_toasts_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      reviewFindingCount: 0,
+      waiverCount: 0,
+      approvalHash: "sha256:approval_safe_toasts",
+    },
+  });
+  await store.recordEvent({
+    id: "evt_ci_job_completed",
+    occurredAt: occurredAt[6],
+    actor: { type: "service", id: "svc_ci" },
+    action: "ci.job.completed",
+    target: { type: "ci_run", id: "ci_safe_toasts_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      status: "succeeded",
+      artifactHash: "sha256:artifact_safe_toasts",
+      checks: ["typecheck", "unit", "diff-check"],
+    },
+  });
+  await store.recordEvent({
+    id: "evt_deploy_deployed",
+    occurredAt: occurredAt[7],
+    actor: { type: "service", id: "svc_deploy_worker" },
+    action: "deploy.deployed",
+    target: { type: "deployment", id: "dep_safe_toasts_01" },
+    scope,
+    purpose: "change_provenance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      sourceHash: "sha256:source_safe_toasts",
+      bundleHash: "sha256:bundle_safe_toasts",
+      buildJobId: "build_job_safe_toasts_01",
+      workerNameHash: "sha256:worker_name_safe_toasts",
+    },
+  });
+  await store.recordEvent({
+    id: "evt_runtime_observed_after_deploy",
+    occurredAt: occurredAt[8],
+    actor: { type: "user", id: "usr_reviewer" },
+    action: "build.error.toast.viewed",
+    target: { type: "runtime_event", id: "runtime_safe_toast_01" },
+    scope,
+    purpose: "quality_assurance",
+    dataCategories: ["source_reference"],
+    retention: "change_1y",
+    metadata: {
+      deploymentId: "dep_safe_toasts_01",
+      routeHash: "sha256:route_app_settings_deployments",
+      observedOutcome: "sanitized_error_copy",
+    },
+  });
+
+  const edges: EvidenceEdgeInput[] = [
+    {
+      id: "edge_user_created_request",
+      occurredAt: occurredAt[0],
+      scope,
+      from: { type: "actor", id: "usr_builder", actorType: "user" },
+      relation: "created",
+      to: { type: "resource", id: "req_track_error_toasts", resourceType: "change_request" },
+      metadata: { source: "user_request" },
+    },
+    {
+      id: "edge_session_caused_by_request",
+      occurredAt: occurredAt[1],
+      scope,
+      from: { type: "agent_session", id: "agt_sess_app_builder_01" },
+      relation: "caused_by",
+      to: { type: "resource", id: "req_track_error_toasts", resourceType: "change_request" },
+      metadata: { promptHash: "sha256:prompt_track_error_toasts" },
+    },
+    {
+      id: "edge_session_created_tool_call",
+      occurredAt: occurredAt[2],
+      scope,
+      from: { type: "agent_session", id: "agt_sess_app_builder_01" },
+      relation: "created",
+      to: { type: "tool_call", id: "tool_apply_edits_01" },
+      metadata: { tool: "apply_edits", approval: "auto_allowed" },
+    },
+    {
+      id: "edge_tool_modified_source_file",
+      occurredAt: occurredAt[2],
+      scope,
+      from: { type: "tool_call", id: "tool_apply_edits_01" },
+      relation: "modified",
+      to: { type: "file", id: "file_build_shared", pathHash: "sha256:path_build_shared" },
+      metadata: { beforeHash: "sha256:before_build_shared", afterHash: "sha256:after_build_shared" },
+    },
+    {
+      id: "edge_tool_modified_deployment_file",
+      occurredAt: occurredAt[2],
+      scope,
+      from: { type: "tool_call", id: "tool_apply_edits_01" },
+      relation: "modified",
+      to: { type: "file", id: "file_deployments_tab", pathHash: "sha256:path_deployments_tab" },
+      metadata: { beforeHash: "sha256:before_deployments_tab", afterHash: "sha256:after_deployments_tab" },
+    },
+    {
+      id: "edge_proposal_includes_rejected_file",
+      occurredAt: occurredAt[3],
+      scope,
+      from: { type: "resource", id: "proposal_safe_toasts_01", resourceType: "change_proposal" },
+      relation: "read",
+      to: { type: "file", id: "file_package_lock", pathHash: "sha256:path_package_lock" },
+      metadata: { decision: "rejected", reason: "classification:system" },
+    },
+    {
+      id: "edge_proposal_created_hunk",
+      occurredAt: occurredAt[3],
+      scope,
+      from: { type: "resource", id: "proposal_safe_toasts_01", resourceType: "change_proposal" },
+      relation: "created",
+      to: { type: "diff_hunk", id: "hunk_build_shared_01" },
+      metadata: { hunkHash: "sha256:hunk_build_shared_01" },
+    },
+    {
+      id: "edge_hunk_part_of_file",
+      occurredAt: occurredAt[4],
+      scope,
+      from: { type: "diff_hunk", id: "hunk_build_shared_01" },
+      relation: "part_of",
+      to: { type: "file", id: "file_build_shared", pathHash: "sha256:path_build_shared" },
+      metadata: { resultVersion: 42 },
+    },
+    {
+      id: "edge_proposal_reviewed_by_user",
+      occurredAt: occurredAt[5],
+      scope,
+      from: { type: "resource", id: "proposal_safe_toasts_01", resourceType: "change_proposal" },
+      relation: "approved_by",
+      to: { type: "actor", id: "usr_reviewer", actorType: "user" },
+      metadata: { approvalHash: "sha256:approval_safe_toasts" },
+    },
+    {
+      id: "edge_artifact_derived_from_source_file",
+      occurredAt: occurredAt[6],
+      scope,
+      from: { type: "artifact", id: "artifact_safe_toasts_01" },
+      relation: "derived_from",
+      to: { type: "file", id: "file_build_shared", pathHash: "sha256:path_build_shared" },
+      metadata: { sourceHash: "sha256:source_safe_toasts" },
+    },
+    {
+      id: "edge_artifact_built_by_ci",
+      occurredAt: occurredAt[6],
+      scope,
+      from: { type: "artifact", id: "artifact_safe_toasts_01" },
+      relation: "built_by",
+      to: { type: "ci_run", id: "ci_safe_toasts_01" },
+      metadata: { status: "succeeded" },
+    },
+    {
+      id: "edge_artifact_deployed_as",
+      occurredAt: occurredAt[7],
+      scope,
+      from: { type: "artifact", id: "artifact_safe_toasts_01" },
+      relation: "deployed_as",
+      to: { type: "deployment", id: "dep_safe_toasts_01" },
+      metadata: { bundleHash: "sha256:bundle_safe_toasts" },
+    },
+    {
+      id: "edge_deployment_satisfies_policy",
+      occurredAt: occurredAt[7],
+      scope,
+      from: { type: "deployment", id: "dep_safe_toasts_01" },
+      relation: "satisfies_policy",
+      to: { type: "policy", id: "policy_prod_deploy" },
+      metadata: { requirements: ["human_approval", "ci_passed", "artifact_attestation"] },
+    },
+    {
+      id: "edge_deployment_observed_runtime",
+      occurredAt: occurredAt[8],
+      scope,
+      from: { type: "deployment", id: "dep_safe_toasts_01" },
+      relation: "observed_in",
+      to: { type: "runtime_event", id: "runtime_safe_toast_01" },
+      metadata: { routeHash: "sha256:route_app_settings_deployments" },
+    },
+  ];
+
+  for (const edge of edges) {
+    await store.recordEdge(edge);
+  }
 
   return {
     tenantId,
@@ -537,6 +886,8 @@ export async function handleMcpRequest(
         return rpcResult(id, await store.previewExportBundle({ tenantId: requireTenantArg(args) }));
       case "veritio.run_integration_scenario":
         return rpcResult(id, await runIntegrationScenario(store, scenarioOptions(optionalString(args.tenantId))));
+      case "veritio.run_change_provenance_scenario":
+        return rpcResult(id, await runChangeProvenanceScenario(store, scenarioOptions(optionalString(args.tenantId))));
       case "veritio.record_event":
         return rpcResult(id, { record: await store.recordEvent(args as unknown as AuditEventInput) });
       case "veritio.record_edge":
@@ -598,6 +949,10 @@ async function handleWorkbenchRequest(
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       return jsonResponse(await runIntegrationScenario(store, scenarioOptions(optionalString(body.tenantId))));
     }
+    if (request.method === "POST" && url.pathname === "/v1/scenarios/change-provenance") {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      return jsonResponse(await runChangeProvenanceScenario(store, scenarioOptions(optionalString(body.tenantId))));
+    }
     if (request.method === "POST" && url.pathname === "/mcp") {
       const body = (await request.json()) as McpRequest;
       return jsonResponse(await handleMcpRequest(store, body, options));
@@ -638,6 +993,7 @@ function renderWorkbenchHtml(): string {
     <aside class="stack">
       <h2>Local Actions</h2>
       <button id="scenario">Run integration scenario</button>
+      <button id="change-provenance">Run change provenance tree</button>
       <button id="refresh">Refresh graph</button>
     </aside>
     <section class="stack">
@@ -657,6 +1013,10 @@ function renderWorkbenchHtml(): string {
     }
     document.getElementById("scenario").addEventListener("click", async () => {
       const response = await fetch("/v1/scenarios/integration", { method: "POST", body: JSON.stringify({ tenantId }) });
+      output.textContent = JSON.stringify(await response.json(), null, 2);
+    });
+    document.getElementById("change-provenance").addEventListener("click", async () => {
+      const response = await fetch("/v1/scenarios/change-provenance", { method: "POST", body: JSON.stringify({ tenantId }) });
       output.textContent = JSON.stringify(await response.json(), null, 2);
     });
     document.getElementById("refresh").addEventListener("click", showGraph);

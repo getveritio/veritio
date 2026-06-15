@@ -3,6 +3,7 @@ import {
   LocalEvidenceStore,
   createWorkbenchApp,
   handleMcpRequest,
+  runChangeProvenanceScenario,
   runIntegrationScenario,
 } from "../index";
 
@@ -92,6 +93,41 @@ describe("LocalEvidenceStore", () => {
     expect(result.graph.nodes.map((node) => node.type)).toContain("runtime_event");
     expect(result.graph.edges.map((edge) => edge.relation)).toEqual(["created", "deployed_as", "observed_in"]);
   });
+
+  test("runs the detailed change provenance scenario across agent, review, CI, deploy, and runtime evidence", async () => {
+    const store = new LocalEvidenceStore();
+
+    const result = await runChangeProvenanceScenario(store, { tenantId });
+
+    expect(result.verification.ok).toBe(true);
+    expect(result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14 });
+    expect(result.graph.nodes.map((node) => node.type)).toEqual(
+      expect.arrayContaining([
+        "actor",
+        "agent_session",
+        "tool_call",
+        "file",
+        "diff_hunk",
+        "artifact",
+        "ci_run",
+        "deployment",
+        "policy",
+        "runtime_event",
+      ]),
+    );
+    expect(result.graph.edges.map((edge) => edge.relation)).toEqual(
+      expect.arrayContaining([
+        "caused_by",
+        "modified",
+        "approved_by",
+        "derived_from",
+        "built_by",
+        "deployed_as",
+        "satisfies_policy",
+        "observed_in",
+      ]),
+    );
+  });
 });
 
 describe("Workbench HTTP app", () => {
@@ -133,6 +169,18 @@ describe("Workbench HTTP app", () => {
       }),
     );
     expect((await json(exportResponse)).manifest).toMatchObject({ recordCounts: { events: 1, edges: 1 } });
+
+    const changeScenarioResponse = await app.fetch(
+      new Request("http://veritio.local/v1/scenarios/change-provenance", {
+        method: "POST",
+        body: JSON.stringify({ tenantId: "tenant_change_http" }),
+      }),
+    );
+    expect(changeScenarioResponse.status).toBe(200);
+    expect(await json(changeScenarioResponse)).toMatchObject({
+      verification: { ok: true },
+      exportPreview: { manifest: { recordCounts: { events: 9, edges: 14 } } },
+    });
   });
 });
 
@@ -151,6 +199,7 @@ describe("MCP JSON-RPC handler", () => {
     const toolNames = response.result.tools.map((tool: { name: string }) => tool.name);
     expect(toolNames).toContain("veritio.list_events");
     expect(toolNames).toContain("veritio.preview_export_bundle");
+    expect(toolNames).toContain("veritio.run_change_provenance_scenario");
     expect(toolNames).not.toContain("veritio.record_event");
   });
 
@@ -183,5 +232,22 @@ describe("MCP JSON-RPC handler", () => {
       params: { name: "veritio.list_events", arguments: { tenantId } },
     });
     expect(listed.result.records).toHaveLength(1);
+  });
+
+  test("runs the change provenance scenario through MCP", async () => {
+    const store = new LocalEvidenceStore();
+
+    const response = await handleMcpRequest(store, {
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: {
+        name: "veritio.run_change_provenance_scenario",
+        arguments: { tenantId: "tenant_change_mcp" },
+      },
+    });
+
+    expect(response.result.verification.ok).toBe(true);
+    expect(response.result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14 });
   });
 });
