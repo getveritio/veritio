@@ -5,6 +5,7 @@ import {
   canonicalJson,
   createAuditEvent,
   createEvidenceEdge,
+  createProvenanceRecorder,
   hashAuditRecord,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
@@ -134,6 +135,7 @@ const READ_TOOLS = [
   "veritio.preview_export_bundle",
   "veritio.run_integration_scenario",
   "veritio.run_change_provenance_scenario",
+  "veritio.run_recorder_provenance_scenario",
 ] as const;
 
 const WRITE_TOOLS = [
@@ -201,7 +203,10 @@ export class LocalEvidenceStore {
    * events and graph edges stay independent so graph projection never mutates
    * the protocol audit record contract.
    */
-  async recordEdge(input: EvidenceEdgeInput | EvidenceEdge, options: AuditStoreAppendOptions = {}): Promise<EvidenceEdgeRecord> {
+  async recordEdge(
+    input: EvidenceEdgeInput | EvidenceEdge,
+    options: AuditStoreAppendOptions = {},
+  ): Promise<EvidenceEdgeRecord> {
     const edge = isEvidenceEdge(input) ? clone(input) : createEvidenceEdge(input);
     const tenantId = requireTenantId(edge.scope, "scope.tenantId");
     const idempotencyKeyHash = hashIdempotencyKey(tenantId, options.idempotencyKey ?? edge.id);
@@ -240,7 +245,10 @@ export class LocalEvidenceStore {
   /**
    * Lists audit records for one tenant with optional sequence and limit controls.
    */
-  async listEvents(scope: EvidenceScope & { tenantId: string }, options: LocalEvidenceStoreListOptions = {}): Promise<AuditRecord[]> {
+  async listEvents(
+    scope: EvidenceScope & { tenantId: string },
+    options: LocalEvidenceStoreListOptions = {},
+  ): Promise<AuditRecord[]> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     validateListOptions(options);
     const records = this.#auditRecords.filter((record) => {
@@ -253,7 +261,10 @@ export class LocalEvidenceStore {
    * Lists evidence-edge records for one tenant with optional sequence and limit
    * controls.
    */
-  async listEdges(scope: EvidenceScope & { tenantId: string }, options: LocalEvidenceStoreListOptions = {}): Promise<EvidenceEdgeRecord[]> {
+  async listEdges(
+    scope: EvidenceScope & { tenantId: string },
+    options: LocalEvidenceStoreListOptions = {},
+  ): Promise<EvidenceEdgeRecord[]> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     validateListOptions(options);
     const records = this.#edgeRecords.filter((record) => {
@@ -781,6 +792,163 @@ export async function runChangeProvenanceScenario(
 }
 
 /**
+ * Builds the same agent change-provenance graph as runChangeProvenanceScenario,
+ * but through the public createProvenanceRecorder API instead of hand-assembled
+ * events/edges. This exercises the recorder end-to-end and renders exactly what an
+ * OpenCode-style agent session emits: the enforcing human is linked to the session
+ * via a caused_by edge (no audit-event schema change), and provider/model use the
+ * canonical agent:{name,version} + model:{provider,name} identity shape.
+ */
+export async function runRecorderProvenanceScenario(
+  store: LocalEvidenceStore,
+  options: { tenantId?: string } = {},
+): Promise<ScenarioResult> {
+  const tenantId = options.tenantId ?? "tenant_recorder_demo";
+  const scope = { tenantId, workspaceId: "workspace_app_builder", environment: "dev" };
+  const t = [
+    "2026-06-16T09:14:00.000Z",
+    "2026-06-16T09:14:02.000Z",
+    "2026-06-16T09:14:04.000Z",
+    "2026-06-16T09:14:06.000Z",
+    "2026-06-16T09:14:08.000Z",
+    "2026-06-16T09:14:10.000Z",
+    "2026-06-16T09:14:12.000Z",
+    "2026-06-16T09:14:14.000Z",
+    "2026-06-16T09:14:16.000Z",
+  ] as const;
+
+  const recorder = createProvenanceRecorder({
+    recordEvent: (input) => store.recordEvent(input),
+    recordEdge: (input) => store.recordEdge(input),
+  });
+
+  const { session } = await recorder.startSession({
+    scope,
+    sessionId: "agt_sess_recorder_01",
+    initiatedBy: { type: "user", id: "usr_builder" },
+    agentActor: { type: "ai_agent", id: "agent_opencode" },
+    agent: { name: "opencode", version: "1.17" },
+    model: { provider: "anthropic", name: "claude-opus-4-8" },
+    occurredAt: t[0],
+    purpose: "change_provenance",
+    retention: "change_1y",
+    dataCategories: ["source_reference"],
+    repository: { provider: "github", id: "getveritio/app-builder" },
+    branch: "feat/error-toasts",
+    policyHash: "sha256:opencode_policy_v1",
+    configHash: "sha256:provider_config_v1",
+    sandbox: { type: "container", id: "sandbox_app_builder_01" },
+    promptHash: "sha256:prompt_track_error_toasts",
+    requestId: "req_track_error_toasts",
+  });
+
+  await session.recordPrompt({
+    occurredAt: t[1],
+    promptHash: "sha256:prompt_track_error_toasts",
+    contextHashes: ["sha256:context_repo_slice"],
+  });
+  await session.recordToolCall({
+    occurredAt: t[2],
+    toolCallId: "tool_apply_edits_01",
+    tool: "apply_edits",
+    status: "succeeded",
+    approval: "auto_allowed",
+    inputHash: "sha256:apply_edits_input",
+    reads: [{ id: "file_readme", pathHash: "sha256:path_readme" }],
+  });
+  await session.recordChangeProposal({
+    occurredAt: t[3],
+    proposalId: "proposal_safe_toasts_01",
+    baseVersion: 41,
+    resultVersion: 42,
+    proposalSignature: "sha256:proposal_safe_toasts_01",
+    acceptedPathHashes: ["sha256:path_build_shared", "sha256:path_deployments_tab"],
+    rejectedFiles: [{ id: "file_package_lock", pathHash: "sha256:path_package_lock" }],
+    createdHunks: [
+      {
+        id: "hunk_build_shared_01",
+        hash: "sha256:hunk_build_shared_01",
+        fileId: "file_build_shared",
+        pathHash: "sha256:path_build_shared",
+      },
+    ],
+  });
+  await session.recordFileChange({
+    occurredAt: t[4],
+    sourceTreeId: "source_tree_app_builder_dev",
+    baseVersion: 41,
+    resultVersion: 42,
+    rootHash: "sha256:root_after_safe_toasts",
+    manifestDigest: "sha256:manifest_after_safe_toasts",
+    changedBy: { type: "tool_call", id: "tool_apply_edits_01" },
+    causedByProposalId: "proposal_safe_toasts_01",
+    files: [
+      {
+        id: "file_build_shared",
+        pathHash: "sha256:path_build_shared",
+        beforeHash: "sha256:before_build_shared",
+        afterHash: "sha256:after_build_shared",
+        hunkHashes: ["sha256:hunk_build_shared_01"],
+        action: "upsert",
+      },
+      {
+        id: "file_deployments_tab",
+        pathHash: "sha256:path_deployments_tab",
+        beforeHash: "sha256:before_deployments_tab",
+        afterHash: "sha256:after_deployments_tab",
+        action: "upsert",
+      },
+    ],
+  });
+  await session.recordReview({
+    occurredAt: t[5],
+    pullRequestId: "pr_safe_toasts_01",
+    reviewer: { type: "user", id: "usr_reviewer" },
+    proposalId: "proposal_safe_toasts_01",
+    approvalHash: "sha256:approval_safe_toasts",
+    decision: "approved",
+    findingCount: 0,
+    waiverCount: 0,
+  });
+  await session.recordCiRun({
+    occurredAt: t[6],
+    ciRunId: "ci_safe_toasts_01",
+    service: { type: "service", id: "svc_ci" },
+    status: "succeeded",
+    checks: ["typecheck", "unit", "diff-check"],
+    artifactId: "artifact_safe_toasts_01",
+    artifactHash: "sha256:artifact_safe_toasts",
+    derivedFromFiles: [{ id: "file_build_shared", pathHash: "sha256:path_build_shared" }],
+  });
+  await session.recordDeployment({
+    occurredAt: t[7],
+    deploymentId: "dep_safe_toasts_01",
+    service: { type: "service", id: "svc_deploy_worker" },
+    artifactId: "artifact_safe_toasts_01",
+    bundleHash: "sha256:bundle_safe_toasts",
+    sourceHash: "sha256:source_safe_toasts",
+    policyId: "policy_prod_deploy",
+    policyRequirements: ["human_approval", "ci_passed", "artifact_attestation"],
+  });
+  await session.recordRuntimeEvent({
+    occurredAt: t[8],
+    runtimeEventId: "runtime_safe_toast_01",
+    actor: { type: "user", id: "usr_reviewer" },
+    action: "audit.runtime.observed",
+    deploymentId: "dep_safe_toasts_01",
+    routeHash: "sha256:route_app_settings_deployments",
+    observedOutcome: "sanitized_error_copy",
+  });
+
+  return {
+    tenantId,
+    graph: await store.getEvidenceGraph({ tenantId }),
+    verification: await store.verify({ tenantId }),
+    exportPreview: await store.previewExportBundle({ tenantId }),
+  };
+}
+
+/**
  * Creates a fetch-compatible Workbench app around an injected LocalEvidenceStore.
  * The app boundary keeps storage injection explicit for tests and CLI startup.
  */
@@ -873,11 +1041,15 @@ export async function handleMcpRequest(
   try {
     switch (name) {
       case "veritio.list_events":
-        return rpcResult(id, { records: await store.listEvents({ tenantId: requireTenantArg(args) }, listOptions(args)) });
+        return rpcResult(id, {
+          records: await store.listEvents({ tenantId: requireTenantArg(args) }, listOptions(args)),
+        });
       case "veritio.get_event":
         return rpcResult(id, { record: await store.getEvent(requireString(args.id, "id")) });
       case "veritio.list_edges":
-        return rpcResult(id, { records: await store.listEdges({ tenantId: requireTenantArg(args) }, listOptions(args)) });
+        return rpcResult(id, {
+          records: await store.listEdges({ tenantId: requireTenantArg(args) }, listOptions(args)),
+        });
       case "veritio.get_evidence_graph":
         return rpcResult(id, { graph: await store.getEvidenceGraph(graphQuery(args)) });
       case "veritio.verify_chain":
@@ -888,6 +1060,11 @@ export async function handleMcpRequest(
         return rpcResult(id, await runIntegrationScenario(store, scenarioOptions(optionalString(args.tenantId))));
       case "veritio.run_change_provenance_scenario":
         return rpcResult(id, await runChangeProvenanceScenario(store, scenarioOptions(optionalString(args.tenantId))));
+      case "veritio.run_recorder_provenance_scenario":
+        return rpcResult(
+          id,
+          await runRecorderProvenanceScenario(store, scenarioOptions(optionalString(args.tenantId))),
+        );
       case "veritio.record_event":
         return rpcResult(id, { record: await store.recordEvent(args as unknown as AuditEventInput) });
       case "veritio.record_edge":
@@ -921,7 +1098,9 @@ async function handleWorkbenchRequest(
     }
     if (url.pathname === "/v1/events") {
       if (request.method === "GET") {
-        return jsonResponse({ records: await store.listEvents({ tenantId: requireTenantParam(url) }, listOptionsFromUrl(url)) });
+        return jsonResponse({
+          records: await store.listEvents({ tenantId: requireTenantParam(url) }, listOptionsFromUrl(url)),
+        });
       }
       if (request.method === "POST") {
         return jsonResponse({ record: await store.recordEvent((await request.json()) as AuditEventInput) }, 201);
@@ -929,7 +1108,9 @@ async function handleWorkbenchRequest(
     }
     if (url.pathname === "/v1/edges") {
       if (request.method === "GET") {
-        return jsonResponse({ records: await store.listEdges({ tenantId: requireTenantParam(url) }, listOptionsFromUrl(url)) });
+        return jsonResponse({
+          records: await store.listEdges({ tenantId: requireTenantParam(url) }, listOptionsFromUrl(url)),
+        });
       }
       if (request.method === "POST") {
         return jsonResponse({ record: await store.recordEdge((await request.json()) as EvidenceEdgeInput) }, 201);
@@ -952,6 +1133,10 @@ async function handleWorkbenchRequest(
     if (request.method === "POST" && url.pathname === "/v1/scenarios/change-provenance") {
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       return jsonResponse(await runChangeProvenanceScenario(store, scenarioOptions(optionalString(body.tenantId))));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/scenarios/recorder") {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      return jsonResponse(await runRecorderProvenanceScenario(store, scenarioOptions(optionalString(body.tenantId))));
     }
     if (request.method === "POST" && url.pathname === "/mcp") {
       const body = (await request.json()) as McpRequest;
@@ -994,6 +1179,7 @@ function renderWorkbenchHtml(): string {
       <h2>Local Actions</h2>
       <button id="scenario">Run integration scenario</button>
       <button id="change-provenance">Run change provenance tree</button>
+      <button id="recorder">Run recorder provenance (agent canvas)</button>
       <button id="refresh">Refresh graph</button>
     </aside>
     <section class="stack">
@@ -1019,6 +1205,10 @@ function renderWorkbenchHtml(): string {
       const response = await fetch("/v1/scenarios/change-provenance", { method: "POST", body: JSON.stringify({ tenantId }) });
       output.textContent = JSON.stringify(await response.json(), null, 2);
     });
+    document.getElementById("recorder").addEventListener("click", async () => {
+      const response = await fetch("/v1/scenarios/recorder", { method: "POST", body: JSON.stringify({ tenantId }) });
+      output.textContent = JSON.stringify(await response.json(), null, 2);
+    });
     document.getElementById("refresh").addEventListener("click", showGraph);
   </script>
 </body>
@@ -1029,7 +1219,11 @@ function renderWorkbenchHtml(): string {
  * Converts Node IncomingMessage/ServerResponse objects into Fetch Request and
  * Response objects so the app can be tested through a single fetch boundary.
  */
-async function handleNodeRequest(app: WorkbenchApp, incoming: IncomingMessage, outgoing: ServerResponse): Promise<void> {
+async function handleNodeRequest(
+  app: WorkbenchApp,
+  incoming: IncomingMessage,
+  outgoing: ServerResponse,
+): Promise<void> {
   try {
     const body = await readIncomingBody(incoming);
     const headers = new Headers();

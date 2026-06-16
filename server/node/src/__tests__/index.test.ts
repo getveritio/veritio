@@ -5,6 +5,7 @@ import {
   handleMcpRequest,
   runChangeProvenanceScenario,
   runIntegrationScenario,
+  runRecorderProvenanceScenario,
 } from "../index";
 
 const tenantId = "org_local_123";
@@ -74,9 +75,11 @@ describe("LocalEvidenceStore", () => {
     const bundle = await store.previewExportBundle({ tenantId });
     expect(bundle.manifest.recordCounts).toEqual({ events: 1, edges: 1 });
     expect(bundle.manifest.verification.ok).toBe(true);
-    expect(bundle.eventsJsonl).toContain("\"id\":\"evt_local_01\"");
-    expect(bundle.edgesJsonl).toContain("\"id\":\"edge_local_01\"");
-    expect(bundle.redactionManifest.rules).toContain("metadata keys matching password|secret|token|api[_-]?key|authorization|email|phone|ssn are replaced with [redacted]");
+    expect(bundle.eventsJsonl).toContain('"id":"evt_local_01"');
+    expect(bundle.edgesJsonl).toContain('"id":"edge_local_01"');
+    expect(bundle.redactionManifest.rules).toContain(
+      "metadata keys matching password|secret|token|api[_-]?key|authorization|email|phone|ssn are replaced with [redacted]",
+    );
 
     await store.reset();
     expect(await store.listEvents({ tenantId })).toEqual([]);
@@ -127,6 +130,45 @@ describe("LocalEvidenceStore", () => {
         "observed_in",
       ]),
     );
+  });
+
+  test("runs the same provenance graph through the createProvenanceRecorder API", async () => {
+    const store = new LocalEvidenceStore();
+
+    const result = await runRecorderProvenanceScenario(store, { tenantId });
+
+    expect(result.verification.ok).toBe(true);
+    expect(result.graph.nodes.map((node) => node.type)).toEqual(
+      expect.arrayContaining([
+        "actor",
+        "agent_session",
+        "tool_call",
+        "file",
+        "diff_hunk",
+        "deployment",
+        "runtime_event",
+      ]),
+    );
+    // The enforcing human is reachable from the session via a caused_by edge, and
+    // the recorder emits the full downstream relation set without a schema change.
+    expect(result.graph.edges.map((edge) => edge.relation)).toEqual(
+      expect.arrayContaining([
+        "caused_by",
+        "created",
+        "read",
+        "modified",
+        "part_of",
+        "approved_by",
+        "built_by",
+        "deployed_as",
+        "satisfies_policy",
+        "observed_in",
+      ]),
+    );
+    const sessionToHuman = result.graph.edges.some(
+      (edge) => edge.from === "agt_sess_recorder_01" && edge.relation === "caused_by" && edge.to === "usr_builder",
+    );
+    expect(sessionToHuman).toBe(true);
   });
 });
 
