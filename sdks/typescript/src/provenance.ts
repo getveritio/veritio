@@ -626,11 +626,20 @@ function makeSession(
     },
 
     async recordReview(input) {
-      const isWaiver = input.decision === "waived";
+      // The edge relation must reflect the decision: a changes-requested review is
+      // NOT an approval, so it links via `reviewed_by` (recording that the human
+      // reviewed it) — never `approved_by`, which would falsely assert approval of
+      // rejected work.
+      const reviewRelation: EvidenceEdgeRelation =
+        input.decision === "waived"
+          ? "waived_by"
+          : input.decision === "changes_requested"
+            ? "reviewed_by"
+            : "approved_by";
       const action =
         input.decision === "changes_requested"
           ? "review.finding.created"
-          : isWaiver
+          : input.decision === "waived"
             ? "review.waiver.recorded"
             : "review.approval.recorded";
       const event = await sinks.recordEvent(
@@ -656,7 +665,7 @@ function makeSession(
           await edge(
             input.occurredAt,
             { type: "resource", id: input.proposalId, resourceType: "change_proposal" },
-            isWaiver ? "waived_by" : "approved_by",
+            reviewRelation,
             actorEntity(input.reviewer),
             compact({ approvalHash: input.approvalHash }),
           ),

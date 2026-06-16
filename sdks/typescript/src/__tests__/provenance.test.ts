@@ -161,6 +161,22 @@ describe("provenance downstream recording", () => {
     expect(rel).toContain("approved_by:usr_reviewer");
   });
 
+  test("a changes-requested review records a finding + reviewed_by, never approved_by", async () => {
+    const recorder = createProvenanceRecorder(makeSinks());
+    const { session } = await startBasicSession(recorder);
+    const { event, edges } = await session.recordReview({
+      pullRequestId: "pr_cr",
+      reviewer: { type: "user", id: "usr_reviewer" },
+      proposalId: "proposal_cr",
+      decision: "changes_requested",
+      findingCount: 2,
+    });
+    expect(event.event.action).toBe("review.finding.created");
+    const rels = edges.map((e) => e.edge.relation);
+    expect(rels).toContain("reviewed_by");
+    expect(rels).not.toContain("approved_by");
+  });
+
   test("ci + deploy + runtime emit built_by/deployed_as/observed_in", async () => {
     const recorder = createProvenanceRecorder(makeSinks());
     const { session } = await startBasicSession(recorder);
