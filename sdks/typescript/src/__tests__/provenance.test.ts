@@ -80,6 +80,7 @@ describe("createProvenanceRecorder.startSession", () => {
     expect(result.event.event.target).toEqual({ type: "agent_session", id: "agt_sess_01" });
     expect(result.event.event.metadata.agent).toEqual({ name: "opencode", version: "1.17" });
     expect(result.event.event.metadata.model).toEqual({ provider: "anthropic", name: "claude-opus-4-8" });
+    expect(result.event.event.metadata.sessionId).toBe("agt_sess_01");
 
     expect(result.edges).toHaveLength(1);
     const edge = result.edges[0]!.edge;
@@ -123,6 +124,8 @@ describe("provenance session change recording", () => {
     });
     expect(event.event.action).toBe("agent.tool.called");
     expect(event.event.target).toEqual({ type: "tool_call", id: "tool_01" });
+    // Every session-emitted event carries metadata.sessionId for group-by reads.
+    expect(event.event.metadata.sessionId).toBe("agt_sess_01");
     const rels = edges.map((e) => `${e.edge.from.type}:${e.edge.relation}:${e.edge.to.type}`);
     expect(rels).toContain("agent_session:created:tool_call");
     expect(rels).toContain("tool_call:modified:file");
@@ -251,6 +254,21 @@ describe("provenance privacy + semantics", () => {
     });
     expect(again.event.event.id).toBe(first.event.event.id);
     expect(again.event.event.metadata).toEqual(first.event.event.metadata);
+  });
+
+  test("metadata.sessionId is stamped on every event and cannot be shadowed by caller metadata", async () => {
+    const recorder = createProvenanceRecorder(makeSinks());
+    const { session } = await startBasicSession(recorder);
+    const prompt = await session.recordPrompt({ promptHash: "sha256:prompt" });
+    expect(prompt.event.event.metadata.sessionId).toBe("agt_sess_01");
+    // A caller trying to spoof a different session id is overridden.
+    const tool = await session.recordToolCall({
+      toolCallId: "tool_spoof",
+      tool: "fetch",
+      status: "succeeded",
+      metadata: { sessionId: "agt_sess_OTHER" },
+    });
+    expect(tool.event.event.metadata.sessionId).toBe("agt_sess_01");
   });
 
   test("file deletions are recorded with the deleted relation, not modified", async () => {

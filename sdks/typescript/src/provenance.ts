@@ -9,6 +9,16 @@
  * recordEvent/recordEdge sinks, so the SDK core never reads environment state.
  * The enforcing human is linked to the session through a caused_by edge (one
  * hop) instead of an audit-event field, keeping the event shape stable.
+ *
+ * Every event a session emits carries `metadata.sessionId === <sessionId>` (a
+ * non-PII recorder convention, not an event-schema field) so a reader can group
+ * a session's events with a simple group-by instead of graph traversal — the
+ * downstream change/review/ci/deploy/runtime events target isolated or shared
+ * entities (source_tree, pull_request, shared files) and cannot otherwise be
+ * attributed to one session from the edge graph alone. Callers cannot shadow it:
+ * it is applied after any caller-supplied metadata. This is currently TS-only
+ * (only the TS recorder exists); the Python/Go recorders must stamp the same key
+ * when implemented (see .claude/rules/02-sdk-parity.md).
  * Provider/model identity uses the canonical nested shape
  * agent:{name,version} + model:{provider,name}. See
  * docs/superpowers/specs/2026-06-16-agent-provenance-recorder-design.md.
@@ -322,6 +332,8 @@ export function createProvenanceRecorder(sinks: ProvenanceSinks): ProvenanceReco
         promptHash: input.promptHash,
         contextHashes: input.contextHashes,
         ...input.metadata,
+        // Stamped last so a caller's metadata can never shadow the session id.
+        sessionId: input.sessionId,
       });
 
       const eventInput: AuditEventInput = {
@@ -418,7 +430,17 @@ function makeSession(
     target: { type: string; id: string },
     metadata: Record<string, unknown>,
   ): AuditEventInput {
-    const eventInput: AuditEventInput = { id, scope, actor, action, target, purpose: ctx.purpose, metadata };
+    // Stamp the session id on every event the session emits (after the caller's
+    // metadata so it cannot be shadowed) for group-by-session reads.
+    const eventInput: AuditEventInput = {
+      id,
+      scope,
+      actor,
+      action,
+      target,
+      purpose: ctx.purpose,
+      metadata: { ...metadata, sessionId },
+    };
     if (occurredAt !== undefined) {
       eventInput.occurredAt = occurredAt;
     }
