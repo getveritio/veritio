@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Veritio · Provenance Canvas — a user's day</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{
+  --background:0 0% 100%;
+  --foreground:240 10% 3.9%;
+  --card:0 0% 100%;
+  --muted:240 4.8% 95.9%;
+  --muted-foreground:240 3.8% 46.1%;
+  --border:240 5.9% 90%;
+  --primary:240 5.9% 10%;
+  --primary-foreground:0 0% 98%;
+  --ring:240 5% 64.9%;
+  --radius:0.65rem;
+  --grid:240 6% 86%;
+  --sans:"Geist",system-ui,sans-serif;
+  --mono:"Geist Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;font-family:var(--sans);color:hsl(var(--foreground));
+  background:hsl(var(--background));overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---- canvas / world ---- */
+.canvas{
+  position:absolute;inset:0;overflow:hidden;cursor:grab;
+  background-color:hsl(0 0% 99%);
+  background-image:radial-gradient(hsl(var(--grid)) 1px, transparent 1px);
+  background-size:24px 24px;background-position:0 0;
+  touch-action:none;
+}
+.canvas.grabbing{cursor:grabbing}
+.world{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform}
+.edges{position:absolute;top:0;left:0;overflow:visible;pointer-events:none}
+
+/* lane bands + labels (svg) */
+.band{fill:hsl(240 20% 50% / .025)}
+.lane-label{font-family:var(--mono);font-size:12px;fill:hsl(var(--muted-foreground));letter-spacing:.02em}
+.lane-time{font-family:var(--mono);font-size:20px;font-weight:500;fill:hsl(var(--foreground))}
+
+/* edges */
+.edge{fill:none;stroke:hsl(240 5% 78%);stroke-width:1.5;transition:opacity .2s,stroke .2s}
+.edge.cross{stroke:hsl(221 65% 60%);stroke-dasharray:1.5 4;stroke-width:1.5}
+.edge.feedback{stroke:hsl(350 68% 60%);stroke-dasharray:5 4;stroke-width:1.75}
+.edge.dim{opacity:.07}
+.elabel{font-family:var(--mono);font-size:10.5px;fill:hsl(var(--muted-foreground))}
+.elabel-bg{fill:hsl(0 0% 99%)}
+.elabel.cross{fill:hsl(221 60% 52%)} .elabel.feedback{fill:hsl(350 60% 52%)}
+.elabel.dim,.elabel-bg.dim{opacity:.07}
+
+/* nodes */
+.node{
+  position:absolute;width:194px;background:hsl(var(--card));
+  border:1px solid hsl(var(--border));border-radius:var(--radius);
+  padding:11px 12px 12px;cursor:grab;user-select:none;
+  box-shadow:0 1px 2px hsl(240 10% 10% / .05);
+  transition:box-shadow .15s,border-color .15s,opacity .2s,filter .2s;
+}
+.node:hover{border-color:hsl(240 5% 74%);box-shadow:0 6px 18px hsl(240 10% 10% / .09)}
+.node.sel{border-color:hsl(var(--foreground));box-shadow:0 0 0 1px hsl(var(--foreground)),0 10px 28px hsl(240 10% 10% / .12)}
+.node.dragging{cursor:grabbing;box-shadow:0 14px 32px hsl(240 10% 10% / .16)}
+.node.dim{opacity:.14;pointer-events:none;filter:grayscale(.4)}
+.node .top{display:flex;align-items:center;gap:7px}
+.node .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.node .cat{font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.07em;color:hsl(var(--muted-foreground));text-transform:uppercase}
+.node .title{font-weight:600;font-size:13px;line-height:1.3;margin-top:7px;letter-spacing:-.01em}
+.node .sub{font-family:var(--mono);font-size:11px;color:hsl(var(--muted-foreground));margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node.user{width:212px;border-color:hsl(262 50% 70%);box-shadow:0 2px 10px hsl(262 50% 50% / .12)}
+
+/* top bar */
+.bar{position:absolute;top:14px;left:14px;right:14px;display:flex;gap:12px;align-items:center;z-index:20;flex-wrap:wrap}
+.brand{display:flex;flex-direction:column;line-height:1.15;padding-right:6px}
+.brand b{font-size:14px;font-weight:600;letter-spacing:-.01em}
+.brand span{font-family:var(--mono);font-size:10.5px;color:hsl(var(--muted-foreground))}
+.panelbox{background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:var(--radius);box-shadow:0 1px 2px hsl(240 10% 10% / .05)}
+.chips{display:flex;gap:3px;padding:4px}
+.chip{font-size:12px;font-weight:500;padding:6px 11px;border-radius:calc(var(--radius) - 3px);color:hsl(var(--muted-foreground));cursor:pointer;border:0;background:transparent;font-family:var(--sans);transition:background .15s,color .15s;white-space:nowrap}
+.chip:hover{background:hsl(var(--muted));color:hsl(var(--foreground))}
+.chip.active{background:hsl(var(--primary));color:hsl(var(--primary-foreground))}
+.chip .pdot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;vertical-align:middle}
+.hint{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:hsl(var(--muted-foreground));padding:7px 12px}
+.hint kbd{font-family:var(--mono);background:hsl(var(--muted));border:1px solid hsl(var(--border));border-radius:4px;padding:1px 5px;font-size:10px}
+
+/* controls */
+.controls{position:absolute;bottom:16px;right:16px;z-index:20;display:flex;gap:6px;align-items:center}
+.btn{width:34px;height:34px;display:flex;align-items:center;justify-content:center;background:hsl(var(--card));border:1px solid hsl(var(--border));border-radius:calc(var(--radius) - 2px);cursor:pointer;font-size:16px;color:hsl(var(--foreground));box-shadow:0 1px 2px hsl(240 10% 10% / .05);transition:background .15s}
+.btn:hover{background:hsl(var(--muted))}
+.btn.wide{width:auto;padding:0 12px;font-size:12px;font-weight:500;font-family:var(--mono)}
+.zoomval{font-family:var(--mono);font-size:11px;color:hsl(var(--muted-foreground));min-width:42px;text-align:center}
+
+/* legend */
+.legend{position:absolute;bottom:16px;left:16px;z-index:20;padding:12px 14px;max-width:230px}
+.legend h5{margin:0 0 9px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:500}
+.legrow{display:flex;align-items:center;gap:8px;font-size:11.5px;color:hsl(var(--foreground));padding:2.5px 0;font-family:var(--mono)}
+.legrow .d{width:9px;height:9px;border-radius:50%;flex:none}
+.legrow .ln{width:18px;height:0;border-top:2px solid;flex:none}
+.legdiv{height:1px;background:hsl(var(--border));margin:9px 0}
+
+/* detail */
+.detail{position:absolute;top:74px;right:16px;width:288px;z-index:20;padding:16px;display:none}
+.detail.show{display:block;animation:pop .18s ease}
+@keyframes pop{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.detail .dcat{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.detail .dcat .dot{width:8px;height:8px;border-radius:50%}
+.detail .dtitle{font-size:17px;font-weight:600;letter-spacing:-.015em;margin:10px 0 2px}
+.detail .dsub{font-family:var(--mono);font-size:11.5px;color:hsl(var(--muted-foreground))}
+.detail .scopes{display:flex;flex-wrap:wrap;gap:5px;margin:13px 0}
+.detail .scope{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;background:hsl(var(--muted));color:hsl(var(--foreground))}
+.detail .fields{border-top:1px solid hsl(var(--border));margin-top:4px}
+.detail .f{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid hsl(var(--border))}
+.detail .f .k{font-family:var(--mono);font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:hsl(var(--muted-foreground));flex:none}
+.detail .f .v{font-family:var(--mono);font-size:11.5px;text-align:right;word-break:break-all}
+.detail .f .v.hash{color:hsl(142 55% 34%)}
+.detail .dclose{position:absolute;top:12px;right:12px;cursor:pointer;color:hsl(var(--muted-foreground));font-size:15px;line-height:1;border:0;background:none}
+
+/* ---- sheet (code changes / diff) ---- */
+.sheet-backdrop{position:fixed;inset:0;background:hsl(240 10% 4% / .45);opacity:0;pointer-events:none;transition:opacity .22s;z-index:40}
+.sheet-backdrop.open{opacity:1;pointer-events:auto}
+.sheet{position:fixed;top:0;right:0;bottom:0;width:min(680px,94vw);background:hsl(var(--card));border-left:1px solid hsl(var(--border));box-shadow:-24px 0 60px hsl(240 10% 10% / .20);transform:translateX(100%);transition:transform .28s cubic-bezier(.32,.82,.3,1);z-index:41;display:flex;flex-direction:column}
+.sheet.open{transform:none}
+.sheet-head{padding:22px 24px 16px;border-bottom:1px solid hsl(var(--border));position:relative}
+.sheet-head .scat{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:hsl(var(--muted-foreground))}
+.sheet-head .scat .dot{width:8px;height:8px;border-radius:50%}
+.sheet-head h3{margin:10px 0 3px;font-size:20px;font-weight:600;letter-spacing:-.02em}
+.sheet-head .sdesc{font-family:var(--mono);font-size:11.5px;color:hsl(var(--muted-foreground))}
+.sheet-head .smeta{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.sheet-head .smeta .m{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:6px;background:hsl(var(--muted));color:hsl(var(--foreground))}
+.sheet-head .smeta .m.tag{background:hsl(262 60% 96%);color:hsl(262 48% 46%)}
+.sheet-close{position:absolute;top:18px;right:18px;width:30px;height:30px;border-radius:7px;border:1px solid hsl(var(--border));background:hsl(var(--card));cursor:pointer;font-size:13px;color:hsl(var(--muted-foreground));transition:background .15s}
+.sheet-close:hover{background:hsl(var(--muted))}
+.sheet-body{overflow:auto;flex:1}
+.dfile-h{position:sticky;top:0;background:hsl(0 0% 99% / .92);backdrop-filter:blur(6px);border-bottom:1px solid hsl(var(--border));padding:11px 24px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;z-index:1}
+.dfile-h .p{font-family:var(--mono);font-size:12.5px;font-weight:500}
+.dfile-h .stat{font-family:var(--mono);font-size:11px}
+.dfile-h .stat .a{color:hsl(142 60% 34%)} .dfile-h .stat .d{color:hsl(0 65% 48%)}
+.dfile-h .h{font-family:var(--mono);font-size:10px;color:hsl(142 50% 30%);background:hsl(142 50% 95%);border:1px solid hsl(142 40% 86%);border-radius:5px;padding:1px 7px}
+.code{font-family:var(--mono);font-size:12px;line-height:1.65;padding:6px 0 16px}
+.cl{display:flex;white-space:pre}
+.cl .g{width:44px;flex:none;text-align:right;padding-right:14px;color:hsl(var(--muted-foreground));user-select:none}
+.cl .s{width:15px;flex:none;text-align:center}
+.cl .t{flex:1;padding-right:20px;color:hsl(240 6% 26%)}
+.cl.h{background:hsl(221 70% 96%)} .cl.h .t{color:hsl(221 58% 46%)} .cl.h .g{color:hsl(221 50% 62%)}
+.cl.add{background:hsl(142 64% 96%)} .cl.add .s,.cl.add .g{color:hsl(142 52% 38%)} .cl.add .t{color:hsl(142 38% 22%)}
+.cl.del{background:hsl(0 72% 97%)} .cl.del .s,.cl.del .g{color:hsl(0 60% 50%)} .cl.del .t{color:hsl(0 42% 34%)}
+.sheet-empty{padding:42px 26px;color:hsl(var(--muted-foreground));font-size:13.5px;line-height:1.7}
+.sheet-empty b{color:hsl(var(--foreground))}
+.sheet-foot{border-top:1px solid hsl(var(--border));padding:12px 24px;font-family:var(--mono);font-size:10.5px;color:hsl(var(--muted-foreground))}
+/* sheet record / custom-field section */
+.sheet-sec{padding:18px 24px}
+.sheet-sec h4{margin:0 0 12px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:500}
+.codeh{margin:0;padding:18px 24px 10px;font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:hsl(var(--muted-foreground));font-weight:500;border-top:1px solid hsl(var(--border))}
+.kv2 .r{display:flex;justify-content:space-between;gap:14px;padding:7px 0;border-top:1px solid hsl(var(--border))}
+.kv2 .r:first-child{border-top:0}
+.kv2 .k{font-family:var(--mono);font-size:10px;letter-spacing:.02em;text-transform:uppercase;color:hsl(var(--muted-foreground));flex:none;padding-top:1px}
+.kv2 .v{font-family:var(--mono);font-size:12px;text-align:right;word-break:break-all}
+.kv2 .v.hash{color:hsl(142 52% 34%)}
+/* canvas node code-change badge */
+.node .codeflag{margin-left:auto;font-family:var(--mono);font-size:9.5px;font-weight:500;color:hsl(142 52% 36%);background:hsl(142 60% 95%);border:1px solid hsl(142 45% 84%);border-radius:5px;padding:0 5px;line-height:1.55}
+/* identity (human principal) + agent cards */
+.idcard{display:flex;gap:13px;align-items:center}
+.avatar{width:46px;height:46px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:14.5px;letter-spacing:.02em;box-shadow:0 0 0 1.5px hsl(0 0% 100%) inset,0 0 0 1px hsl(var(--border)),0 3px 9px hsl(240 10% 10% / .16)}
+.idmeta{min-width:0}
+.idname{font-size:15px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.idrole{font-family:var(--mono);font-size:10px;font-weight:400;color:hsl(var(--muted-foreground));letter-spacing:.02em}
+.idline{font-family:var(--mono);font-size:11.5px;color:hsl(var(--muted-foreground));margin-top:3px}
+.idsub{margin-top:14px}
+.agentcard{display:flex;gap:11px;align-items:center;padding:10px 11px;border:1px solid hsl(var(--border));border-radius:10px;background:hsl(262 60% 98.5%)}
+.agenticon{width:34px;height:34px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;background:hsl(262 55% 94%);color:hsl(262 50% 52%);font-size:16px}
+.agentmeta{min-width:0}
+.agentname{font-size:13px;font-weight:600;display:flex;align-items:center;gap:7px}
+.abadge{font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;text-transform:uppercase;color:hsl(262 48% 48%);background:hsl(262 60% 95%);border:1px solid hsl(262 45% 88%);border-radius:4px;padding:1px 5px}
+</style>
+</head>
+<body>
+
+<div class="canvas" id="canvas">
+  <div class="world" id="world">
+    <svg class="edges" id="edges" width="2520" height="1120"></svg>
+    <!-- nodes injected here -->
+  </div>
+</div>
+
+<!-- top bar -->
+<div class="bar">
+  <div class="brand">
+    <b>Veritio · Provenance Canvas</b>
+    <span>usr_builder · one working day · 2026-06-15</span>
+  </div>
+  <div class="panelbox chips" id="chips">
+    <button class="chip active" data-tag="">All</button>
+    <button class="chip" data-tag="proj:app-builder"><span class="pdot" style="background:hsl(221 60% 55%)"></span>app-builder</button>
+    <button class="chip" data-tag="proj:marketing-site"><span class="pdot" style="background:hsl(38 80% 50%)"></span>marketing-site</button>
+    <button class="chip" data-tag="sess:A">Session A</button>
+    <button class="chip" data-tag="sess:B">Session B</button>
+    <button class="chip" data-tag="sess:C">Session C</button>
+  </div>
+  <div class="hint"><kbd>drag</kbd> pan · <kbd>scroll</kbd> zoom · <kbd>click</kbd> inspect · <kbd>⌘/⌃-click</kbd> diffs</div>
+</div>
+
+<!-- legend -->
+<div class="legend panelbox">
+  <h5>Node types</h5>
+  <div class="legrow"><span class="d" style="background:hsl(262 52% 57%)"></span>user / actor</div>
+  <div class="legrow"><span class="d" style="background:hsl(221 60% 55%)"></span>agent session</div>
+  <div class="legrow"><span class="d" style="background:hsl(38 80% 50%)"></span>data fetch (read / query)</div>
+  <div class="legrow"><span class="d" style="background:hsl(142 50% 42%)"></span>change · edit · file</div>
+  <div class="legrow"><span class="d" style="background:hsl(243 60% 60%)"></span>review · ci · deploy</div>
+  <div class="legrow"><span class="d" style="background:hsl(350 65% 55%)"></span>runtime · failure</div>
+  <div class="legdiv"></div>
+  <h5>Links</h5>
+  <div class="legrow"><span class="ln" style="border-color:hsl(240 5% 70%)"></span>provenance flow</div>
+  <div class="legrow"><span class="ln" style="border-color:hsl(221 65% 60%);border-top-style:dashed"></span>same file, 2 sessions</div>
+  <div class="legrow"><span class="ln" style="border-color:hsl(350 68% 60%);border-top-style:dashed"></span>caused_by (feedback)</div>
+</div>
+
+<!-- detail -->
+<div class="detail panelbox" id="detail">
+  <button class="dclose" id="dclose">✕</button>
+  <div id="detailBody"></div>
+</div>
+
+<!-- sheet: code changes / diffs (⌘/ctrl-click or right-click a node) -->
+<div class="sheet-backdrop" id="sheetBackdrop"></div>
+<aside class="sheet" id="sheet" aria-hidden="true">
+  <div class="sheet-head" id="sheetHead"></div>
+  <button class="sheet-close" id="sheetClose">✕</button>
+  <div class="sheet-body" id="sheetBody"></div>
+  <div class="sheet-foot">change.files.changed · hash-anchored · raw diff stored as encrypted payload reference</div>
+</aside>
+
+<!-- controls -->
+<div class="controls">
+  <button class="btn wide" id="fit">Fit</button>
+  <button class="btn" id="zoomOut">−</button>
+  <span class="zoomval" id="zoomVal">100%</span>
+  <button class="btn" id="zoomIn">+</button>
+</div>
+
+<script>
+const CAT={
+  user:"hsl(262 52% 57%)", session:"hsl(221 60% 55%)", prompt:"hsl(240 6% 40%)",
+  think:"hsl(262 45% 60%)", fetch:"hsl(38 80% 50%)", edit:"hsl(142 50% 42%)",
+  file:"hsl(173 52% 38%)", proposal:"hsl(240 8% 24%)", review:"hsl(221 55% 52%)",
+  ci:"hsl(142 55% 40%)", cifail:"hsl(350 70% 55%)", deploy:"hsl(243 60% 60%)",
+  runtime:"hsl(350 65% 55%)", fix:"hsl(38 75% 48%)",
+};
+
+/* one user · one day · three agent sessions across two projects */
+const NODES=[
+  {id:"user",x:40,y:520,cat:"user",title:"usr_builder",sub:"Yan · user · 1 working day",always:true,tags:[],
+   fields:[["actor","usr_builder"],["tenant","tenant_app_builder"],["window","09:00–18:00"],["sessions","3 · 2 projects"]]},
+
+  // ---- Session A · app-builder · 09:14 ----
+  {id:"A_sess",x:340,y:150,cat:"session",title:"Agent Session A",sub:"09:14 · opencode · app-builder",tags:["proj:app-builder","sess:A"],
+   fields:[["id","agt_sess_A"],["provider","opencode"],["model","claude…"],["project","app-builder"]]},
+  {id:"A_prompt",x:620,y:90,cat:"prompt",title:"prompt",sub:"“sanitized error toasts”",tags:["proj:app-builder","sess:A"],
+   fields:[["event","agent.prompt_recorded"],["promptHash","#sha256:prompt_toasts"],["raw","enc:vault://…"]]},
+  {id:"A_read",x:620,y:210,cat:"fetch",title:"data fetch · read",sub:"deployments-tab.tsx",tags:["proj:app-builder","sess:A"],
+   fields:[["event","agent.tool.called"],["tool","read"],["inputHash","#sha256:read_deploy"]]},
+  {id:"A_edit1",x:890,y:90,cat:"edit",title:"edit",sub:"build/shared.ts",tags:["proj:app-builder","sess:A"],
+   fields:[["event","change.files.changed"],["beforeHash","#sha256:before_shared"],["afterHash","#sha256:after_shared"]]},
+  {id:"A_edit2",x:890,y:210,cat:"edit",title:"edit",sub:"deployments-tab.tsx",tags:["proj:app-builder","sess:A"],
+   fields:[["event","change.files.changed"],["afterHash","#sha256:after_tab"],["sizeBytes","3921"]]},
+  {id:"A_prop",x:1160,y:150,cat:"proposal",title:"proposal #41→42",sub:"accepted 2 · rejected 1",tags:["proj:app-builder","sess:A"],
+   fields:[["event","change.proposal.created"],["signature","#sha256:prop_A"],["reason","ai_agent"]]},
+  {id:"A_review",x:1420,y:150,cat:"review",title:"review ✓",sub:"usr_reviewer · 0 findings",tags:["proj:app-builder","sess:A"],
+   fields:[["event","review.approval.recorded"],["approvalHash","#sha256:approval_A"]]},
+  {id:"A_ci",x:1680,y:90,cat:"ci",title:"CI ✓",sub:"typecheck · unit",tags:["proj:app-builder","sess:A"],
+   fields:[["event","ci.job.completed"],["status","succeeded"]]},
+  {id:"A_deploy",x:1680,y:210,cat:"deploy",title:"deploy depA",sub:"10:33 · prod",tags:["proj:app-builder","sess:A"],
+   fields:[["event","deploy.deployed"],["bundleHash","#sha256:bundle_A"]]},
+  {id:"A_runtime",x:1950,y:210,cat:"runtime",title:"runtime · error toast",sub:"observed 10:41",tags:["proj:app-builder","sess:A"],
+   fields:[["event","build.error.toast.viewed"],["outcome","unsanitized_leak"],["routeHash","#sha256:route_deploy"]]},
+
+  // ---- Session B · marketing-site · 11:02 ----
+  {id:"B_sess",x:340,y:520,cat:"session",title:"Agent Session B",sub:"11:02 · opencode · marketing-site",tags:["proj:marketing-site","sess:B"],
+   fields:[["id","agt_sess_B"],["provider","opencode"],["project","marketing-site"]]},
+  {id:"B_prompt",x:620,y:460,cat:"prompt",title:"prompt",sub:"“weekly KPI banner”",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","agent.prompt_recorded"],["promptHash","#sha256:prompt_kpi"]]},
+  {id:"B_fetch",x:620,y:580,cat:"fetch",title:"data fetch · query",sub:"read analytics schema",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","agent.tool.called"],["tool","schema_read"],["inputHash","#sha256:schema_kpi"]]},
+  {id:"B_edit",x:890,y:520,cat:"edit",title:"edit",sub:"kpi-banner.tsx",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","change.files.changed"],["afterHash","#sha256:after_kpi"]]},
+  {id:"B_prop",x:1160,y:520,cat:"proposal",title:"proposal #88→89",sub:"accepted 1",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","change.proposal.created"],["signature","#sha256:prop_B"]]},
+  {id:"B_review",x:1420,y:520,cat:"review",title:"review · 1 finding",sub:"usr_reviewer",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","review.finding.created"],["severity","low"]]},
+  {id:"B_cifail",x:1680,y:520,cat:"cifail",title:"CI ✗",sub:"1 test failing",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","ci.check.failed"],["check","unit"]]},
+  {id:"B_fix",x:1920,y:520,cat:"fix",title:"fix",sub:"edit kpi-banner.tsx",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","change.files.changed"],["reason","ai_agent"],["afterHash","#sha256:fix_kpi"]]},
+  {id:"B_deploy",x:2180,y:520,cat:"deploy",title:"deploy depB",sub:"11:58 · prod",tags:["proj:marketing-site","sess:B"],
+   fields:[["event","deploy.deployed"],["bundleHash","#sha256:bundle_B"]]},
+
+  // ---- Session C · app-builder · 14:30 · caused by A_runtime ----
+  {id:"C_sess",x:340,y:880,cat:"session",title:"Agent Session C",sub:"14:30 · opencode · app-builder",tags:["proj:app-builder","sess:C"],
+   fields:[["id","agt_sess_C"],["provider","opencode"],["causedBy","runtime · depA"]]},
+  {id:"C_prompt",x:620,y:880,cat:"prompt",title:"prompt",sub:"“fully sanitize + dismissable”",tags:["proj:app-builder","sess:C"],
+   fields:[["event","agent.prompt_recorded"],["promptHash","#sha256:prompt_fix"]]},
+  {id:"C_edit",x:890,y:880,cat:"edit",title:"edit",sub:"build/shared.ts",tags:["proj:app-builder","sess:C"],
+   fields:[["event","change.files.changed"],["beforeHash","#sha256:after_shared"],["afterHash","#sha256:after_shared_2"]]},
+  {id:"C_prop",x:1160,y:880,cat:"proposal",title:"proposal #42→43",sub:"accepted 1",tags:["proj:app-builder","sess:C"],
+   fields:[["event","change.proposal.created"],["signature","#sha256:prop_C"]]},
+  {id:"C_review",x:1420,y:880,cat:"review",title:"review ✓",sub:"usr_reviewer",tags:["proj:app-builder","sess:C"],
+   fields:[["event","review.approval.recorded"],["approvalHash","#sha256:approval_C"]]},
+  {id:"C_deploy",x:1680,y:880,cat:"deploy",title:"deploy depC",sub:"15:05 · prod",tags:["proj:app-builder","sess:C"],
+   fields:[["event","deploy.deployed"],["bundleHash","#sha256:bundle_C"],["resolves","depA error"]]},
+];
+
+const EDGES=[
+  // user -> sessions
+  ["user","A_sess","started","flow"],
+  ["user","B_sess","started","flow"],
+  ["user","C_sess","started","flow"],
+  // session A
+  ["A_sess","A_prompt","","flow"],["A_sess","A_read","","flow"],
+  ["A_prompt","A_edit1","","flow"],["A_read","A_edit2","","flow"],
+  ["A_edit1","A_prop","","flow"],["A_edit2","A_prop","","flow"],
+  ["A_prop","A_review","","flow"],["A_review","A_ci","","flow"],
+  ["A_ci","A_deploy","","flow"],["A_deploy","A_runtime","observed_in","flow"],
+  // session B
+  ["B_sess","B_prompt","","flow"],["B_sess","B_fetch","","flow"],
+  ["B_prompt","B_edit","","flow"],["B_fetch","B_edit","","flow"],
+  ["B_edit","B_prop","","flow"],["B_prop","B_review","","flow"],
+  ["B_review","B_cifail","","flow"],["B_cifail","B_fix","","flow"],["B_fix","B_deploy","","flow"],
+  // session C
+  ["C_sess","C_prompt","","flow"],["C_prompt","C_edit","","flow"],
+  ["C_edit","C_prop","","flow"],["C_prop","C_review","","flow"],["C_review","C_deploy","","flow"],
+  // cross-session: same file touched in A and C
+  ["A_edit1","C_edit","same file · build/shared.ts","cross"],
+  // feedback: morning runtime error caused the afternoon session
+  ["A_runtime","C_sess","caused_by · depA error","feedback"],
+];
+
+const byId=Object.fromEntries(NODES.map(n=>[n.id,n]));
+const world=document.getElementById("world");
+const svg=document.getElementById("edges");
+const SVGNS="http://www.w3.org/2000/svg";
+const mk=(t,a={})=>{const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+
+/* arrow markers */
+const defs=mk("defs");
+[["arrow","hsl(240 5% 70%)"],["arrow-c","hsl(221 65% 60%)"],["arrow-f","hsl(350 68% 60%)"]].forEach(([id,c])=>{
+  const m=mk("marker",{id,viewBox:"0 0 10 10",refX:"8",refY:"5",markerWidth:"6",markerHeight:"6",orient:"auto-start-reverse"});
+  m.appendChild(mk("path",{d:"M0,0 L10,5 L0,10 z",fill:c}));
+  defs.appendChild(m);
+});
+svg.appendChild(defs);
+
+/* lane bands + labels */
+const LANES=[
+  {y:40,h:300,time:"09:14",label:"Session A · app-builder"},
+  {y:420,h:280,time:"11:02",label:"Session B · marketing-site"},
+  {y:800,h:200,time:"14:30",label:"Session C · app-builder"},
+];
+LANES.forEach(L=>{
+  svg.appendChild(mk("rect",{x:20,y:L.y,width:2380,height:L.h,rx:16,class:"band"}));
+  const t=mk("text",{x:40,y:L.y+30,class:"lane-time"}); t.textContent=L.time; svg.appendChild(t);
+  const l=mk("text",{x:106,y:L.y+28,class:"lane-label"}); l.textContent=L.label; svg.appendChild(l);
+});
+
+/* nodes — CODE_SET marks records that carry a diff */
+const CODE_SET=new Set(["A_edit1","A_edit2","A_prop","B_edit","B_fix","B_prop","C_edit","C_prop"]);
+NODES.forEach(n=>{
+  const el=document.createElement("div");
+  el.className="node"+(n.cat==="user"?" user":"");
+  el.dataset.id=n.id;
+  el.style.left=n.x+"px"; el.style.top=n.y+"px";
+  el.innerHTML=`<div class="top"><span class="dot" style="background:${CAT[n.cat]}"></span><span class="cat">${n.cat}</span>${CODE_SET.has(n.id)?'<span class="codeflag" title="has code changes — ⌘/ctrl-click for diff">&lt;/&gt;</span>':''}</div>
+    <div class="title">${n.title}</div><div class="sub">${n.sub}</div>`;
+  world.appendChild(el);
+  n._el=el;
+});
+/* measure */
+NODES.forEach(n=>{ n._w=n._el.offsetWidth; n._h=n._el.offsetHeight; });
+
+/* edges */
+const edgeObjs=[];
+EDGES.forEach(([from,to,label,kind])=>{
+  const cls="edge"+(kind==="cross"?" cross":kind==="feedback"?" feedback":"");
+  const marker=kind==="cross"?"url(#arrow-c)":kind==="feedback"?"url(#arrow-f)":"url(#arrow)";
+  const path=mk("path",{class:cls,"marker-end":marker});
+  svg.insertBefore(path, svg.querySelector(".band")? null : null); // appended after bands/defs
+  svg.appendChild(path);
+  let bg=null,tx=null;
+  if(label){
+    bg=mk("rect",{class:"elabel-bg",rx:3});
+    tx=mk("text",{class:"elabel"+(kind==="cross"?" cross":kind==="feedback"?" feedback":""),"text-anchor":"middle"});
+    tx.textContent=label;
+    svg.appendChild(bg); svg.appendChild(tx);
+  }
+  edgeObjs.push({from,to,kind,path,bg,tx});
+});
+
+function anchors(s,t,kind){
+  if(kind==="flow"){
+    return {sx:s.x+s._w, sy:s.y+s._h/2, tx:t.x, ty:t.y+t._h/2, horiz:true};
+  }
+  // cross / feedback: bottom of source -> top of target (with vertical tangents)
+  const sBottom = s.y+s._h <= t.y; // source above target
+  if(sBottom) return {sx:s.x+s._w/2, sy:s.y+s._h, tx:t.x+t._w/2, ty:t.y, horiz:false};
+  return {sx:s.x+s._w/2, sy:s.y, tx:t.x+t._w/2, ty:t.y+t._h, horiz:false};
+}
+function bezier(a){
+  if(a.horiz){
+    const d=Math.max(40,(a.tx-a.sx)*0.5);
+    return {d:`M${a.sx},${a.sy} C${a.sx+d},${a.sy} ${a.tx-d},${a.ty} ${a.tx},${a.ty}`,
+      mx:0.125*a.sx+0.375*(a.sx+d)+0.375*(a.tx-d)+0.125*a.tx, my:(a.sy+a.ty)/2};
+  }
+  const dy=Math.max(60,Math.abs(a.ty-a.sy)*0.4)*(a.ty>a.sy?1:-1);
+  const c1x=a.sx,c1y=a.sy+dy,c2x=a.tx,c2y=a.ty-dy;
+  return {d:`M${a.sx},${a.sy} C${c1x},${c1y} ${c2x},${c2y} ${a.tx},${a.ty}`,
+    mx:0.125*a.sx+0.375*c1x+0.375*c2x+0.125*a.tx, my:0.125*a.sy+0.375*c1y+0.375*c2y+0.125*a.ty};
+}
+function drawEdges(){
+  edgeObjs.forEach(e=>{
+    const s=byId[e.from],t=byId[e.to];
+    const b=bezier(anchors(s,t,e.kind));
+    e.path.setAttribute("d",b.d);
+    if(e.tx){
+      e.tx.setAttribute("x",b.mx); e.tx.setAttribute("y",b.my+0.5);
+      const bb=e.tx.getBBox();
+      e.bg.setAttribute("x",bb.x-4); e.bg.setAttribute("y",bb.y-1.5);
+      e.bg.setAttribute("width",bb.width+8); e.bg.setAttribute("height",bb.height+3);
+    }
+  });
+}
+drawEdges();
+
+/* ---- pan / zoom ---- */
+const canvas=document.getElementById("canvas");
+let panX=0,panY=0,zoom=1;
+function apply(){
+  world.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;
+  canvas.style.backgroundSize=`${24*zoom}px ${24*zoom}px`;
+  canvas.style.backgroundPosition=`${panX}px ${panY}px`;
+  document.getElementById("zoomVal").textContent=Math.round(zoom*100)+"%";
+}
+function fit(){
+  let minx=1e9,miny=1e9,maxx=-1e9,maxy=-1e9;
+  NODES.forEach(n=>{minx=Math.min(minx,n.x);miny=Math.min(miny,n.y);maxx=Math.max(maxx,n.x+n._w);maxy=Math.max(maxy,n.y+n._h);});
+  minx-=60;miny-=80;maxx+=60;maxy+=60;
+  const vw=canvas.clientWidth,vh=canvas.clientHeight;
+  zoom=Math.min(vw/(maxx-minx),vh/(maxy-miny),1.4);
+  panX=(vw-(maxx-minx)*zoom)/2-minx*zoom;
+  panY=(vh-(maxy-miny)*zoom)/2-miny*zoom;
+  apply();
+}
+
+/* canvas drag-pan */
+let panning=false,sx=0,sy=0,spanX=0,spanY=0;
+canvas.addEventListener("pointerdown",e=>{
+  if(e.target.closest(".node")) return;
+  panning=true;sx=e.clientX;sy=e.clientY;spanX=panX;spanY=panY;
+  canvas.classList.add("grabbing");canvas.setPointerCapture(e.pointerId);
+  deselect();
+});
+canvas.addEventListener("pointermove",e=>{
+  if(!panning)return;
+  panX=spanX+(e.clientX-sx);panY=spanY+(e.clientY-sy);apply();
+});
+canvas.addEventListener("pointerup",e=>{panning=false;canvas.classList.remove("grabbing");});
+canvas.addEventListener("wheel",e=>{
+  e.preventDefault();
+  const r=canvas.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
+  const wx=(mx-panX)/zoom,wy=(my-panY)/zoom;
+  zoom=Math.min(2.2,Math.max(0.25,zoom*(e.deltaY<0?1.1:0.9)));
+  panX=mx-wx*zoom;panY=my-wy*zoom;apply();
+},{passive:false});
+
+/* node drag */
+NODES.forEach(n=>{
+  let dragging=false,moved=false,px=0,py=0,nx=0,ny=0;
+  n._el.addEventListener("pointerdown",e=>{
+    e.stopPropagation();dragging=true;moved=false;
+    px=e.clientX;py=e.clientY;nx=n.x;ny=n.y;
+    n._el.classList.add("dragging");n._el.setPointerCapture(e.pointerId);
+  });
+  n._el.addEventListener("pointermove",e=>{
+    if(!dragging)return;
+    const dx=(e.clientX-px)/zoom,dy=(e.clientY-py)/zoom;
+    if(Math.abs(e.clientX-px)+Math.abs(e.clientY-py)>4)moved=true;
+    n.x=nx+dx;n.y=ny+dy;
+    n._el.style.left=n.x+"px";n._el.style.top=n.y+"px";
+    drawEdges();
+  });
+  n._el.addEventListener("pointerup",e=>{
+    dragging=false;n._el.classList.remove("dragging");
+    if(!moved){ (e.ctrlKey||e.metaKey) ? openSheet(n.id) : select(n.id); }
+  });
+  n._el.addEventListener("contextmenu",e=>{ e.preventDefault(); openSheet(n.id); });
+});
+canvas.addEventListener("contextmenu",e=>e.preventDefault());
+
+/* selection / detail */
+const detail=document.getElementById("detail"),detailBody=document.getElementById("detailBody");
+function chipv(v){return (typeof v==="string"&&v.startsWith("#"))?`<span class="v hash">${v.slice(1)}</span>`:`<span class="v">${v}</span>`;}
+function select(id){
+  const n=byId[id];
+  document.querySelectorAll(".node").forEach(el=>el.classList.toggle("sel",el.dataset.id===id));
+  const scopes=[];
+  n.tags.forEach(t=>scopes.push(t.replace("proj:","project: ").replace("sess:","session ")));
+  if(n.always)scopes.push("all sessions");
+  detailBody.innerHTML=`<span class="dcat"><span class="dot" style="background:${CAT[n.cat]}"></span>${n.cat}</span>
+    <div class="dtitle">${n.title}</div><div class="dsub">${n.sub}</div>
+    <div class="scopes">${scopes.map(s=>`<span class="scope">${s}</span>`).join("")}</div>
+    <div class="fields">${n.fields.map(([k,v])=>`<div class="f"><span class="k">${k}</span>${chipv(v)}</div>`).join("")}</div>`;
+  detail.classList.add("show");
+}
+function deselect(){document.querySelectorAll(".node.sel").forEach(el=>el.classList.remove("sel"));detail.classList.remove("show");}
+document.getElementById("dclose").addEventListener("click",deselect);
+
+/* filters */
+let activeTag="";
+document.getElementById("chips").addEventListener("click",e=>{
+  const b=e.target.closest(".chip");if(!b)return;
+  activeTag=b.dataset.tag;
+  document.querySelectorAll(".chip").forEach(c=>c.classList.toggle("active",c===b));
+  const matched=new Set();
+  NODES.forEach(n=>{
+    const on=!activeTag||n.always||n.tags.includes(activeTag);
+    n._el.classList.toggle("dim",!on);
+    if(on)matched.add(n.id);
+  });
+  edgeObjs.forEach(ed=>{
+    const on=matched.has(ed.from)&&matched.has(ed.to);
+    ed.path.classList.toggle("dim",!on);
+    if(ed.tx){ed.tx.classList.toggle("dim",!on);ed.bg.classList.toggle("dim",!on);}
+  });
+});
+
+/* controls */
+document.getElementById("fit").addEventListener("click",fit);
+function zoomBtn(f){
+  const vw=canvas.clientWidth/2,vh=canvas.clientHeight/2;
+  const wx=(vw-panX)/zoom,wy=(vh-panY)/zoom;
+  zoom=Math.min(2.2,Math.max(0.25,zoom*f));
+  panX=vw-wx*zoom;panY=vh-wy*zoom;apply();
+}
+document.getElementById("zoomIn").addEventListener("click",()=>zoomBtn(1.15));
+document.getElementById("zoomOut").addEventListener("click",()=>zoomBtn(0.87));
+
+/* ---- code-change sheet (⌘/ctrl-click · right-click) ---- */
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const DIFFS={
+  shared_v1:{path:"src/build/shared.ts",add:7,del:2,before:"sha256:before_shared",after:"sha256:after_shared",lines:[
+    {t:"h",n:"",c:"@@ -10,6 +10,13 @@ build/shared.ts"},
+    {t:"ctx",n:"10",c:"import { toast } from '@/ui/toast'"},
+    {t:"add",n:"11",c:"import { sanitizeErrorCopy } from '@/lib/sanitize'"},
+    {t:"ctx",n:"12",c:""},
+    {t:"del",n:"13",c:"export function reportBuildError(err: unknown) {"},
+    {t:"del",n:"14",c:"  toast.error(String(err))"},
+    {t:"add",n:"13",c:"export function reportBuildError(err: unknown) {"},
+    {t:"add",n:"14",c:"  const copy = sanitizeErrorCopy(err)"},
+    {t:"add",n:"15",c:"  toast.error(copy, { role: 'status', durationMs: 6000 })"},
+    {t:"add",n:"16",c:"  recordRuntimeEvent('build.error.toast.viewed', {"},
+    {t:"add",n:"17",c:"    outcome: 'sanitized_error_copy',"},
+    {t:"add",n:"18",c:"  })"},
+    {t:"ctx",n:"19",c:"}"},
+  ]},
+  tab:{path:"src/app-settings/deployments-tab.tsx",add:7,del:1,before:"sha256:before_tab",after:"sha256:after_tab",lines:[
+    {t:"h",n:"",c:"@@ -42,5 +42,12 @@ DeploymentsTab()"},
+    {t:"ctx",n:"42",c:"  const { data, error } = useDeployments()"},
+    {t:"del",n:"43",c:"  if (error) return <ErrorBox error={error} />"},
+    {t:"add",n:"43",c:"  if (error) {"},
+    {t:"add",n:"44",c:"    reportBuildError(error)"},
+    {t:"add",n:"45",c:"    return <ErrorBox tone=\"sanitized\" />"},
+    {t:"add",n:"46",c:"  }"},
+    {t:"ctx",n:"47",c:"  return ("},
+    {t:"ctx",n:"48",c:"    <Panel>"},
+    {t:"add",n:"49",c:"      {deploy.lastError && ("},
+    {t:"add",n:"50",c:"        <Banner kind=\"warning\">{sanitizeErrorCopy(deploy.lastError)}</Banner>"},
+    {t:"add",n:"51",c:"      )}"},
+    {t:"ctx",n:"52",c:"      <DeploymentList items={data} />"},
+  ]},
+  kpi:{path:"src/components/kpi-banner.tsx",add:13,del:0,before:"sha256:empty",after:"sha256:after_kpi",lines:[
+    {t:"h",n:"",c:"@@ -1,2 +1,15 @@ kpi-banner.tsx"},
+    {t:"ctx",n:"1",c:"import { Banner, Stat } from '@/ui'"},
+    {t:"add",n:"2",c:"import { useWeeklyKpis } from '@/data/kpis'"},
+    {t:"add",n:"3",c:""},
+    {t:"add",n:"4",c:"export function KpiBanner() {"},
+    {t:"add",n:"5",c:"  const { data } = useWeeklyKpis()"},
+    {t:"add",n:"6",c:"  if (!data) return null"},
+    {t:"add",n:"7",c:"  return ("},
+    {t:"add",n:"8",c:"    <Banner kind=\"info\">"},
+    {t:"add",n:"9",c:"      {data.map((k) => ("},
+    {t:"add",n:"10",c:"        <Stat key={k.id} label={k.label} value={k.value} delta={k.delta} />"},
+    {t:"add",n:"11",c:"      ))}"},
+    {t:"add",n:"12",c:"    </Banner>"},
+    {t:"add",n:"13",c:"  )"},
+    {t:"add",n:"14",c:"}"},
+  ]},
+  kpi_fix:{path:"src/components/kpi-banner.tsx",add:1,del:1,before:"sha256:after_kpi",after:"sha256:fix_kpi",lines:[
+    {t:"h",n:"",c:"@@ -4,5 +4,5 @@ KpiBanner()"},
+    {t:"ctx",n:"4",c:"export function KpiBanner() {"},
+    {t:"ctx",n:"5",c:"  const { data } = useWeeklyKpis()"},
+    {t:"del",n:"6",c:"  if (!data) return null"},
+    {t:"add",n:"6",c:"  if (!data?.length) return null   // fix: empty array crashed <Stat>"},
+    {t:"ctx",n:"7",c:"  return ("},
+    {t:"ctx",n:"8",c:"    <Banner kind=\"info\">"},
+  ]},
+  shared_v2:{path:"src/build/shared.ts",add:7,del:2,before:"sha256:after_shared",after:"sha256:after_shared_2",lines:[
+    {t:"h",n:"",c:"@@ -13,7 +13,12 @@ build/shared.ts"},
+    {t:"ctx",n:"13",c:"  const copy = sanitizeErrorCopy(err)"},
+    {t:"del",n:"14",c:"  toast.error(copy, { role: 'status', durationMs: 6000 })"},
+    {t:"add",n:"14",c:"  toast.error(copy, {"},
+    {t:"add",n:"15",c:"    role: 'status',"},
+    {t:"add",n:"16",c:"    durationMs: 8000,"},
+    {t:"add",n:"17",c:"    dismissable: true,          // fix from depA runtime error"},
+    {t:"add",n:"18",c:"    redactInternalCodes: true,"},
+    {t:"add",n:"19",c:"  })"},
+    {t:"ctx",n:"20",c:"  recordRuntimeEvent('build.error.toast.viewed', {"},
+    {t:"del",n:"21",c:"    outcome: 'sanitized_error_copy',"},
+    {t:"add",n:"22",c:"    outcome: 'sanitized_dismissable',"},
+    {t:"ctx",n:"23",c:"  })"},
+  ]},
+};
+const NODE_CHANGES={A_edit1:["shared_v1"],A_edit2:["tab"],A_prop:["shared_v1","tab"],
+  B_edit:["kpi"],B_fix:["kpi_fix"],B_prop:["kpi"],C_edit:["shared_v2"],C_prop:["shared_v2"]};
+function changesFor(n){ return NODE_CHANGES[n.id]||[]; }
+/* custom fields — language / framework / version / whatever, by project */
+const PROJECT_STACK={
+  "app-builder":[["language","TypeScript 5.6"],["framework","React 19"],["runtime","Bun · CF Workers"],["version","2026.6.2"],["repo","getveritio/app-builder"]],
+  "marketing-site":[["language","TypeScript 5.6"],["framework","Astro 5"],["runtime","Bun"],["version","2026.6.1"],["repo","getveritio/marketing-site"]],
+};
+/* humans = principals (who enforced the action) — pfp, name, email, org, dept */
+const HUMANS={
+  usr_builder:{name:"Yan Malinovskiy",role:"Founder · Engineer",email:"ymalinovskiy@icloud.com",org:"Veritio",dept:"Platform Engineering",initials:"YM",g1:"#7c5cff",g2:"#22d3ee"},
+  usr_reviewer:{name:"Alex Stern",role:"Staff Engineer · Reviewer",email:"a.stern@getveritio.com",org:"Veritio",dept:"Engineering",initials:"AS",g1:"#f59e0b",g2:"#ef4444"},
+};
+/* agents = delegates (provider + model) that executed on a human's behalf */
+const AGENTS={ opencode:{name:"OpenCode",provider:"Anthropic",model:"claude-opus-4-8",version:"1.17"} };
+function principalFor(n){return n.cat==="review"?"usr_reviewer":"usr_builder";}
+const AGENT_CATS=new Set(["session","prompt","think","fetch","edit","proposal","fix"]);
+function agentForNode(n){return AGENT_CATS.has(n.cat)?"opencode":null;}
+function serviceFor(n){return ({ci:"svc_ci · service",cifail:"svc_ci · service",deploy:"svc_deploy · service",runtime:"system · observed"})[n.cat]||null;}
+function idCard(h){return `<div class="idcard"><div class="avatar" style="background:linear-gradient(135deg,${h.g1},${h.g2})">${h.initials}</div><div class="idmeta"><div class="idname">${h.name}<span class="idrole">${h.role}</span></div><div class="idline">${h.email}</div><div class="idline">${h.org} · ${h.dept}</div></div></div>`;}
+function agentCard(a){return `<div class="agentcard"><div class="agenticon">⌬</div><div class="agentmeta"><div class="agentname">${a.name} <span class="abadge">agent</span></div><div class="idline">${a.provider} · ${a.model} · v${a.version}</div></div></div>`;}
+function serviceCard(svc,h){const name=svc.split(" · ")[0];return `<div class="agentcard"><div class="agenticon" style="background:hsl(221 55% 94%);color:hsl(221 55% 48%)">⚙</div><div class="agentmeta"><div class="agentname">${name} <span class="abadge" style="color:hsl(221 50% 48%);background:hsl(221 60% 95%);border-color:hsl(221 45% 88%)">service</span></div><div class="idline">automated · on behalf of ${h.name}</div></div></div>`;}
+function actionFor(n){const f=n.fields.find(x=>x[0]==="event");return f?f[1]:n.cat;}
+function stackFor(n){const p=(n.tags.find(t=>t.startsWith("proj:"))||"").slice(5);return PROJECT_STACK[p]||[];}
+function kvRows(arr){return arr.map(([k,v])=>`<div class="r"><span class="k">${k}</span>${(typeof v==="string"&&v.startsWith("#"))?`<span class="v hash">${v.slice(1)}</span>`:`<span class="v">${esc(v)}</span>`}</div>`).join("");}
+function renderFileDiff(D){
+  return `<div class="dfile-h"><span class="p">${D.path}</span>`
+    +`<span class="stat"><span class="a">+${D.add}</span> <span class="d">−${D.del}</span></span>`
+    +`<span class="h">${D.before} → ${D.after}</span></div>`
+    +`<div class="code">`+D.lines.map(l=>
+      `<div class="cl ${l.t}"><span class="g">${l.n}</span><span class="s">${l.t==="add"?"+":l.t==="del"?"−":""}</span><span class="t">${esc(l.c)||"&nbsp;"}</span></div>`
+    ).join("")+`</div>`;
+}
+const sheet=document.getElementById("sheet"),sheetBackdrop=document.getElementById("sheetBackdrop");
+function openSheet(id){
+  const n=byId[id], keys=changesFor(n);
+  const scope=n.always?"all sessions":n.tags.map(t=>t.replace("proj:","").replace("sess:","Session ")).join(" · ");
+  const h=HUMANS[principalFor(n)];
+  const ag=agentForNode(n), agent=ag?AGENTS[ag]:null, svc=serviceFor(n);
+  document.getElementById("sheetHead").innerHTML=
+    `<div class="scat"><span class="dot" style="background:${CAT[n.cat]}"></span>${n.cat}${keys.length?" · code changes":" · record"}</div>`
+    +`<h3>${n.title}</h3>`
+    +`<div class="sdesc">${n.sub}</div>`
+    +`<div class="smeta"><span class="m">${scope}</span><span class="m">${h.name}</span>${agent?`<span class="m tag">${agent.name} · ${agent.model}</span>`:""}${keys.length?`<span class="m">${keys.length} file${keys.length>1?"s":""} changed</span>`:""}</div>`;
+  // who: the human principal (enforced it) + the agent/service that executed it
+  const who=`<div class="sheet-sec"><h4>Principal · enforced by (human)</h4>${idCard(h)}`
+    +`<div class="idsub">${agent?agentCard(agent):(svc?serviceCard(svc,h):`<div class="idline">Direct human action — no agent involved.</div>`)}</div></div>`;
+  // audit: action + every field + custom fields (lang/framework/version…)
+  const audit=`<div class="sheet-sec"><h4>Audit · action · custom fields</h4><div class="kv2">`
+    +kvRows([["action",actionFor(n)]].concat(n.fields.filter(f=>f[0]!=="event")).concat(stackFor(n)))
+    +`</div></div>`;
+  // code-change diffs: only for records that carry a change (marked </> on the canvas)
+  const code=keys.length
+    ? `<div class="codeh">Code changes · ${keys.length} file${keys.length>1?"s":""}</div>`+keys.map(k=>renderFileDiff(DIFFS[k])).join("")
+    : "";
+  document.getElementById("sheetBody").innerHTML=who+audit+code;
+  sheet.classList.add("open"); sheetBackdrop.classList.add("open");
+}
+function closeSheet(){sheet.classList.remove("open");sheetBackdrop.classList.remove("open");}
+document.getElementById("sheetClose").addEventListener("click",closeSheet);
+sheetBackdrop.addEventListener("click",closeSheet);
+window.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();});
+
+fit();
+select("A_sess");
+</script>
+</body>
+</html>

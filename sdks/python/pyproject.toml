@@ -1,6 +1,6 @@
 [project]
 name = "veritio"
-version = "0.0.0"
+version = "0.0.1"
 description = "Protocol-first evidence SDK for audit events, consent history, DSAR workflows, and compliance exports."
 readme = "README.md"
 requires-python = ">=3.11"

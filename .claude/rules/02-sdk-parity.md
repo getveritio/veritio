@@ -25,3 +25,10 @@ treat as a parity TODO for Python/Go):
   (downstream change/review/ci/deploy/runtime events target isolated or shared
   entities and cannot otherwise be attributed to one session). `sessionId` is
   non-PII and must not match the redaction key pattern.
+
+- **Agent-capture adapters.** `@veritio/claude-code` (TypeScript) captures Claude
+  Code hook events into the recorder. The hook→recorder mapping (see its
+  `DESIGN.md`/`README.md`) is the language-neutral contract a Python/Go capture
+  adapter must reproduce: hash prompts/tool-inputs/file-contents (never raw),
+  stable ids + content hashes only, and a `Stop` git-scan to catch Bash-driven
+  file changes the edit hooks miss.

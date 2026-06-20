@@ -401,10 +401,7 @@ class MongoAuditStore implements AuditStore {
     return this.#transaction(async (context) => {
       const collection = context.collection ?? this.#collection;
       const operationOptions = context.options ?? {};
-      const existing = await collection.findOne(
-        { tenantId, idempotencyKeyHash },
-        withMongoOptions(operationOptions),
-      );
+      const existing = await collection.findOne({ tenantId, idempotencyKeyHash }, withMongoOptions(operationOptions));
       if (existing) {
         const record = recordFromMongoDocument(existing, tenantId);
         if (existing.eventCanonical !== eventCanonical) {
@@ -655,11 +652,7 @@ function readString(row: Record<string, unknown>, field: string): string {
  */
 function quoteTableName(tableName: string, dialect: SqlDialect): string {
   const parts = tableName.split(".");
-  if (
-    parts.length === 0 ||
-    parts.length > 2 ||
-    parts.some((part) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))
-  ) {
+  if (parts.length === 0 || parts.length > 2 || parts.some((part) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(part))) {
     throw new TypeError("tableName must be an identifier or schema-qualified identifier");
   }
 
@@ -741,3 +734,5 @@ function cloneEvent(event: AuditEvent): AuditEvent {
 function cloneRecord(record: AuditRecord): AuditRecord {
   return JSON.parse(JSON.stringify(record)) as AuditRecord;
 }
+
+export * from "./file-store";

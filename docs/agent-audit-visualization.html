@@ -1,0 +1,926 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Veritio · Agent Audit Evidence Layer — Flow, Tree & Workbench</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;800&family=JetBrains+Mono:wght@400;500;700&family=Martian+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#07090d; --bg2:#0a0e15; --panel:#0c1118; --panel2:#0f1620;
+  --ink:#e7edf3; --ink-dim:#9fb0c0; --ink-faint:#5f7185;
+  --line:#1b2531; --line2:#26333f;
+  --signal:#b8f24a;            /* verified / chartreuse signal */
+  --verify:#4fe0c0;            /* teal verified */
+  --ai:#a78bfa;                /* ai_agent  */
+  --human:#f5b942;             /* user      */
+  --svc:#5fb8d6;               /* service/system */
+  --file:#48d6a8;              /* file      */
+  --runtime:#7ee787;           /* runtime   */
+  --policy:#e3b341;            /* policy    */
+  --reject:#f2545b;            /* rejected/violation */
+  --build:#7aa2f7;             /* ci/artifact/deploy */
+  --slate:#9aa7b8;             /* resource  */
+  --serif:"Fraunces",Georgia,serif;
+  --sans:"Hanken Grotesk",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,monospace;
+  --label:"Martian Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:var(--sans); font-size:16px; line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  background-image:
+    linear-gradient(rgba(120,150,180,.035) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(120,150,180,.035) 1px,transparent 1px),
+    radial-gradient(900px 500px at 78% -8%, rgba(184,242,74,.10), transparent 60%),
+    radial-gradient(700px 500px at 0% 8%, rgba(79,224,192,.06), transparent 55%);
+  background-size:38px 38px,38px 38px,100% 100%,100% 100%;
+}
+/* film grain */
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:9999; opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:overlay;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 26px}
+a{color:inherit}
+
+/* ---------- top rail ---------- */
+.rail{
+  position:sticky;top:0;z-index:50;backdrop-filter:blur(9px);
+  background:linear-gradient(180deg,rgba(7,9,13,.92),rgba(7,9,13,.62));
+  border-bottom:1px solid var(--line);
+}
+.rail .wrap{display:flex;align-items:center;gap:18px;height:56px}
+.brand{font-family:var(--label);font-size:13px;letter-spacing:.04em;display:flex;align-items:center;gap:10px}
+.brand b{color:var(--signal);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--signal);box-shadow:0 0 12px var(--signal);animation:pulse 2.6s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.rail nav{margin-left:auto;display:flex;gap:22px;font-family:var(--label);font-size:11px;letter-spacing:.06em;color:var(--ink-faint)}
+.rail nav a{text-decoration:none;transition:color .2s}
+.rail nav a:hover{color:var(--signal)}
+@media(max-width:760px){.rail nav{display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:96px 0 60px;position:relative}
+.eyebrow{font-family:var(--label);font-size:11.5px;letter-spacing:.22em;color:var(--signal);text-transform:uppercase;display:flex;align-items:center;gap:12px}
+.eyebrow::before{content:"";width:34px;height:1px;background:var(--signal);box-shadow:0 0 8px var(--signal)}
+h1{font-family:var(--serif);font-weight:600;font-size:clamp(40px,6.4vw,82px);line-height:.98;letter-spacing:-.018em;margin:.34em 0 .28em}
+h1 em{font-style:italic;color:var(--signal)}
+.lede{font-size:clamp(17px,2vw,21px);color:var(--ink-dim);max-width:62ch;line-height:1.55}
+.lede b{color:var(--ink);font-weight:600}
+.repochips{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}
+.chip{font-family:var(--mono);font-size:12px;padding:7px 12px;border:1px solid var(--line2);border-radius:7px;background:var(--panel);color:var(--ink-dim);display:flex;align-items:center;gap:8px}
+.chip i{font-style:normal;width:7px;height:7px;border-radius:50%}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin-top:34px;font-family:var(--label);font-size:11px;letter-spacing:.04em;color:var(--ink-faint)}
+.legend span{display:flex;align-items:center;gap:8px}
+.legend b{width:11px;height:11px;border-radius:3px;display:inline-block}
+
+/* ---------- section scaffolding ---------- */
+section{padding:62px 0;border-top:1px solid var(--line);position:relative}
+.snum{font-family:var(--label);font-size:11px;letter-spacing:.18em;color:var(--ink-faint)}
+.stitle{font-family:var(--serif);font-weight:500;font-size:clamp(27px,3.6vw,42px);letter-spacing:-.01em;margin:.18em 0 .35em;line-height:1.06}
+.sintro{color:var(--ink-dim);max-width:74ch;margin-bottom:34px}
+.reveal{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+
+/* corner reticle panel */
+.panel{position:relative;background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:12px}
+.panel::before,.panel::after{content:"";position:absolute;width:12px;height:12px;border:1px solid var(--signal);opacity:.5}
+.panel::before{top:-1px;left:-1px;border-right:0;border-bottom:0}
+.panel::after{bottom:-1px;right:-1px;border-left:0;border-top:0}
+
+/* ---------- flow pipeline ---------- */
+.pipe{display:grid;gap:14px}
+.stage{display:grid;grid-template-columns:148px 1fr;gap:18px;align-items:stretch}
+.stage .tag{font-family:var(--label);font-size:11px;letter-spacing:.04em;color:var(--ink-faint);display:flex;align-items:flex-start;padding-top:18px;gap:9px}
+.stage .tag b{color:var(--signal);font-size:18px;line-height:1;font-family:var(--mono)}
+.card{padding:16px 18px;border-radius:10px;border:1px solid var(--line);background:var(--panel)}
+.card h4{margin:0 0 4px;font-family:var(--label);font-size:12.5px;letter-spacing:.03em;color:var(--ink)}
+.card p{margin:0;color:var(--ink-dim);font-size:14.5px}
+.card .code{font-family:var(--mono);font-size:12.5px;color:var(--verify);margin-top:8px;display:block;word-break:break-word}
+.flowdown{display:flex;justify-content:center;color:var(--ink-faint);font-size:13px;font-family:var(--label);letter-spacing:.1em;margin:2px 0}
+.bridge{border-color:rgba(242,84,91,.4);background:linear-gradient(180deg,rgba(242,84,91,.07),var(--panel))}
+.bridge h4{color:var(--reject)}
+.st-i{color:var(--verify)} .st-p{color:var(--ai)} .st-g{color:var(--reject)}
+
+/* status pills */
+.st{font-family:var(--label);font-size:10px;letter-spacing:.05em;padding:2px 7px;border-radius:5px;border:1px solid currentColor;white-space:nowrap}
+.st.impl{color:var(--verify)} .st.plan{color:var(--ai)} .st.gap{color:var(--reject)}
+
+/* ---------- provider seam ---------- */
+.seam{display:grid;grid-template-columns:1fr auto 1fr;gap:26px;align-items:center}
+@media(max-width:760px){.seam{grid-template-columns:1fr}}
+.runtimes{display:grid;gap:12px}
+.rt{padding:14px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);display:flex;align-items:center;gap:12px}
+.rt .pdot{width:10px;height:10px;border-radius:50%}
+.rt b{font-family:var(--label);font-size:13px}
+.rt span{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-left:auto}
+.merge{font-family:var(--label);font-size:11px;letter-spacing:.1em;color:var(--signal);text-align:center;writing-mode:horizontal-tb}
+.vocab{padding:18px;border-radius:10px;border:1px dashed var(--line2);background:var(--panel2)}
+.vocab .k{font-family:var(--mono);font-size:12.5px;line-height:2;color:var(--ink-dim)}
+.vocab .k b{color:var(--signal);font-weight:500}
+
+/* ---------- audit tree ---------- */
+.tree{font-family:var(--mono);font-size:13px;line-height:1.85;white-space:pre;tab-size:2;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:24px 26px;overflow-x:auto}
+.tree .root{color:var(--ai);font-weight:700}
+.tree .branch{color:var(--ink)}
+.tree .lf{color:var(--ink-dim)}
+.tree .rel{color:var(--signal)}
+.tree .ev{color:var(--verify)}
+.tree .fetch{color:var(--file);font-weight:600}
+.tree .muted{color:var(--ink-faint)}
+.tree .rj{color:var(--reject)}
+.tree i{color:var(--ink-faint);font-style:normal}
+
+/* ---------- WORKBENCH MOCKUP ---------- */
+.screen-frame{margin-top:8px}
+.win{border-radius:14px;overflow:hidden;border:1px solid var(--line2);box-shadow:0 40px 120px -40px rgba(0,0,0,.85),0 0 0 1px rgba(184,242,74,.05);background:var(--panel)}
+.titlebar{display:flex;align-items:center;gap:14px;padding:11px 16px;background:linear-gradient(180deg,#0e141d,#0b1017);border-bottom:1px solid var(--line)}
+.tl-dots{display:flex;gap:7px}
+.tl-dots i{width:11px;height:11px;border-radius:50%;display:inline-block}
+.tl-dots i:nth-child(1){background:#f2545b}.tl-dots i:nth-child(2){background:#e3b341}.tl-dots i:nth-child(3){background:#48d6a8}
+.tl-url{font-family:var(--mono);font-size:12px;color:var(--ink-faint);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 12px}
+.verify-pill{margin-left:auto;display:flex;align-items:center;gap:8px;font-family:var(--label);font-size:11px;letter-spacing:.06em;color:var(--verify);border:1px solid rgba(79,224,192,.35);border-radius:20px;padding:4px 12px;background:rgba(79,224,192,.06)}
+.verify-pill .dot{background:var(--verify);box-shadow:0 0 10px var(--verify)}
+
+.app{display:grid;grid-template-columns:188px 1fr 290px;min-height:560px}
+@media(max-width:920px){.app{grid-template-columns:1fr}}
+.side{border-right:1px solid var(--line);padding:14px 10px;background:linear-gradient(180deg,#0a0f16,#080b11)}
+.side .gh{font-family:var(--label);font-size:9.5px;letter-spacing:.16em;color:var(--ink-faint);padding:6px 10px 8px}
+.nav-i{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:7px;font-family:var(--label);font-size:11.5px;letter-spacing:.02em;color:var(--ink-dim);cursor:default;transition:background .2s,color .2s}
+.nav-i:hover{background:var(--panel2);color:var(--ink)}
+.nav-i.active{background:rgba(184,242,74,.10);color:var(--signal);box-shadow:inset 2px 0 0 var(--signal)}
+.nav-i .ic{width:15px;text-align:center;opacity:.85}
+@media(max-width:920px){.side{display:none}}
+
+.canvas{position:relative;background:
+   radial-gradient(700px 400px at 50% 30%, rgba(122,162,247,.05), transparent 60%),
+   var(--bg);
+   overflow:hidden}
+.canvas .ribbon{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line);font-family:var(--label);font-size:10.5px;letter-spacing:.05em;color:var(--ink-faint)}
+.canvas .ribbon b{color:var(--ink)}
+.canvas .ribbon .sp{margin-left:auto;display:flex;gap:14px}
+.graph{width:100%;display:block}
+.node-g{cursor:pointer}
+.node-rect{fill:var(--panel2);stroke-width:1.4;transition:filter .2s,fill .2s}
+.node-g:hover .node-rect{fill:#121a25}
+.node-g.sel .node-rect{fill:#141d29;filter:drop-shadow(0 0 10px rgba(184,242,74,.25))}
+.node-type{font-family:"Martian Mono",monospace;font-size:8px;letter-spacing:.06em;text-transform:uppercase;fill:var(--ink-faint)}
+.node-id{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:500;fill:var(--ink)}
+.edge{fill:none;stroke:rgba(150,170,190,.28);stroke-width:1.3;transition:stroke .25s,stroke-width .25s}
+.edge.active{stroke:var(--signal);stroke-width:2}
+.edge.reject{stroke:var(--reject);stroke-dasharray:5 4;opacity:.8}
+.elabel{font-family:"Martian Mono",monospace;font-size:8px;letter-spacing:.03em;fill:var(--ink-faint);transition:fill .25s}
+.elabel.active{fill:var(--signal)}
+.elabel-bg{fill:var(--bg);opacity:.85}
+
+/* inspector */
+.inspect{border-left:1px solid var(--line);background:linear-gradient(180deg,#0b1017,#090c12);padding:16px 16px 20px;overflow:auto}
+.insp-h{font-family:var(--label);font-size:9.5px;letter-spacing:.16em;color:var(--ink-faint);margin-bottom:12px}
+.insp-type{font-family:var(--label);font-size:10px;letter-spacing:.05em;padding:3px 9px;border-radius:5px;display:inline-block;color:#07090d;font-weight:600}
+.insp-id{font-family:var(--mono);font-size:14px;color:var(--ink);margin:12px 0 4px;word-break:break-all}
+.insp-ev{font-family:var(--mono);font-size:12px;color:var(--verify);margin-bottom:14px}
+.insp-ev::before{content:"⌖ ";color:var(--ink-faint)}
+.kv{display:grid;grid-template-columns:1fr;gap:9px;margin-top:6px}
+.kv .row{border-top:1px solid var(--line);padding-top:9px}
+.kv .k{font-family:var(--label);font-size:9.5px;letter-spacing:.05em;color:var(--ink-faint);text-transform:uppercase}
+.kv .v{font-family:var(--mono);font-size:12px;color:var(--ink);word-break:break-all;margin-top:3px}
+.hashchip{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--signal);background:rgba(184,242,74,.07);border:1px solid rgba(184,242,74,.22);border-radius:5px;padding:1px 7px}
+.insp-note{margin-top:18px;font-size:12.5px;color:var(--ink-faint);line-height:1.5;border-top:1px dashed var(--line2);padding-top:12px}
+.insp-note b{color:var(--ink-dim)}
+
+/* timeline strip */
+.timeline{border-top:1px solid var(--line);background:#080b11;padding:14px 18px}
+.tlh{font-family:var(--label);font-size:9.5px;letter-spacing:.16em;color:var(--ink-faint);margin-bottom:12px}
+.spine{display:flex;align-items:center;gap:0;overflow-x:auto;padding-bottom:4px}
+.tick{display:flex;flex-direction:column;align-items:flex-start;min-width:118px;position:relative}
+.tick .bar{height:2px;width:100%;background:var(--line2);position:relative}
+.tick .pt{width:9px;height:9px;border-radius:50%;background:var(--signal);box-shadow:0 0 8px var(--signal);position:absolute;left:0;top:-3.5px}
+.tick .ev{font-family:var(--mono);font-size:10.5px;color:var(--ink-dim);margin-top:9px;white-space:nowrap}
+.tick .ts{font-family:var(--label);font-size:8.5px;color:var(--ink-faint);margin-top:2px;letter-spacing:.03em}
+
+/* ---------- status table ---------- */
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{font-family:var(--label);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);text-align:left;padding:0 12px 12px;border-bottom:1px solid var(--line2)}
+.tbl td{padding:13px 12px;border-bottom:1px solid var(--line);color:var(--ink-dim);vertical-align:top}
+.tbl td:first-child{color:var(--ink)}
+.tbl tr:hover td{background:rgba(255,255,255,.015)}
+.tbl code{font-family:var(--mono);font-size:12px;color:var(--verify)}
+
+/* privacy rails */
+.rails{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:760px){.rails{grid-template-columns:1fr}}
+.rail-card{padding:20px;border-radius:11px;border:1px solid var(--line);background:var(--panel)}
+.rail-card h4{font-family:var(--label);font-size:12px;letter-spacing:.04em;margin:0 0 12px;color:var(--ink)}
+.rail-card.keep h4{color:var(--verify)} .rail-card.never h4{color:var(--reject)}
+.rail-card ul{margin:0;padding:0;list-style:none}
+.rail-card li{font-family:var(--mono);font-size:12.5px;color:var(--ink-dim);padding:6px 0 6px 22px;position:relative}
+.rail-card li::before{position:absolute;left:0;top:6px;font-family:var(--mono)}
+.rail-card.keep li::before{content:"✓";color:var(--verify)}
+.rail-card.never li::before{content:"✕";color:var(--reject)}
+
+/* ---------- capture mode bar ---------- */
+.capbar{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line);font-family:var(--label);font-size:10.5px;letter-spacing:.05em;color:var(--ink-faint)}
+.capbar b{color:var(--ink)}
+.cap-pill{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--policy);border:1px solid rgba(227,179,65,.35);border-radius:20px;padding:4px 12px;background:rgba(227,179,65,.06)}
+.cap-pill .dot{background:var(--policy);box-shadow:0 0 10px var(--policy)}
+
+/* ---------- session transcript ---------- */
+.step{display:grid;grid-template-columns:172px 1fr 208px;gap:20px;padding:16px 20px;border-bottom:1px solid var(--line);transition:background .2s}
+.step:hover{background:rgba(255,255,255,.015)}
+.step .lane{display:flex;flex-direction:column;gap:8px}
+.step .kind{font-family:var(--label);font-size:10px;letter-spacing:.06em;text-transform:uppercase}
+.step .achip{font-family:var(--mono);font-size:11px;color:var(--ink-dim);display:flex;align-items:center;gap:7px}
+.step .achip i{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.step .content .txt{color:var(--ink);font-size:14.5px;line-height:1.5}
+.step .content .quote{font-family:var(--serif);font-style:italic;font-size:16.5px;color:var(--ink);line-height:1.45;border-left:2px solid var(--line2);padding-left:14px}
+.step .content .mono{font-family:var(--mono);font-size:13px;color:var(--ink-dim);line-height:1.6}
+.step .content .mono b{color:var(--file);font-weight:500}
+.step .rec{display:flex;flex-direction:column;gap:6px;align-items:flex-end;text-align:right}
+.step .rec .ev2{font-family:var(--mono);font-size:11.5px;color:var(--verify)}
+.step .rec .ev2::before{content:"⌖ ";color:var(--ink-faint)}
+.step .rec .ts2{font-family:var(--label);font-size:9px;letter-spacing:.04em;color:var(--ink-faint)}
+.step .rec .hc{font-family:var(--mono);font-size:10.5px;color:var(--signal);background:rgba(184,242,74,.07);border:1px solid rgba(184,242,74,.2);border-radius:5px;padding:1px 7px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.step .rec .ap{font-family:var(--label);font-size:9px;border:1px solid currentColor;border-radius:5px;padding:1px 7px;color:var(--runtime)}
+@media(max-width:820px){.step{grid-template-columns:1fr;gap:11px}.step .rec{align-items:flex-start;text-align:left}}
+
+/* ---------- git diff ---------- */
+.diffbody{display:grid;grid-template-columns:252px 1fr;min-height:440px}
+@media(max-width:820px){.diffbody{grid-template-columns:1fr}}
+.dfiles{border-right:1px solid var(--line);padding:12px 8px;background:#0a0f16}
+.dfh{font-family:var(--label);font-size:9.5px;letter-spacing:.13em;color:var(--ink-faint);padding:6px 10px 10px}
+.dfile{padding:10px;border-radius:7px;cursor:pointer;font-family:var(--mono);font-size:12px;color:var(--ink-dim);display:flex;flex-direction:column;gap:4px;transition:background .2s,box-shadow .2s}
+.dfile:hover{background:var(--panel2)}
+.dfile.active{background:rgba(184,242,74,.08);box-shadow:inset 2px 0 0 var(--signal);color:var(--ink)}
+.dfile .nm{display:flex;align-items:center;gap:8px}
+.dfile .nm .m{color:var(--policy);font-weight:700} .dfile .nm .x{color:var(--reject);font-weight:700}
+.dfile .stat{font-size:10.5px;color:var(--ink-faint);padding-left:20px}
+.dfile .stat .a{color:var(--runtime)} .dfile .stat .d{color:var(--reject)}
+.dfile.rej{opacity:.72}
+.diffview{overflow:auto;background:var(--bg)}
+.dmeta{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--ink-faint);align-items:center}
+.dmeta .hc{color:var(--signal);background:rgba(184,242,74,.07);border:1px solid rgba(184,242,74,.2);border-radius:5px;padding:1px 7px}
+.dmeta .tag{color:var(--ai);border:1px solid rgba(167,139,250,.32);border-radius:5px;padding:1px 7px}
+.code-diff{padding:8px 0}
+.dl{display:flex;white-space:pre;font-family:var(--mono);font-size:12.5px;line-height:1.72}
+.dl .g{width:42px;text-align:right;padding-right:12px;color:var(--ink-faint);user-select:none;flex:none}
+.dl .s{width:16px;flex:none;text-align:center}
+.dl .c{flex:1;padding-right:16px;color:var(--ink-dim)}
+.dl.h{background:rgba(122,162,247,.09)} .dl.h .c{color:var(--build)} .dl.h .g{color:var(--build)}
+.dl.add{background:rgba(126,231,135,.10)} .dl.add .s,.dl.add .g{color:var(--runtime)} .dl.add .c{color:#cfeed3}
+.dl.del{background:rgba(242,84,91,.10)} .dl.del .s,.dl.del .g{color:var(--reject)} .dl.del .c{color:#f1cccd}
+.drej{padding:54px 30px;text-align:center;color:var(--ink-faint);font-family:var(--mono);font-size:13px;line-height:1.7}
+.drej b{color:var(--reject)}
+
+footer{padding:54px 0 80px;border-top:1px solid var(--line);color:var(--ink-faint);font-size:13px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between}
+footer b{color:var(--ink-dim)}
+.kbd{font-family:var(--mono);font-size:12px;color:var(--signal);border:1px solid var(--line2);border-radius:5px;padding:2px 7px;background:var(--panel)}
+.disclaim{font-size:12px;color:var(--ink-faint);max-width:60ch;line-height:1.5}
+</style>
+</head>
+<body>
+
+<div class="rail">
+  <div class="wrap">
+    <div class="brand"><span class="dot"></span> <b>VERITIO</b> · AGENT&nbsp;AUDIT&nbsp;EVIDENCE&nbsp;LAYER</div>
+    <nav>
+      <a href="#flow">FLOW</a>
+      <a href="#tree">TREE</a>
+      <a href="#screen">GRAPH</a>
+      <a href="#session">SESSION</a>
+      <a href="#diff">DIFF</a>
+      <a href="#status">STATUS</a>
+    </nav>
+  </div>
+</div>
+
+<!-- HERO -->
+<header class="hero">
+  <div class="wrap">
+    <div class="eyebrow reveal">veritio &times; opencode · provenance from prompt to runtime</div>
+    <h1 class="reveal">Audit <em>every</em> change<br>an AI agent makes.</h1>
+    <p class="lede reveal">A protocol-first evidence layer that records, hash-chains, verifies and <b>visualizes</b> every action an AI coding agent takes — tool calls, file changes, even data fetches — and connects them into one tamper-evident graph from <b>user request → agent session → file change → review → CI → deploy → runtime</b>.</p>
+    <div class="repochips reveal">
+      <span class="chip"><i style="background:var(--ai)"></i>app-builder-platform · OpenCode runtime (acts)</span>
+      <span class="chip"><i style="background:var(--signal)"></i>veritio · evidence layer (records + visualizes)</span>
+      <span class="chip"><i style="background:var(--verify)"></i>sha256 · canonical-JSON v1 · append-only</span>
+    </div>
+    <div class="legend reveal">
+      <span><b style="background:var(--verify)"></b> implemented in repo</span>
+      <span><b style="background:var(--ai)"></b> designed (spec only)</span>
+      <span><b style="background:var(--reject)"></b> gap / bridge to build</span>
+    </div>
+  </div>
+</header>
+
+<!-- 1 · FLOW -->
+<section id="flow">
+  <div class="wrap">
+    <div class="snum reveal">01 — PIPELINE</div>
+    <h2 class="stitle reveal">Act → capture → normalize → record → visualize</h2>
+    <p class="sintro reveal">The agent acts in <b>app-builder-platform</b>. Its activity is captured at chokepoints that already exist, normalized into one vocabulary, recorded as hash-chained evidence in <b>veritio</b>, and rendered in the Workbench.</p>
+
+    <div class="pipe reveal panel" style="padding:22px">
+      <div class="stage">
+        <div class="tag"><b>1</b> AGENT<br>RUNTIME</div>
+        <div class="card">
+          <h4>OpenCode CLI &nbsp;<span class="st impl">IMPLEMENTED</span> &nbsp; → &nbsp; Anthropic Agent SDK · OpenAI SDK &nbsp;<span class="st plan">FUTURE</span></h4>
+          <p>Claude runs in an isolated sandbox container. Worker-side orchestration lives in <span style="color:var(--verify);font-family:var(--mono);font-size:13px">apps/workers/src/opencode/*</span> — event-stream · session · message · family-proxy · ai-usage-capture.</p>
+        </div>
+      </div>
+      <div class="flowdown">▼ raw agent activity</div>
+      <div class="stage">
+        <div class="tag st-g"><b>2</b> THE<br>BRIDGE</div>
+        <div class="card bridge">
+          <h4>Normalizer / Veritio adapter &nbsp;<span class="st gap">GAP — ONE THING TO BUILD</span></h4>
+          <p>Taps existing chokepoints → emits veritio <span style="color:var(--ai)">agent.*</span> / <span style="color:var(--ai)">change.*</span> events + graph edges. Hashes payloads, stamps <span style="font-family:var(--mono)">actor.type = ai_agent</span> and <span style="font-family:var(--mono)">provider = opencode|anthropic|openai</span>.</p>
+        </div>
+      </div>
+      <div class="flowdown">▼ normalized events + edges</div>
+      <div class="stage">
+        <div class="tag st-i"><b>3</b> EVIDENCE<br>LAYER</div>
+        <div class="card">
+          <h4>Append-only store · hash chain · verifier &nbsp;<span class="st impl">IMPLEMENTED</span></h4>
+          <p>Per-tenant sequence, previous-hash → current-hash, canonical-JSON v1, sha256. <span style="color:var(--verify);font-family:var(--mono);font-size:13px">verify()</span> detects mutation, deletion and reordering.</p>
+          <span class="code">createAuditEvent() · createEvidenceEdge() · verifyAuditRecords() · verifyEvidenceEdgeRecords()</span>
+        </div>
+      </div>
+      <div class="flowdown">▼ tenant-scoped, tamper-evident records</div>
+      <div class="stage">
+        <div class="tag st-i"><b>4</b> WORK<br>BENCH</div>
+        <div class="card">
+          <h4>Visualize · inspect · export &nbsp;<span class="st impl">IMPLEMENTED</span> &nbsp; <span class="code" style="display:inline">veritio dev --mcp</span></h4>
+          <p>Live Events · Evidence Graph · Agent Session · Change Provenance · Governance Matrix · Verifier · Policy Drift · Exports. MCP tools let an agent inspect its own evidence quality. <em style="color:var(--ink-faint)">See §04 for the screen.</em></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 · PROVIDER SEAM -->
+<section id="seam">
+  <div class="wrap">
+    <div class="snum reveal">02 — PORTABILITY</div>
+    <h2 class="stitle reveal">One vocabulary, any runtime</h2>
+    <p class="sintro reveal">The protocol never names a provider. Provider identity is <b>data</b>, not schema — so adding Anthropic's Agent SDK or the OpenAI SDK is an adapter, not a protocol change. Already proven: the implemented scenario stamps <span style="font-family:var(--mono);color:var(--verify)">metadata.provider:"opencode"</span>.</p>
+
+    <div class="seam reveal">
+      <div class="runtimes">
+        <div class="rt"><span class="pdot" style="background:var(--ai)"></span><b>OpenCode CLI</b><span>provider:"opencode"</span></div>
+        <div class="rt"><span class="pdot" style="background:var(--svc)"></span><b>Anthropic Agent SDK</b><span>provider:"anthropic"</span></div>
+        <div class="rt"><span class="pdot" style="background:var(--file)"></span><b>OpenAI SDK</b><span>provider:"openai"</span></div>
+      </div>
+      <div class="merge">┤ normalize ├<br>▶</div>
+      <div class="vocab">
+        <div class="k"><b>agent.session.started</b> · provider · model · promptHash</div>
+        <div class="k"><b>agent.tool.called</b> · tool · approval · inputHash</div>
+        <div class="k"><b>change.files.changed</b> · before/afterHash · reason</div>
+        <div class="k"><b>edge</b> · from:{agent_session} ─▶ to:{file}</div>
+        <div class="k muted" style="color:var(--ink-faint);margin-top:6px">↳ swap the provider string. Same graph.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 · AUDIT TREE -->
+<section id="tree">
+  <div class="wrap">
+    <div class="snum reveal">03 — COVERAGE</div>
+    <h2 class="stitle reveal">The audit tree — every action &amp; every data fetch</h2>
+    <p class="sintro reveal">Each leaf is one capturable action mapped to its <span style="color:var(--verify)">event family</span>, its <span style="color:var(--signal)">graph edge</span>, and the chokepoint where it's emitted today. Reads, greps and shell calls are <span style="color:var(--file)">data fetches</span> — first-class, not an afterthought.</p>
+
+    <div class="tree reveal">
+<span class="root">AI&nbsp;AGENT&nbsp;SESSION</span>  <i>actor.type = ai_agent · provider = opencode → anthropic/openai</i>
+│
+├─ <span class="branch">1 · SESSION LIFECYCLE</span>
+│     ├─ start ········ <span class="ev">agent.session.started</span>   agent_session <span class="rel">─caused_by▶</span> change_request   <i>session.ts</i>
+│     └─ complete ····· <span class="ev">agent.session.completed</span>
+│
+├─ <span class="branch">2 · PROMPT · THINKING · MODEL</span>  <i>(the “why”)</i>
+│     ├─ <span class="fetch">user prompt</span> · <span class="ev">agent.prompt_recorded</span>     promptHash <i>(+ raw → encrypted payload ref)</i>  <i>family-proxy.ts</i>
+│     ├─ <span class="fetch">AI thinking</span> · <span class="ev">agent.reasoning_recorded</span>  reasoningHash <i>(opt-in full capture)</i>
+│     ├─ provider req · <span class="ev">agent.provider_request</span>    <i>provider · model · requestId</i>
+│     └─ message done · <span class="ev">agent.message_completed</span>   <i>in/out/cache tokens · est cost · ai-usage-capture.ts</i>
+│
+├─ <span class="branch">3 · TOOL CALLS</span>  <i>event-stream.ts</i>
+│     ├─ write·edit·patch → <span class="ev">agent.tool.called</span>  tool_call <span class="rel">─modified/created/deleted▶</span> file
+│     ├─ <span class="fetch">read</span> ················ <span class="ev">agent.tool.called</span>  tool_call <span class="rel">─read▶</span> file        <span class="fetch">◀ DATA FETCH</span>
+│     ├─ <span class="fetch">grep · glob</span> ········· <span class="ev">agent.tool.called</span>  tool_call <span class="rel">─read▶</span> resource    <span class="fetch">◀ DATA FETCH</span>
+│     ├─ <span class="fetch">bash · command</span> ····· <span class="ev">agent.command.ran</span>  tool_call <span class="rel">─read/modified▶</span> …  <span class="fetch">◀ DATA FETCH</span>
+│     └─ permission ······· approval state on tool_call  <i>auto_allowed · asked · denied</i>
+│
+├─ <span class="branch">4 · CHANGE PROVENANCE</span>  <i>message.ts → project-storage write-files (actor.kind='agent')</i>
+│     ├─ proposal ········ <span class="ev">change.proposal.created</span>
+│     │     ├─ accepted ·· proposal <span class="rel">─created▶</span> diff_hunk <span class="rel">─part_of▶</span> file
+│     │     └─ <span class="rj">rejected</span> ·· proposal <span class="rel">─read▶</span> file  <span class="rj">(kept as evidence, not dropped)</span>
+│     └─ files changed ··· <span class="ev">change.files.changed</span>  <i>{pathHash, beforeHash, afterHash, hunkHashes, reason=ai_agent}</i>
+│
+├─ <span class="branch">5 · DATA FETCH @ RUNTIME</span>  <i>generated code, run later as the user’s app</i>
+│     └─ deployment <span class="rel">─observed_in▶</span> runtime_event   <i>traces back to the session through the chain</i>
+│
+└─ <span class="branch">6 · HUMAN + PIPELINE</span>  <i>(the “what followed”)</i>
+      ├─ review ··· <span class="ev">review.approval.recorded</span>  proposal <span class="rel">─approved_by▶</span> actor(user)
+      ├─ ci ······ <span class="ev">ci.job.completed</span> · artifact <span class="rel">─built_by▶</span> ci_run
+      ├─ deploy ·· <span class="ev">deploy.deployed</span> · artifact <span class="rel">─deployed_as▶</span> deployment <span class="rel">─satisfies_policy▶</span> policy
+      └─ runtime · deployment <span class="rel">─observed_in▶</span> runtime_event
+    </div>
+  </div>
+</section>
+
+<!-- 4 · WORKBENCH SCREEN -->
+<section id="screen">
+  <div class="wrap">
+    <div class="snum reveal">04 — ON SCREEN</div>
+    <h2 class="stitle reveal">How it looks in the Workbench</h2>
+    <p class="sintro reveal">This is the evidence graph rendered as a working surface — dense and inspectable, not a marketing dashboard. <b>Click any node</b> to inspect its hashed record. Every node is tenant-scoped, sequence-numbered and verifiable; the bottom strip is the event spine.</p>
+
+    <div class="screen-frame reveal">
+      <div class="win">
+        <div class="titlebar">
+          <div class="tl-dots"><i></i><i></i><i></i></div>
+          <div class="tl-url">veritio dev --mcp · localhost:4983 · tenant_change_provenance_demo</div>
+          <div class="verify-pill"><span class="dot"></span> CHAIN VERIFIED · 9 EVENTS · 14 EDGES · SEQ INTACT</div>
+        </div>
+
+        <div class="app">
+          <!-- sidebar -->
+          <aside class="side">
+            <div class="gh">WORKBENCH</div>
+            <div class="nav-i"><span class="ic">≣</span> Live Events</div>
+            <div class="nav-i active"><span class="ic">⬡</span> Evidence Graph</div>
+            <div class="nav-i"><span class="ic">◉</span> Agent Session</div>
+            <div class="nav-i"><span class="ic">⌥</span> Change Provenance</div>
+            <div class="nav-i"><span class="ic">▦</span> Governance Matrix</div>
+            <div class="gh" style="margin-top:14px">INTEGRITY</div>
+            <div class="nav-i"><span class="ic">✓</span> Verifier</div>
+            <div class="nav-i"><span class="ic">⚠</span> Policy Drift</div>
+            <div class="nav-i"><span class="ic">⤓</span> Exports</div>
+            <div class="gh" style="margin-top:14px">MCP</div>
+            <div class="nav-i"><span class="ic">⌁</span> get_change_provenance</div>
+            <div class="nav-i"><span class="ic">⌁</span> verify_chain</div>
+          </aside>
+
+          <!-- graph canvas -->
+          <div class="canvas">
+            <div class="ribbon">
+              <b>Evidence Graph</b> · change_provenance
+              <div class="sp">
+                <span>scope: <b style="color:var(--ink-dim)">workspace_app_builder · dev</b></span>
+                <span>render: <b style="color:var(--ink-dim)">DAG</b></span>
+              </div>
+            </div>
+            <svg class="graph" id="graph" viewBox="0 0 1180 560" preserveAspectRatio="xMidYMid meet" aria-label="Evidence graph">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="rgba(150,170,190,.5)"/>
+                </marker>
+                <marker id="arrow-a" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--signal)"/>
+                </marker>
+                <marker id="arrow-r" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--reject)"/>
+                </marker>
+              </defs>
+              <g id="edges"></g>
+              <g id="elabels"></g>
+              <g id="nodes"></g>
+            </svg>
+          </div>
+
+          <!-- inspector -->
+          <aside class="inspect" id="inspector">
+            <div class="insp-h">▸ RECORD INSPECTOR</div>
+            <!-- filled by JS -->
+          </aside>
+        </div>
+
+        <!-- timeline -->
+        <div class="timeline">
+          <div class="tlh">▸ EVENT SPINE · 2026-06-14T00:10:00Z → 00:10:16Z</div>
+          <div class="spine" id="spine"></div>
+        </div>
+      </div>
+      <p style="color:var(--ink-faint);font-size:12.5px;margin-top:14px;font-family:var(--mono)">↳ data shown is the real <b style="color:var(--ink-dim)">runChangeProvenanceScenario</b> seed from <b style="color:var(--ink-dim)">server/node/src/index.ts</b>. Hashes anchor every node; raw payloads (prompt · thinking · diff) are opt-in encrypted references — see <b style="color:var(--ink-dim)">§05 session</b> &amp; <b style="color:var(--ink-dim)">§06 diff</b>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 5 · SESSION TRANSCRIPT -->
+<section id="session">
+  <div class="wrap">
+    <div class="snum reveal">05 — END TO END</div>
+    <h2 class="stitle reveal">The full audit path of one turn</h2>
+    <p class="sintro reveal">The same session replayed as an ordered transcript — <b>user prompt → AI thinking → data fetch → exec → edits → proposal → response → human approval</b>. Each step is its own audited record. In <b>full-capture mode</b> the raw text (prompt, reasoning, command output, diff) is stored as an <b>encrypted payload reference</b> and anchored to the chain by hash; default mode keeps hashes only.</p>
+
+    <div class="reveal">
+      <div class="win">
+        <div class="titlebar">
+          <div class="tl-dots"><i></i><i></i><i></i></div>
+          <div class="tl-url">Agent Session · agt_sess_app_builder_01 · provider:opencode</div>
+          <div class="verify-pill"><span class="dot"></span> 9 RECORDS · CHAIN INTACT</div>
+        </div>
+        <div class="capbar"><b>Agent Session</b> · ordered transcript
+          <span class="cap-pill"><span class="dot"></span> FULL CAPTURE · ENCRYPTED PAYLOAD REFS</span>
+        </div>
+        <div class="session">
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--human)">① USER PROMPT</div><div class="achip"><i style="background:var(--human)"></i>usr_builder · user</div></div>
+            <div class="content"><div class="quote">“Make Studio surface build &amp; deploy errors as sanitized toast notifications — don’t leak raw error internals.”</div></div>
+            <div class="rec"><div class="ev2">agent.prompt_recorded</div><div class="hc">promptHash sha256:prompt_track…</div><div class="hc">raw → enc:vault://eph/usr_builder</div><div class="ts2">00:10:01Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--ai)">② AI THINKING</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="txt">Plan: add a shared sanitizer + toast helper in <b style="color:var(--file)">build/shared.ts</b>, wire it into the Deployments tab, keep copy sanitized, and avoid touching the lockfile.</div></div>
+            <div class="rec"><div class="ev2">agent.reasoning_recorded</div><div class="hc">reasoningHash sha256:reasoning…</div><div class="hc">raw → enc:vault://eph/session</div><div class="ts2">00:10:02Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--file)">③ DATA FETCH · read</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="mono">read <b>apps/studio/src/app-settings/deployments-tab.tsx</b><br>read <b>apps/studio/src/build/shared.ts</b></div></div>
+            <div class="rec"><div class="ev2">agent.tool.called</div><div class="hc">inputHash sha256:read_deploy…</div><div class="ap" style="color:var(--svc)">scope apps/studio/**</div><div class="ts2">00:10:03Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--file)">④ DATA FETCH · grep</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="mono">grep <b>"toast"</b> apps/studio/**  →  6 matches</div></div>
+            <div class="rec"><div class="ev2">agent.tool.called</div><div class="hc">inputHash sha256:grep_toast</div><div class="ts2">00:10:03Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--build)">⑤ EXEC · bash</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="mono">$ <b>bun test app-settings</b>  →  exit 0 · 14 passed</div></div>
+            <div class="rec"><div class="ev2">agent.command.ran</div><div class="hc">cmdHash sha256:cmd_bun_test</div><div class="hc">stdoutHash sha256:stdout_ok</div><div class="ts2">00:10:05Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--svc)">⑥ TOOL · apply_edits</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="mono">wrote <b>2 files</b> · rejected <b style="color:var(--reject)">1</b> (package-lock.json)</div></div>
+            <div class="rec"><div class="ev2">agent.tool.called</div><div class="ap">approval auto_allowed</div><div class="hc">inputHash sha256:apply_edits</div><div class="ts2">00:10:04Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--slate)">⑦ CHANGE PROPOSAL</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="mono">base <b>41</b> → <b>42</b> · accepted <b>2</b> · rejected <b>1</b> · reason <b>ai_agent</b></div></div>
+            <div class="rec"><div class="ev2">change.proposal.created</div><div class="hc">proposalSignature sha256:prop…</div><div class="ts2">00:10:06Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--ai)">⑧ MODEL RESPONSE</div><div class="achip"><i style="background:var(--ai)"></i>agent_opencode · ai_agent</div></div>
+            <div class="content"><div class="txt">Added sanitized toast reporting to the Deployments tab; lockfile change rejected as a classified system file.</div></div>
+            <div class="rec"><div class="ev2">agent.message_completed</div><div class="hc">8.2k in · 1.1k out · 3.0k cache</div><div class="ap" style="color:var(--policy)">est $0.04</div><div class="ts2">00:10:06Z</div></div>
+          </div>
+
+          <div class="step">
+            <div class="lane"><div class="kind" style="color:var(--human)">⑨ HUMAN APPROVAL</div><div class="achip"><i style="background:var(--human)"></i>usr_reviewer · user</div></div>
+            <div class="content"><div class="mono">approved PR <b style="color:var(--human)">pr_safe_toasts_01</b> · 0 findings · 0 waivers</div></div>
+            <div class="rec"><div class="ev2">review.approval.recorded</div><div class="hc">approvalHash sha256:approval…</div><div class="ts2">00:10:10Z</div></div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · GIT DIFF -->
+<section id="diff">
+  <div class="wrap">
+    <div class="snum reveal">06 — CODE CHANGES</div>
+    <h2 class="stitle reveal">The diff, git-style — attributed &amp; hash-anchored</h2>
+    <p class="sintro reveal">What actually changed on disk, rendered like a code review. <b>Click a file</b> to switch. Every hunk is hash-anchored (<span class="hashchip">beforeHash → afterHash</span>), attributed to <b>reason = ai_agent</b>, and the rejected file is kept as evidence — you can audit what the agent <i>didn’t</i> ship. <span style="color:var(--ink-faint)">Diff content illustrative; raw diff retained as an encrypted payload reference.</span></p>
+
+    <div class="reveal">
+      <div class="win">
+        <div class="titlebar">
+          <div class="tl-dots"><i></i><i></i><i></i></div>
+          <div class="tl-url">Change Provenance · proposal_safe_toasts_01 · base 41 → 42</div>
+          <div class="verify-pill"><span class="dot"></span> reason:ai_agent · approved_by usr_reviewer · CI ✓</div>
+        </div>
+        <div class="diffbody">
+          <div class="dfiles">
+            <div class="dfh">CHANGED FILES · 2 accepted · 1 rejected</div>
+            <div class="dfile active" data-f="shared"><div class="nm"><span class="m">M</span> build/shared.ts</div><div class="stat"><span class="a">+9</span> <span class="d">−2</span></div></div>
+            <div class="dfile" data-f="tab"><div class="nm"><span class="m">M</span> …/deployments-tab.tsx</div><div class="stat"><span class="a">+8</span> <span class="d">−1</span></div></div>
+            <div class="dfile rej" data-f="lock"><div class="nm"><span class="x">✕</span> package-lock.json</div><div class="stat" style="color:var(--reject)">rejected · classification:system</div></div>
+          </div>
+          <div class="diffview" id="diffview"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7 · STATUS -->
+<section id="status">
+  <div class="wrap">
+    <div class="snum reveal">07 — REALITY vs PLAN</div>
+    <h2 class="stitle reveal">What's built, and the one bridge to build</h2>
+    <div class="reveal panel" style="padding:8px 22px 4px">
+    <table class="tbl">
+      <thead><tr><th>Capability</th><th>Status</th><th>Evidence in repo</th></tr></thead>
+      <tbody>
+        <tr><td>Event + edge schemas, hash chain, verifier</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>spec/*.json</code> · <code>sdks/typescript/src/index.ts</code></td></tr>
+        <tr><td>Evidence-graph store, Workbench, MCP, change-provenance scenario</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>server/node/src/index.ts</code> · tests pass</td></tr>
+        <tr><td>OpenCode stream normalization, turn capture, R2 writes, token/cost</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>apps/workers/src/opencode/{event-stream,message,ai-usage-capture}.ts</code></td></tr>
+        <tr><td>Provider-agnostic seam (OpenCode / Anthropic / OpenAI)</td><td><span class="st plan">DESIGNED</span></td><td>provider is metadata; <code>family-proxy.ts</code> / <code>llm-proxy.ts</code> abstract providers</td></tr>
+        <tr><td>High-level agent recorder (startSession / recordToolCall / recordFileChange)</td><td><span class="st plan">DESIGNED</span></td><td>spec §“SDK Surface”; SDK ships only the primitives</td></tr>
+        <tr><td>Python / Go edge + graph parity</td><td><span class="st gap">GAP</span></td><td>TS has edges; <code>sdks/python</code> &amp; <code>sdks/go</code> ship <code>event</code> only</td></tr>
+        <tr><td><code>actor.kind === 'agent'</code> consistently distinguished in writes</td><td><span class="st gap">GAP</span></td><td>named as “future hardening” in the OpenCode boundary spec</td></tr>
+        <tr><td><b>Normalizer: OpenCode chokepoints → veritio events / edges</b></td><td><span class="st gap">BRIDGE</span></td><td>chokepoints emit billing usage today, not evidence-graph records</td></tr>
+        <tr><td>Full-capture: user prompt · AI thinking · exec output · raw diff</td><td><span class="st plan">DESIGNED</span></td><td>spec allows “encrypted payload references for raw retained evidence”</td></tr>
+        <tr><td>Git-style diff &amp; session-transcript Workbench views</td><td><span class="st plan">DESIGNED</span></td><td>this mockup (§05–§06); graph + verifier already implemented</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- 6 · PRIVACY -->
+<section>
+  <div class="wrap">
+    <div class="snum reveal">08 — RAILS</div>
+    <h2 class="stitle reveal">Integrity &amp; privacy, always on</h2>
+    <div class="rails reveal">
+      <div class="rail-card keep">
+        <h4>ALWAYS STORED</h4>
+        <ul>
+          <li>hashes — promptHash · beforeHash · afterHash · hunkHash · rootHash</li>
+          <li>bounded, redacted metadata · stable IDs</li>
+          <li>per-tenant sequence + previous-hash links</li>
+          <li>canonical-JSON v1 · sha256 · canonicalization version</li>
+          <li>verification + redaction manifest in every export</li>
+        </ul>
+      </div>
+      <div class="rail-card never">
+        <h4>NEVER STORED BY DEFAULT</h4>
+        <ul>
+          <li>raw prompts · reasoning · token streams</li>
+          <li>file contents · raw diffs · stdout / stderr</li>
+          <li>tokens · passwords · secrets · API keys</li>
+          <li>authorization headers · DB connection strings</li>
+          <li>emails / display names where a stable ID works</li>
+        </ul>
+      </div>
+    </div>
+    <p class="reveal" style="margin-top:20px;color:var(--ink-faint);font-size:13px;font-family:var(--mono);line-height:1.6">↳ Full-capture mode adds <b style="color:var(--ink-dim)">prompt · AI thinking · command output · raw diff</b> as <b style="color:var(--signal)">encrypted payload references</b> (opt-in, anchored by hash). Secrets, tokens and credentials are <b style="color:var(--reject)">never stored in any mode</b>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div>
+      <b>veritio/docs/agent-audit-visualization.html</b> — generated companion to the evidence-graph design.<br>
+      <span class="disclaim">Veritio supports compliance &amp; governance evidence. It is not legal advice and does not guarantee GDPR, PIPA, CCPA, SOC 2 or any compliance.</span>
+    </div>
+    <div>open with <span class="kbd">veritio dev --mcp</span></div>
+  </div>
+</footer>
+
+<script>
+/* ----- evidence graph model: the real runChangeProvenanceScenario seed ----- */
+const C = getComputedStyle(document.documentElement);
+const col = n => C.getPropertyValue(n).trim();
+const NW=152, NH=46;
+
+const NODES = [
+  {id:"usr_builder", x:92,  y:60,  type:"actor · user",       label:"usr_builder",  c:"--human",
+   ev:"change.requested", meta:[["actor.id","usr_builder"],["target","change_request"],["retention","change_1y"],["requestHash","#sha256:req_track_error_toasts"]],
+   note:"Human-initiated request. <b>Stable ID, no PII</b> — the requester, not the agent."},
+
+  {id:"change_request", x:92, y:252, type:"resource · change_request", label:"req_track_…", c:"--slate",
+   ev:"change.requested", meta:[["id","req_track_error_toasts"],["summary","Track a Studio build/deploy UI change"],["dataCategories","[source_reference]"],["requestHash","#sha256:req_track_error_toasts"]],
+   note:"The originating ticket. Everything downstream links back here via <b>caused_by</b>."},
+
+  {id:"agent_session", x:312, y:252, type:"actor · ai_agent", label:"agt_sess_…01", c:"--ai",
+   ev:"agent.session.started", meta:[["id","agt_sess_app_builder_01"],["provider","opencode"],["model","local-fixture"],["promptHash","#sha256:prompt_track_error_toasts"],["contextHash","#sha256:context_repo_slice"],["policyHash","#sha256:opencode_policy_v1"],["configHash","#sha256:provider_config_v1"],["sandboxId","sandbox_app_builder_01"]],
+   note:"Swap <b>provider → anthropic | openai</b> and the record shape is identical. Prompt &amp; context are hashes only."},
+
+  {id:"tool_call", x:520, y:150, type:"tool_call", label:"apply_edits", c:"--svc",
+   ev:"agent.tool.called", meta:[["id","tool_apply_edits_01"],["tool","apply_edits"],["phase","completed"],["approval","auto_allowed"],["inputHash","#sha256:apply_edits_input"],["filesystemScope","apps/studio/**"],["status","succeeded"],["latencyMs","1840"]],
+   note:"Tool inputs are hashed; the filesystem scope bounds what the agent could touch."},
+
+  {id:"change_proposal", x:520, y:352, type:"resource · change_proposal", label:"proposal_…01", c:"--slate",
+   ev:"change.proposal.created", meta:[["id","proposal_safe_toasts_01"],["baseVersion → resultVersion","41 → 42"],["proposalSignature","#sha256:proposal_safe_toasts_01"],["acceptedPathHashes","2 paths"],["rejectedPathHashes","1 path"],["reason","ai_agent"]],
+   note:"Signed over accepted + rejected + deleted path hashes. Same mutation contract as a human edit."},
+
+  {id:"file_build", x:728, y:70, type:"file", label:"build_shared", c:"--file",
+   ev:"change.files.changed", meta:[["pathHash","#sha256:path_build_shared"],["beforeHash","#sha256:before_build_shared"],["afterHash","#sha256:after_build_shared"],["hunkHashes","[1]"],["action","upsert"],["sizeBytes","1842"]],
+   note:"A file change is before→after hashes, not file contents."},
+
+  {id:"file_deploy", x:728, y:168, type:"file", label:"deployments_tab", c:"--file",
+   ev:"change.files.changed", meta:[["pathHash","#sha256:path_deployments_tab"],["beforeHash","#sha256:before_deployments_tab"],["afterHash","#sha256:after_deployments_tab"],["action","upsert"],["sizeBytes","3921"]],
+   note:"Second accepted file in the proposal."},
+
+  {id:"diff_hunk", x:728, y:266, type:"diff_hunk", label:"hunk_…01", c:"--slate",
+   ev:"edge · part_of", meta:[["id","hunk_build_shared_01"],["hunkHash","#sha256:hunk_build_shared_01"],["resultVersion","42"]],
+   note:"Hunk-level granularity: <b>diff_hunk ─part_of▶ file</b>."},
+
+  {id:"file_lock", x:728, y:392, type:"file · REJECTED", label:"package_lock", c:"--reject",
+   ev:"edge · read (rejected)", meta:[["pathHash","#sha256:path_package_lock"],["decision","rejected"],["reason","classification:system"]],
+   note:"A <b>rejected</b> change is kept as evidence, never silently dropped — you can audit what the agent <i>chose not</i> to ship."},
+
+  {id:"reviewer", x:520, y:492, type:"actor · user", label:"usr_reviewer", c:"--human",
+   ev:"review.approval.recorded", meta:[["actor.id","usr_reviewer"],["reviewFindingCount","0"],["waiverCount","0"],["approvalHash","#sha256:approval_safe_toasts"]],
+   note:"Human approval is a first-class record: <b>proposal ─approved_by▶ actor</b>."},
+
+  {id:"artifact", x:912, y:118, type:"artifact", label:"artifact_…01", c:"--build",
+   ev:"ci.job.completed", meta:[["id","artifact_safe_toasts_01"],["sourceHash","#sha256:source_safe_toasts"],["derived_from","file:build_shared"],["built_by","ci_run"]],
+   note:"Build provenance: artifact ─derived_from▶ file, ─built_by▶ ci_run."},
+
+  {id:"ci_run", x:912, y:250, type:"ci_run", label:"ci_…01", c:"--build",
+   ev:"ci.job.completed", meta:[["id","ci_safe_toasts_01"],["status","succeeded"],["checks","[typecheck, unit, diff-check]"],["artifactHash","#sha256:artifact_safe_toasts"]],
+   note:"CI evidence linking the artifact to passing checks."},
+
+  {id:"deployment", x:1078, y:118, type:"deployment", label:"dep_…01", c:"--build",
+   ev:"deploy.deployed", meta:[["id","dep_safe_toasts_01"],["bundleHash","#sha256:bundle_safe_toasts"],["sourceHash","#sha256:source_safe_toasts"],["buildJobId","build_job_safe_toasts_01"],["satisfies","policy_prod_deploy"]],
+   note:"Deployment ─satisfies_policy▶ policy and ─observed_in▶ runtime_event."},
+
+  {id:"policy", x:1078, y:250, type:"policy", label:"prod_deploy", c:"--policy",
+   ev:"changePolicy", meta:[["id","policy_prod_deploy"],["requires","human_approval"],["requires ","ci_passed"],["requires  ","artifact_attestation"]],
+   note:"Declared change policy. Policy-drift flags a prod deploy missing any requirement."},
+
+  {id:"runtime_event", x:1078, y:392, type:"runtime_event", label:"runtime_…01", c:"--runtime",
+   ev:"build.error.toast.viewed", meta:[["id","runtime_safe_toast_01"],["deploymentId","dep_safe_toasts_01"],["routeHash","#sha256:route_app_settings_deployments"],["observedOutcome","sanitized_error_copy"]],
+   note:"Runtime outcome closes the loop: prompt → change → deploy → <b>observed behaviour</b>."},
+];
+
+const EDGES = [
+  ["usr_builder","change_request","created"],
+  ["agent_session","change_request","caused_by"],
+  ["agent_session","tool_call","created"],
+  ["agent_session","change_proposal","created"],
+  ["tool_call","file_build","modified"],
+  ["tool_call","file_deploy","modified"],
+  ["change_proposal","diff_hunk","created"],
+  ["change_proposal","file_lock","read·rejected",true],
+  ["diff_hunk","file_build","part_of"],
+  ["change_proposal","reviewer","approved_by"],
+  ["artifact","file_build","derived_from"],
+  ["artifact","ci_run","built_by"],
+  ["artifact","deployment","deployed_as"],
+  ["deployment","policy","satisfies_policy"],
+  ["deployment","runtime_event","observed_in",false,true], // curved
+];
+
+const byId = Object.fromEntries(NODES.map(n=>[n.id,n]));
+
+/* boundary point of node box toward target */
+function edgePt(a,b){
+  const dx=b.x-a.x, dy=b.y-a.y, hw=NW/2+4, hh=NH/2+4;
+  const sx = dx===0?Infinity:Math.abs(hw/dx);
+  const sy = dy===0?Infinity:Math.abs(hh/dy);
+  const s = Math.min(sx,sy);
+  return {x:a.x+dx*s, y:a.y+dy*s};
+}
+
+const SVGNS="http://www.w3.org/2000/svg";
+const mk=(t,a={})=>{const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;};
+
+const gEdges=document.getElementById("edges");
+const gLabels=document.getElementById("elabels");
+const gNodes=document.getElementById("nodes");
+
+const edgeEls=[];
+EDGES.forEach(([from,to,rel,reject,curved],i)=>{
+  const a=byId[from], b=byId[to];
+  const p1=edgePt(a,b), p2=edgePt(b,a);
+  let d, mx, my;
+  if(curved){
+    const cx=p1.x+90, cy=(p1.y+p2.y)/2;
+    d=`M${p1.x},${p1.y} Q${cx},${cy} ${p2.x},${p2.y}`;
+    mx=cx-18; my=cy;
+  }else{
+    d=`M${p1.x},${p1.y} L${p2.x},${p2.y}`;
+    mx=(p1.x+p2.x)/2; my=(p1.y+p2.y)/2;
+  }
+  const path=mk("path",{d,class:"edge"+(reject?" reject":""),"marker-end":reject?"url(#arrow-r)":"url(#arrow)"});
+  gEdges.appendChild(path);
+
+  const lt=rel.replace("·"," ");
+  const bg=mk("rect",{class:"elabel-bg",rx:3});
+  const tx=mk("text",{x:mx,y:my+0.5,"text-anchor":"middle",class:"elabel"+(reject?" active":"")});
+  tx.textContent=lt;
+  gLabels.appendChild(bg); gLabels.appendChild(tx);
+  // size bg to text after layout
+  requestAnimationFrame(()=>{
+    const bb=tx.getBBox();
+    bg.setAttribute("x",bb.x-4); bg.setAttribute("y",bb.y-1.5);
+    bg.setAttribute("width",bb.width+8); bg.setAttribute("height",bb.height+3);
+  });
+  edgeEls.push({from,to,path,label:tx});
+});
+
+NODES.forEach((n,i)=>{
+  const g=mk("g",{class:"node-g",transform:`translate(${n.x-NW/2},${n.y-NH/2})`,"data-id":n.id});
+  g.appendChild(mk("rect",{class:"node-rect",width:NW,height:NH,rx:9,style:`stroke:${col(n.c)}`}));
+  const t1=mk("text",{class:"node-type",x:12,y:18}); t1.textContent=n.type; t1.style.fill=col(n.c);
+  const t2=mk("text",{class:"node-id",x:12,y:34}); t2.textContent=n.label;
+  g.appendChild(t1); g.appendChild(t2);
+  g.addEventListener("click",()=>select(n.id));
+  g.style.opacity=0; g.style.transition="opacity .5s"; setTimeout(()=>g.style.opacity=1, 120+i*45);
+  gNodes.appendChild(g);
+});
+
+/* inspector */
+const insp=document.getElementById("inspector");
+function chip(v){ if(typeof v==="string" && v.startsWith("#")) return `<span class="hashchip">${v.slice(1)}</span>`; return v; }
+function select(id){
+  const n=byId[id];
+  document.querySelectorAll(".node-g").forEach(g=>g.classList.toggle("sel",g.dataset.id===id));
+  edgeEls.forEach(e=>{
+    const on = e.from===id||e.to===id;
+    e.path.classList.toggle("active",on && !e.path.classList.contains("reject"));
+    if(on && !e.path.classList.contains("reject")) e.path.setAttribute("marker-end","url(#arrow-a)");
+    else if(!e.path.classList.contains("reject")) e.path.setAttribute("marker-end","url(#arrow)");
+    if(!e.path.classList.contains("reject")) e.label.classList.toggle("active",on);
+  });
+  insp.innerHTML = `<div class="insp-h">▸ RECORD INSPECTOR</div>
+    <span class="insp-type" style="background:${col(n.c)}">${n.type}</span>
+    <div class="insp-id">${n.meta[0][0]==="id"?n.meta[0][1]:n.label}</div>
+    <div class="insp-ev">${n.ev}</div>
+    <div class="kv">${n.meta.map(([k,v])=>`<div class="row"><div class="k">${k.trim()}</div><div class="v">${chip(v)}</div></div>`).join("")}</div>
+    <div class="insp-note">${n.note}</div>`;
+}
+select("agent_session");
+
+/* timeline spine */
+const SPINE=[
+  ["change.requested","00:10:00"],["agent.session.started","00:10:02"],["agent.tool.called","00:10:04"],
+  ["change.proposal.created","00:10:06"],["change.files.changed","00:10:08"],["review.approval.recorded","00:10:10"],
+  ["ci.job.completed","00:10:12"],["deploy.deployed","00:10:14"],["build.error.toast.viewed","00:10:16"],
+];
+const spine=document.getElementById("spine");
+SPINE.forEach(([ev,ts])=>{
+  const d=document.createElement("div"); d.className="tick";
+  d.innerHTML=`<div class="bar"><span class="pt"></span></div><div class="ev">${ev}</div><div class="ts">${ts}Z</div>`;
+  spine.appendChild(d);
+});
+
+/* ----- git-style diff viewer ----- */
+const esc=s=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const DIFFS={
+  shared:{
+    meta:[["beforeHash","sha256:before_build_shared"],["afterHash","sha256:after_build_shared"],["hunk","hunk_build_shared_01"]],
+    lines:[
+      {t:"h",g:"",c:"@@ -10,6 +10,13 @@ build/shared.ts"},
+      {t:"ctx",g:"10",c:"import { toast } from '@/ui/toast'"},
+      {t:"add",g:"11",c:"import { sanitizeErrorCopy } from '@/lib/sanitize'"},
+      {t:"ctx",g:"12",c:""},
+      {t:"del",g:"13",c:"export function reportBuildError(err: unknown) {"},
+      {t:"del",g:"14",c:"  toast.error(String(err))"},
+      {t:"add",g:"13",c:"export function reportBuildError(err: unknown) {"},
+      {t:"add",g:"14",c:"  // Never leak raw error internals to the end user."},
+      {t:"add",g:"15",c:"  const copy = sanitizeErrorCopy(err)"},
+      {t:"add",g:"16",c:"  toast.error(copy, { role: 'status', durationMs: 6000 })"},
+      {t:"add",g:"17",c:"  recordRuntimeEvent('build.error.toast.viewed', {"},
+      {t:"add",g:"18",c:"    outcome: 'sanitized_error_copy',"},
+      {t:"add",g:"19",c:"  })"},
+      {t:"ctx",g:"20",c:"}"},
+    ],
+  },
+  tab:{
+    meta:[["beforeHash","sha256:before_deployments_tab"],["afterHash","sha256:after_deployments_tab"]],
+    lines:[
+      {t:"h",g:"",c:"@@ -42,5 +42,12 @@ export function DeploymentsTab()"},
+      {t:"ctx",g:"42",c:"  const { data, error } = useDeployments()"},
+      {t:"del",g:"43",c:"  if (error) return <ErrorBox error={error} />"},
+      {t:"add",g:"43",c:"  if (error) {"},
+      {t:"add",g:"44",c:"    reportBuildError(error)"},
+      {t:"add",g:"45",c:"    return <ErrorBox tone=\"sanitized\" />"},
+      {t:"add",g:"46",c:"  }"},
+      {t:"ctx",g:"47",c:"  return ("},
+      {t:"ctx",g:"48",c:"    <Panel>"},
+      {t:"add",g:"49",c:"      {deploy.lastError && ("},
+      {t:"add",g:"50",c:"        <Banner kind=\"warning\">{sanitizeErrorCopy(deploy.lastError)}</Banner>"},
+      {t:"add",g:"51",c:"      )}"},
+      {t:"ctx",g:"52",c:"      <DeploymentList items={data} />"},
+    ],
+  },
+  lock:{rejected:"package-lock.json — change <b>REJECTED</b><br><br>reason: classification:system · the agent proposed it, the host policy declined it.<br>Recorded as evidence: <b>proposal ─read▶ file</b> (decision: rejected).<br>Raw diff withheld — classified system file."},
+};
+function renderDiff(f){
+  document.querySelectorAll(".dfile").forEach(d=>d.classList.toggle("active",d.dataset.f===f));
+  const dv=document.getElementById("diffview"); const D=DIFFS[f];
+  if(D.rejected){ dv.innerHTML=`<div class="drej">${D.rejected}</div>`; return; }
+  let h=`<div class="dmeta"><span class="tag">reason:ai_agent</span>`+D.meta.map(([k,v])=>`<span class="hc">${k} ${v}</span>`).join("")+`</div><div class="code-diff">`;
+  h+=D.lines.map(l=>`<div class="dl ${l.t}"><span class="g">${l.g}</span><span class="s">${l.t==="add"?"+":l.t==="del"?"−":""}</span><span class="c">${esc(l.c)||"&nbsp;"}</span></div>`).join("");
+  dv.innerHTML=h+`</div>`;
+}
+document.querySelectorAll(".dfile").forEach(d=>d.addEventListener("click",()=>renderDiff(d.dataset.f)));
+renderDiff("shared");
+
+/* reveal on scroll */
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add("in");io.unobserve(e.target);}}),{threshold:.12});
+document.querySelectorAll(".reveal").forEach((el,i)=>{ if(el.closest(".hero")) el.style.transitionDelay=(i*90)+"ms"; io.observe(el); });
+</script>
+</body>
+</html>

@@ -48,10 +48,15 @@ function makeSinks() {
   };
 }
 
+/**
+ * Starts the shared provenance fixture with an explicit timestamp so tests that
+ * replay the same session exercise idempotency against the same canonical event.
+ */
 function startBasicSession(recorder: ProvenanceRecorder) {
   return recorder.startSession({
     scope: SCOPE,
     sessionId: "agt_sess_01",
+    occurredAt: "2026-06-18T00:00:00.000Z",
     initiatedBy: { type: "user", id: "usr_builder" },
     agentActor: { type: "ai_agent", id: "agent_opencode" },
     agent: { name: "opencode", version: "1.17" },
