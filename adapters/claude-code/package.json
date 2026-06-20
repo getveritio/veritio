@@ -1,0 +1,47 @@
+{
+  "name": "@veritio/claude-code",
+  "version": "0.0.1",
+  "description": "Capture Claude Code agent activity as Veritio evidence via hooks, with a local file sink or ingest POST.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "adapters/claude-code"
+  },
+  "keywords": [
+    "claude-code",
+    "hooks",
+    "audit-trail",
+    "evidence",
+    "provenance",
+    "typescript"
+  ],
+  "type": "module",
+  "bin": {
+    "veritio-claude-code-hook": "./dist/hook.js",
+    "veritio-claude-code-mcp": "./dist/mcp.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun run --cwd ../../storage build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "bun run --cwd ../../storage build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run --cwd ../../storage build && bun test src"
+  },
+  "dependencies": {
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "name": "@veritio/vue",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Vue helpers for annotating UI with Veritio evidence intents without client-side recording.",
   "license": "Apache-2.0",
   "repository": {

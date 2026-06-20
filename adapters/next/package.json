@@ -1,6 +1,6 @@
 {
   "name": "@veritio/next",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Next.js adapter for recording Veritio audit trail evidence from server-side route handlers and server actions.",
   "license": "Apache-2.0",
   "repository": {

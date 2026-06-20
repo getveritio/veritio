@@ -498,7 +498,10 @@ export class MemoryAuditStore implements AuditStore {
     if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 0)) {
       throw new TypeError("limit must be a non-negative integer");
     }
-    if (options.afterSequence !== undefined && (!Number.isInteger(options.afterSequence) || options.afterSequence < 0)) {
+    if (
+      options.afterSequence !== undefined &&
+      (!Number.isInteger(options.afterSequence) || options.afterSequence < 0)
+    ) {
       throw new TypeError("afterSequence must be a non-negative integer");
     }
 
@@ -641,14 +644,18 @@ function assertNonEmpty(value: unknown, field: string): void {
  * Returns a protocol principal without carrying undefined or extra host fields.
  */
 function cleanPrincipal(value: Principal): Principal {
-  return value.display ? { type: value.type, id: value.id, display: value.display } : { type: value.type, id: value.id };
+  return value.display
+    ? { type: value.type, id: value.id, display: value.display }
+    : { type: value.type, id: value.id };
 }
 
 /**
  * Returns a protocol resource without carrying undefined or extra host fields.
  */
 function cleanResource(value: Resource): Resource {
-  return value.display ? { type: value.type, id: value.id, display: value.display } : { type: value.type, id: value.id };
+  return value.display
+    ? { type: value.type, id: value.id, display: value.display }
+    : { type: value.type, id: value.id };
 }
 
 /**
@@ -754,3 +761,5 @@ function cloneRecord(record: AuditRecord): AuditRecord {
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
+
+export * from "./provenance";

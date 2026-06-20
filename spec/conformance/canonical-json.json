@@ -20,6 +20,20 @@
         "optional": null
       },
       "expected": "{\"a\":{\"b\":[2,{\"x\":\"first\",\"y\":\"yes\"}],\"c\":3},\"note\":\"<&\u2028\",\"optional\":null,\"z\":1}"
+    },
+    {
+      "name": "agent and model identity object sorts keys deterministically",
+      "input": {
+        "agent": {
+          "name": "opencode",
+          "version": "1.17"
+        },
+        "model": {
+          "provider": "anthropic",
+          "name": "claude-opus-4-8"
+        }
+      },
+      "expected": "{\"agent\":{\"name\":\"opencode\",\"version\":\"1.17\"},\"model\":{\"name\":\"claude-opus-4-8\",\"provider\":\"anthropic\"}}"
     }
   ]
 }
