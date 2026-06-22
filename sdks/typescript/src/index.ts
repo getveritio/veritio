@@ -763,3 +763,4 @@ function sha256Hex(value: string): string {
 }
 
 export * from "./provenance";
+export * from "./templates";

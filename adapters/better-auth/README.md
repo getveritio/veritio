@@ -9,6 +9,7 @@ Initial event targets:
 
 - user creation
 - session creation and revocation
+- organization creation
 - organization invitation creation and acceptance
 - organization/member changes when used by the host app
 
@@ -47,11 +48,52 @@ databaseHooks: {
 }
 ```
 
+Session hooks can pass an allowlisted auth-security context object when the host
+intentionally records sign-in/logout context:
+
+```ts
+databaseHooks: {
+  session: {
+    create: {
+      after: async (session, context) => {
+        await veritioAuth.recordSessionCreated({
+          user: { id: session.userId },
+          session: { id: session.id },
+          tenantId: await resolveTenantId(session.userId),
+          requestId: context?.headers.get("x-request-id") ?? undefined,
+          securityContext: {
+            ipAddressHash: await hashIpAddress(session.ipAddress),
+            userAgentHash: await hashUserAgent(session.userAgent),
+            location: await resolveCountryRegion(context),
+          },
+        });
+      },
+    },
+    delete: {
+      after: async (session, context) => {
+        await veritioAuth.recordSessionRevoked({
+          user: { id: session.userId },
+          session: { id: session.id },
+          tenantId: await resolveTenantId(session.userId),
+          requestId: context?.headers.get("x-request-id") ?? undefined,
+        });
+      },
+    },
+  },
+}
+```
+
 For Better Auth organization plugin hooks, map only stable IDs and allowlisted
 fields:
 
 ```ts
 organizationHooks: {
+  afterCreateOrganization: async ({ organization, user }) => {
+    await veritioAuth.recordOrganizationCreated({
+      actor: { id: user.id },
+      organization: { id: organization.id },
+    });
+  },
   afterCreateInvitation: async ({ invitation, inviter, organization }) => {
     await veritioAuth.recordInvitationCreated({
       invitation: { id: invitation.id, role: invitation.role },
@@ -63,4 +105,7 @@ organizationHooks: {
 ```
 
 Do not pass raw emails, passwords, bearer tokens, reset tokens, authorization
-headers, IP addresses, or user agents into adapter metadata.
+headers, cookies, raw IP addresses, precise locations, or raw user agents into
+adapter metadata. Prefer `securityContext.ipAddressHash`, `networkHash`,
+`userAgentHash`, and country/region location when the host has intentionally
+chosen to capture authentication security context.
