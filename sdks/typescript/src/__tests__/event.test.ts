@@ -1,17 +1,23 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import type { AuditEvent, AuditEventInput, JsonObject } from "../index";
 import {
-  HASH_ALGORITHM,
-  MemoryAuditStore,
+  auditLogClassificationMetadata,
+  auditLogSurfaceValues,
+  auditLogVisibilityValues,
+  auditTemplateSets,
+  auditTemplates,
   canonicalJson,
-  createAuditRecorder,
   createAuditEvent,
+  createAuditRecorder,
+  detectAuditLogClassifiers,
+  HASH_ALGORITHM,
   hashAuditEvent,
   hashAuditRecord,
   hashIdempotencyKey,
+  MemoryAuditStore,
   verifyAuditRecords,
 } from "../index";
-import type { AuditEvent, AuditEventInput, JsonObject } from "../index";
 
 const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");
 
@@ -179,9 +185,7 @@ describe("hashAuditEvent", () => {
     const fixture = await loadConformanceFixture<EventHashingFixture>("event-hashing.json");
 
     for (const conformanceCase of fixture.cases) {
-      expect(
-        hashAuditEvent(conformanceCase.event, conformanceCase.previousHash),
-      ).toBe(conformanceCase.expectedHash);
+      expect(hashAuditEvent(conformanceCase.event, conformanceCase.previousHash)).toBe(conformanceCase.expectedHash);
     }
   });
 });
@@ -269,9 +273,9 @@ describe("MemoryAuditStore", () => {
     const fixture = await loadConformanceFixture<AuditRecordHashingFixture>("audit-record-hashing.json");
 
     for (const conformanceCase of fixture.cases) {
-      expect(
-        hashIdempotencyKey(conformanceCase.tenantId, conformanceCase.idempotencyKey),
-      ).toBe(conformanceCase.expectedIdempotencyKeyHash);
+      expect(hashIdempotencyKey(conformanceCase.tenantId, conformanceCase.idempotencyKey)).toBe(
+        conformanceCase.expectedIdempotencyKeyHash,
+      );
       expect(hashAuditRecord(conformanceCase.recordWithoutHash)).toBe(conformanceCase.expectedHash);
     }
   });
@@ -465,5 +469,253 @@ describe("createAuditRecorder", () => {
 
     expect(record.event.metadata).toEqual({ invitedEmail: "[redacted]", role: "viewer" });
     expect(verifyAuditRecords(store.records())).toEqual({ ok: true });
+  });
+});
+
+describe("auditTemplates", () => {
+  test("exposes canonical action sets for common integration flows", () => {
+    expect(auditTemplateSets.auth).toContain("auth.session.created");
+    expect(auditTemplateSets.organization).toContain("org.created");
+    expect(auditTemplateSets.agent).toContain("agent.session.started");
+    expect(auditTemplateSets.code).toContain("change.files.changed");
+    expect(auditTemplateSets.code).toContain("review.waiver.recorded");
+  });
+
+  test("exposes audit log classifier metadata helpers and detectors", () => {
+    expect(auditLogVisibilityValues).toEqual(["internal", "external", "partner", "system"]);
+    expect(auditLogSurfaceValues).toEqual(["api", "app", "worker", "cli", "webhook"]);
+    expect(auditLogClassificationMetadata({ visibility: "public", surface: "REST" })).toEqual({
+      logVisibility: "external",
+      logSurface: "api",
+    });
+    expect(auditLogClassificationMetadata({ visibility: "staff", surface: "dashboard" })).toEqual({
+      logVisibility: "internal",
+      logSurface: "app",
+    });
+    expect(detectAuditLogClassifiers({ auditLog: { visibility: "partner", surface: "webhook" } })).toEqual({
+      visibility: "partner",
+      surface: "webhook",
+    });
+    expect(
+      detectAuditLogClassifiers({ visibility: "customer", client: { type: "browser" } }),
+    ).toEqual({
+      visibility: "external",
+      surface: "app",
+    });
+  });
+
+  test("creates auth session events with security context redaction", () => {
+    const event = createAuditEvent(
+      auditTemplates.auth.signedIn({
+        id: "evt_signin",
+        occurredAt: "2026-06-20T00:00:00.000Z",
+        userId: "usr_123",
+        sessionId: "sess_123",
+        scope: { tenantId: "org_123", environment: "test" },
+        securityContext: {
+          ipAddressHash: "sha256:client-ip",
+          userAgentHash: "sha256:user-agent",
+          location: { country: "US", region: "CA" },
+        },
+        metadata: {
+          authorization: "Bearer secret",
+          ...auditLogClassificationMetadata({ visibility: "customer", surface: "api" }),
+        },
+      }),
+    );
+
+    expect(event.action).toBe("auth.session.created");
+    expect(event.target).toEqual({ type: "session", id: "sess_123" });
+    expect(event.purpose).toBe("access_management");
+    expect(event.lawfulBasis).toBe("contract");
+    expect(event.metadata).toEqual({
+      authorization: "[redacted]",
+      logSurface: "api",
+      logVisibility: "external",
+      securityContext: {
+        ipAddressHash: "sha256:client-ip",
+        location: { country: "US", region: "CA" },
+        userAgentHash: "sha256:user-agent",
+      },
+    });
+  });
+
+  test("defaults organization creation to tenant scope", () => {
+    const event = createAuditEvent(
+      auditTemplates.organization.created({
+        id: "evt_org_created",
+        occurredAt: "2026-06-20T00:01:00.000Z",
+        organizationId: "org_123",
+        actor: { type: "user", id: "usr_123" },
+      }),
+    );
+
+    expect(event.action).toBe("org.created");
+    expect(event.target).toEqual({ type: "organization", id: "org_123" });
+    expect(event.scope).toEqual({ tenantId: "org_123" });
+  });
+
+  test("preserves template-reserved agent session metadata", () => {
+    const event = createAuditEvent(
+      auditTemplates.agent.sessionStarted({
+        id: "evt_agent_started",
+        occurredAt: "2026-06-20T00:02:00.000Z",
+        sessionId: "agt_sess_123",
+        agentActor: { type: "ai_agent", id: "agent_codex" },
+        scope: { tenantId: "org_123" },
+        metadata: { sessionId: "caller_shadow", reason: "code_review" },
+      }),
+    );
+
+    expect(event.action).toBe("agent.session.started");
+    expect(event.target).toEqual({ type: "agent_session", id: "agt_sess_123" });
+    expect(event.metadata).toEqual({ reason: "code_review", sessionId: "agt_sess_123" });
+  });
+
+  test("creates code change events without raw file paths", () => {
+    const event = createAuditEvent(
+      auditTemplates.code.filesChanged({
+        id: "evt_files_changed",
+        occurredAt: "2026-06-20T00:03:00.000Z",
+        sourceTreeId: "tree_123",
+        actor: { type: "ai_agent", id: "agent_codex" },
+        scope: { tenantId: "org_123" },
+        sessionId: "agt_sess_123",
+        fileCount: 2,
+        filePathHashes: ["hash_b", "hash_a"],
+      }),
+    );
+
+    expect(event.action).toBe("change.files.changed");
+    expect(event.target).toEqual({ type: "source_tree", id: "tree_123" });
+    expect(event.metadata).toEqual({
+      fileCount: 2,
+      filePathHashes: ["hash_b", "hash_a"],
+      sessionId: "agt_sess_123",
+    });
+  });
+
+  test("adds session grouping to review waiver events", () => {
+    const event = createAuditEvent(
+      auditTemplates.code.reviewWaiverRecorded({
+        id: "evt_review_waiver",
+        occurredAt: "2026-06-20T00:04:00.000Z",
+        pullRequestId: "pr_123",
+        reviewer: { type: "user", id: "usr_reviewer" },
+        scope: { tenantId: "org_123" },
+        sessionId: "agt_sess_123",
+        proposalId: "proposal_123",
+        waiverCount: 1,
+        metadata: { sessionId: "caller_shadow" },
+      }),
+    );
+
+    expect(event.action).toBe("review.waiver.recorded");
+    expect(event.metadata).toEqual({
+      proposalId: "proposal_123",
+      sessionId: "agt_sess_123",
+      waiverCount: 1,
+    });
+  });
+
+  test("rejects raw content metadata on agent and code templates", () => {
+    const agentActor = { type: "ai_agent" as const, id: "agent_codex" };
+    const scope = { tenantId: "org_123" };
+    const unsafeCases: Array<{ name: string; build: () => unknown }> = [
+      {
+        name: "raw prompt",
+        build: () =>
+          auditTemplates.agent.promptRecorded({
+            sessionId: "agt_sess_123",
+            promptHash: "sha256:prompt",
+            agentActor,
+            scope,
+            metadata: { prompt: "create a secret-bearing patch" },
+          }),
+      },
+      {
+        name: "raw diff",
+        build: () =>
+          auditTemplates.code.filesChanged({
+            sourceTreeId: "tree_123",
+            actor: agentActor,
+            scope,
+            metadata: { diff: "diff --git a/a.ts b/a.ts" },
+          }),
+      },
+      {
+        name: "raw hunk",
+        build: () =>
+          auditTemplates.code.filesChanged({
+            sourceTreeId: "tree_123",
+            actor: agentActor,
+            scope,
+            metadata: { hunk: "@@ -1 +1 @@" },
+          }),
+      },
+      {
+        name: "raw file path",
+        build: () =>
+          auditTemplates.code.filesChanged({
+            sourceTreeId: "tree_123",
+            actor: agentActor,
+            scope,
+            metadata: { filePath: "src/secrets.ts" },
+          }),
+      },
+      {
+        name: "stdout",
+        build: () =>
+          auditTemplates.agent.toolCalled({
+            sessionId: "agt_sess_123",
+            toolCallId: "tool_123",
+            tool: "shell",
+            status: "ok",
+            agentActor,
+            scope,
+            metadata: { stdout: "raw command output" },
+          }),
+      },
+      {
+        name: "stderr",
+        build: () =>
+          auditTemplates.agent.toolCalled({
+            sessionId: "agt_sess_123",
+            toolCallId: "tool_123",
+            tool: "shell",
+            status: "failed",
+            agentActor,
+            scope,
+            metadata: { stderr: "raw error output" },
+          }),
+      },
+      {
+        name: "tool args",
+        build: () =>
+          auditTemplates.agent.toolCalled({
+            sessionId: "agt_sess_123",
+            toolCallId: "tool_123",
+            tool: "shell",
+            status: "ok",
+            agentActor,
+            scope,
+            metadata: { toolArgs: { command: "cat .env" } },
+          }),
+      },
+      {
+        name: "token-like value",
+        build: () =>
+          auditTemplates.code.changeProposalCreated({
+            proposalId: "proposal_123",
+            actor: agentActor,
+            scope,
+            metadata: { note: "Bearer abc.def" },
+          }),
+      },
+    ];
+
+    for (const unsafeCase of unsafeCases) {
+      expect(unsafeCase.build, unsafeCase.name).toThrow(/not allowed|looks like raw content/);
+    }
   });
 });

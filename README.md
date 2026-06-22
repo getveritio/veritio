@@ -60,6 +60,36 @@ const edge = createEvidenceEdge({
 });
 ```
 
+## Audit Templates
+
+SDKs include helper templates for common auth, organization, data, agent, and
+code-change audit events. They return normal audit-event inputs, so hosts can
+still use their own recorder and storage boundaries:
+
+```ts
+import { auditTemplates, createAuditEvent } from "@veritio/core";
+
+const event = createAuditEvent(
+  auditTemplates.organization.created({
+    organizationId: "org_123",
+    actor: { type: "user", id: "usr_owner" },
+  }),
+);
+```
+
+Auth templates include hashed/coarse sign-in context fields. Agent and
+code-change templates use `metadata.sessionId` for grouping and reject raw
+prompt, diff, path, stdout/stderr, tool-argument, and bearer-token-like
+metadata.
+
+Use `auditLogClassificationMetadata` when a host wants portable filters for
+audit streams without adding protocol fields. It normalizes visibility labels
+such as `customer`/`public` to `metadata.logVisibility = "external"` and
+surface labels such as `REST`/`dashboard` to `metadata.logSurface = "api"` or
+`"app"`. Canonical visibility values are `internal`, `external`, `partner`,
+and `system`; canonical surfaces are `api`, `app`, `worker`, `cli`, and
+`webhook`.
+
 ## Local Workbench
 
 ```sh
