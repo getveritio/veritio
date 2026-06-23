@@ -1,24 +1,44 @@
-# TanStack Start + Better Auth Example
+# TanStack Start + Better Auth Governed CRUD Example
 
-Runnable reference for a TanStack Start project using the `@veritio/tanstack-start`
-adapter (mirroring how the Next.js example uses `@veritio/next`). It is not
-installed by the root workspace verification command; run `bun run verify:examples`
-from the repo root to typecheck and build it alongside the other examples.
+Runnable TanStack Start reference using `@veritio/tanstack-start`, Better Auth,
+and a local governed CRUD API. Run `bun run verify:examples` from the repo root
+to build and typecheck it with the rest of the examples.
 
-Recording happens only on the server. The browser calls server route handlers
-under `src/routes/api/`; tenant and actor identity are resolved by the
-server-owned boundary in `src/server/veritio.ts` and never read from browser
-input.
+Recording happens only on the server. The browser calls route handlers under
+`src/routes/api/`; tenant and actor identity are resolved by
+`src/server/veritio.ts` and never read from browser input.
+
+## What It Shows
+
+- `src/routes/api/auth/$.ts` mounts Better Auth with `auth.handler(request)`.
+- Better Auth `databaseHooks.user.create.after` maps user creation into a
+  Veritio audit event through `src/server/auth-events.ts`.
+- `src/routes/api/projects.ts` exposes `POST`, `PUT`, and `DELETE` handlers for
+  create, archive, and delete project mutations.
+- Each project mutation records a Veritio audit event and a graph edge using
+  shared protocol relations: `created`, `modified`, and `deleted`.
+- `src/routes/api/evidence.ts` returns audit records, graph edges, local project
+  state, and verification results for both hash chains.
+- `src/routes/api/scenarios/governed-lifecycle.ts` runs a larger helper-driven
+  lifecycle scenario with auth session, organization, membership, consent, data
+  subject request, export bundle, retention, and processor-transfer evidence.
+- The lifecycle scenario uses SDK templates, country/region security context,
+  deterministic canonical JSON hashing, and ten graph edges across supported
+  relations including `subject_of`, `processed_for`, `retained_under`,
+  `exports`, `sent_to`, `attests_to`, and `part_of`.
 
 ## Files
 
-- `src/routes/index.tsx` — reference UI: record a profile update, then load the trail.
-- `src/routes/api/profile-updates.ts` — `POST` route handler that records a
-  `profile.updated` event through the `@veritio/tanstack-start` adapter.
-- `src/routes/api/audit.ts` — `GET` route handler returning the tenant-scoped trail.
-- `src/server/veritio.ts` — server-only recorder, adapter, and reference session boundary.
-- `src/server/auth.ts` / `auth-events.ts` — reference Better Auth lifecycle bridge.
-- `src/routes/__root.tsx`, `src/router.tsx`, `vite.config.ts` — TanStack Start toolchain.
+- `src/routes/index.tsx` runs the CRUD sequence and renders audit plus graph evidence.
+- `src/routes/api/auth/$.ts` mounts Better Auth.
+- `src/routes/api/projects.ts` records governed project mutations.
+- `src/routes/api/evidence.ts` returns the composed evidence trail.
+- `src/routes/api/scenarios/governed-lifecycle.ts` records the larger
+  helper-driven audit and activity-graph scenario.
+- `src/routes/api/profile-updates.ts` keeps the smaller profile-update event example.
+- `src/server/veritio.ts` owns the recorder, adapter, in-memory stores, graph
+  edge chain, and reference session boundary.
+- `src/server/auth.ts` / `auth-events.ts` bridge Better Auth lifecycle hooks to Veritio.
 
 ## Run
 
@@ -28,18 +48,34 @@ bun install
 bun run dev
 ```
 
-Open `http://localhost:5173`, click **Record profile update**, then **Load audit
-trail** to see the recorded, hash-chained event. The audit endpoints are also
-reachable directly:
+Open `http://localhost:5173`, click **Run governed CRUD**, then inspect the
+audit events and activity graph. Click **Run lifecycle graph** to add the
+broader governed-system scenario.
+
+API smoke:
 
 ```sh
-curl -X POST http://localhost:5173/api/profile-updates \
-  -H 'content-type: application/json' -d '{"profileId":"profile_demo"}'
-curl http://localhost:5173/api/audit
+curl -X POST http://localhost:5173/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","name":"Governed Project","requestId":"demo:create"}'
+curl -X PUT http://localhost:5173/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","status":"archived","requestId":"demo:update"}'
+curl -X DELETE http://localhost:5173/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","requestId":"demo:delete"}'
+curl -X POST http://localhost:5173/api/scenarios/governed-lifecycle
+curl http://localhost:5173/api/evidence
 ```
 
-This reference is zero-config: it contains no database connection string, Better
-Auth secret, or hosted Veritio credential. The in-memory `MemoryAuditStore` and
-the hard-coded `tenant_demo` / `user_demo` session in `src/server/veritio.ts` are
-server-side placeholders only. Host apps must replace them with a durable
-`AuditStore` and a real Better Auth session plus tenant/organization lookup.
+## Why It Works
+
+TanStack Start route handlers provide the host boundary. The example injects the
+Veritio recorder and tenant resolver there, so framework routing does not become
+part of the protocol. The in-memory stores make the sample runnable without
+hosted Veritio, a database, or auth credentials.
+
+Before production use, replace the reference session with a real Better Auth
+session plus tenant or organization membership lookup, and replace the in-memory
+stores with durable storage. The Better Auth `secret` and `baseURL` in
+`src/server/auth.ts` are local reference values only.
