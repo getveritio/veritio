@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { recordBetterAuthUserCreated } from "./auth-events";
 import { resolveReferenceSession } from "./server";
@@ -15,6 +16,8 @@ export interface BetterAuthTenantBoundary {
  */
 export function createAuth(boundary: BetterAuthTenantBoundary) {
   return betterAuth({
+    secret: getLocalBetterAuthSecret(),
+    baseURL: "http://localhost:3000",
     databaseHooks: {
       user: {
         create: {
@@ -44,7 +47,24 @@ export function createReferenceTenantBoundary(): BetterAuthTenantBoundary {
   };
 }
 
+/**
+ * Exposes the local Better Auth instance mounted by Next route handlers. This
+ * remains an example host boundary; Better Auth does not define Veritio event
+ * semantics or tenant scope.
+ */
 export const auth = createAuth(createReferenceTenantBoundary());
+
+/**
+ * Generates a process-local Better Auth secret for the reference app without
+ * committing reusable credential material into the public example.
+ */
+function getLocalBetterAuthSecret(): string {
+  const referenceGlobal = globalThis as typeof globalThis & {
+    __veritioNextBetterAuthSecret?: string;
+  };
+  referenceGlobal.__veritioNextBetterAuthSecret ??= `local-nextjs-${randomUUID()}`;
+  return referenceGlobal.__veritioNextBetterAuthSecret;
+}
 
 /**
  * Reads correlation ids from Better Auth request context without trusting client

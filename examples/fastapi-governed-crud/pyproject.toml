@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veritio-fastapi-governed-crud"
+version = "0.0.0"
+description = "FastAPI CRUD showcase for Veritio audit events and activity graph edges."
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.128.0,<1.0",
+  "httpx2>=2.4,<3.0",
+  "uvicorn[standard]>=0.38.0,<1.0",
+]

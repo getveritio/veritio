@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Verifies every example app so they cannot rot against adapter/SDK API changes.
-# Each example is its own bun workspace (separate lockfile + node_modules), so we
-# install per-example and run the strongest available static check. This gate is
-# intentionally static: it never *runs* the storage-* examples, so it needs no
-# live database or network beyond dependency installation.
+# JavaScript examples are independent bun workspaces, while Python and Go
+# examples import the sibling SDKs through PYTHONPATH or go replace directives.
+# The gate uses local in-memory examples only; storage-* examples are still
+# checked statically and never require live databases.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXAMPLES_DIR="$ROOT_DIR/examples"
@@ -38,12 +38,53 @@ verify_example() {
     if has_script "$dir" typecheck; then
       bun run typecheck
     fi
+    if has_script "$dir" test; then
+      bun run test
+    fi
+  )
+}
+
+verify_python_example() {
+  local dir="$1"
+  local name
+  name="$(basename "$dir")"
+
+  echo
+  echo "==> $name"
+  echo "    $dir"
+  (
+    cd "$dir"
+    python3 -m venv .venv
+    # Installs the example's framework dependencies into an ignored local venv
+    # while importing the sibling Veritio SDK through PYTHONPATH.
+    . .venv/bin/activate
+    pip install -e .
+    PYTHONPATH="$ROOT_DIR/sdks/python/src:." python3 -m unittest discover -s tests
+  )
+}
+
+verify_go_example() {
+  local dir="$1"
+  local name
+  name="$(basename "$dir")"
+
+  echo
+  echo "==> $name"
+  echo "    $dir"
+  (
+    cd "$dir"
+    go test ./...
   )
 }
 
 for example in "$EXAMPLES_DIR"/*/; do
-  [[ -f "${example}package.json" ]] || continue
-  verify_example "${example%/}"
+  if [[ -f "${example}package.json" ]]; then
+    verify_example "${example%/}"
+  elif [[ -f "${example}pyproject.toml" ]]; then
+    verify_python_example "${example%/}"
+  elif [[ -f "${example}go.mod" ]]; then
+    verify_go_example "${example%/}"
+  fi
 done
 
 echo

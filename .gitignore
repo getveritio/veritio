@@ -16,9 +16,11 @@ __pycache__
 .ruff_cache
 .venv
 *.pyc
+*.egg-info/
 coverage
 *.test
 
 # Local agent planning artifacts
 docs/superpowers/
+docs/proof-of-work/
 .codex/private/

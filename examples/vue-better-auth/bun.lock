@@ -24,7 +24,7 @@
     },
     "../../adapters/better-auth": {
       "name": "@veritio/better-auth",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "devDependencies": {
         "@veritio/core": "workspace:*",
       },
@@ -38,7 +38,7 @@
     },
     "../../sdks/typescript": {
       "name": "@veritio/core",
-      "version": "0.0.0",
+      "version": "0.0.1",
     },
   },
   "packages": {

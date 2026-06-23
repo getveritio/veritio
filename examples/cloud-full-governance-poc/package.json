@@ -1,0 +1,21 @@
+{
+  "name": "@veritio/example-cloud-full-governance-poc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cloud:post": "bun src/post-cloud.ts",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "workspaces": [
+    "../../sdks/typescript"
+  ],
+  "dependencies": {
+    "@veritio/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}

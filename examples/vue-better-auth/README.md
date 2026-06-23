@@ -1,33 +1,85 @@
-# Vue + Better Auth Example
+# Vue + Better Auth Governed CRUD Example
 
-Reference skeleton for a Vite Vue client with a server-side Better Auth and
-Veritio boundary. It is not installed by the root workspace verification
-command.
+Runnable Vite Vue reference with an Express server that mounts Better Auth,
+records Veritio lifecycle events, and exposes a small governed CRUD API.
 
-Browser code calls same-origin application API routes only. The recorder, Better
-Auth hook bridge, and audit listing logic stay in `server/`. Recording happens
-only on the server.
+The browser calls same-origin API routes only. Tenant identity, actor identity,
+Better Auth hooks, audit recording, graph-edge recording, and verification all
+stay in `server/`.
+
+## What It Shows
+
+- `GET/POST /api/auth/*splat` is mounted with Better Auth before `express.json()`
+  so Better Auth owns auth request parsing.
+- Better Auth `databaseHooks.user.create.after` maps user creation into a
+  Veritio audit event through `server/auth-events.ts`.
+- `POST`, `PUT`, and `DELETE /api/projects` create a local project, archive it,
+  then delete it while recording `project.created`, `project.updated`, and
+  `project.deleted`.
+- Each project mutation also appends a Veritio evidence-graph edge with
+  `created`, `modified`, or `deleted`.
+- `POST /api/scenarios/governed-lifecycle` records a broader helper-driven flow:
+  auth session with country/region context, organization bootstrap, membership,
+  consent, data-subject request, export bundle, retention policy, and processor
+  transfer graph evidence.
+- `GET /api/evidence` returns audit records, graph edges, in-memory project
+  state, and independent verification results for both hash chains.
+
+## Files
+
+- `server/index.ts` mounts Better Auth and the project/evidence API routes.
+- `server/auth.ts` creates the Better Auth instance and reference tenant boundary.
+- `server/auth-events.ts` maps Better Auth lifecycle hooks to Veritio events.
+- `server/veritio.ts` owns the recorder, in-memory store, graph edge chain, and
+  server-resolved `tenant_demo` / `user_demo` session.
+- `src/App.vue` runs the CRUD sequence and renders audit plus graph evidence.
 
 ## Run
-
-This example is two processes: a Vite client (port 5173) and an Express recorder
-(port 3001). The Vite dev proxy forwards `/api/*` to the Express server.
 
 ```sh
 cd examples/vue-better-auth
 bun install
 
-# Terminal 1 — Express recorder on http://localhost:3001
+# Terminal 1: Express server on http://localhost:3001
 bun run dev:server
 
-# Terminal 2 — Vite client on http://localhost:5173
+# Terminal 2: Vite client on http://localhost:5173
 bun run dev
 ```
 
-Open `http://localhost:5173`, click **Record profile update**, then **Load audit
-trail** to see the recorded, hash-chained event.
+Open `http://localhost:5173`, click **Run governed CRUD**, then inspect the
+audit events and activity graph.
 
-This example is zero-config (in-memory `MemoryAuditStore`, hard-coded
-`tenant_demo` / `user_demo`). It contains no storage connection configuration.
-Replace `MemoryAuditStore` and the reference session with a durable store and a
-real Better Auth session on the server before production use.
+API smoke:
+
+```sh
+curl -X POST http://localhost:3001/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","name":"Governed Project","requestId":"demo:create"}'
+curl -X PUT http://localhost:3001/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","status":"archived","requestId":"demo:update"}'
+curl -X DELETE http://localhost:3001/api/projects \
+  -H 'content-type: application/json' \
+  -d '{"projectId":"project_demo","requestId":"demo:delete"}'
+curl -X POST http://localhost:3001/api/scenarios/governed-lifecycle
+curl http://localhost:3001/api/evidence
+```
+
+The lifecycle endpoint uses SDK templates such as `authSessionCreatedTemplate`,
+`organizationCreatedTemplate`, `consentGrantedTemplate`,
+`dataSubjectRequestCreatedTemplate`, `exportBundleCreatedTemplate`, and
+`retentionPolicyAppliedTemplate`, plus `canonicalJson` for a deterministic
+scenario hash.
+
+## Why It Works
+
+Veritio is injected at the host boundary. The Vue app never submits tenant or
+actor identifiers; Express resolves them and records deterministic, tenant-scoped
+audit and graph records. The example is zero-config and in-memory, so it works
+without hosted Veritio, a database, or auth provider credentials.
+
+Before production use, replace the reference session with a real Better Auth
+session plus tenant or organization membership lookup, and replace the in-memory
+stores with durable storage. The Better Auth `secret` and `baseURL` in
+`server/auth.ts` are local reference values only.
