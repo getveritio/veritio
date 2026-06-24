@@ -3,8 +3,9 @@
 Host-injected storage helpers for Veritio audit trail evidence.
 
 The package provides durable `AuditStore` factories for transaction-capable SQL
-and MongoDB boundaries, plus a Redis tenant-tip cache helper. It does not read
-environment variables, open database connections, or bundle vendor clients.
+and MongoDB boundaries, transactional evidence outbox helpers, plus a Redis
+tenant-tip cache helper. It does not read environment variables, open database
+connections, or bundle vendor clients.
 
 ## Durable Stores
 
@@ -18,6 +19,76 @@ environment variables, open database connections, or bundle vendor clients.
 Host applications must provide a transaction-capable client wrapper. The store
 uses tenant-scoped append ordering, idempotency-key hashes, expected previous
 hash checks, and persisted record integrity validation.
+
+## Transactional Outbox
+
+The storage package exports the public outbox contract used by governed-change
+drafts:
+
+- `OutboxAdapter`
+- `createOutboxDispatcher`
+- `dispatchOutboxEntry`
+- `createPostgresOutboxAdapter`
+- `createNeonOutboxAdapter`
+- `createMysqlOutboxAdapter`
+- `createMariaDbOutboxAdapter`
+- `createFileOutboxAdapter`
+
+SQL outbox adapters use the same host-injected transaction pattern as the SQL
+`AuditStore` factories. A host should enqueue the minimized governed-change
+payload inside the same database transaction as the application mutation when it
+wants to claim `mutationBinding: "same_transaction"`.
+
+```ts
+await database.transaction(async (tx) => {
+  const veritioOutbox = createPostgresOutboxAdapter({
+    client: tx.veritioOutboxExecutor,
+  });
+  const before = await entries.get(tx, id);
+  const after = await entries.update(tx, id, patch);
+  const draft = createGovernedChangeDraft({
+    scope,
+    entity: projectEntryEntity,
+    before,
+    after,
+    changedPaths: ["/amount"],
+    change,
+    activity,
+    producer,
+    occurredAt: new Date(),
+    idempotencyKeyHash,
+    mutationBinding: "same_transaction",
+  });
+
+  await veritioOutbox.transaction((outboxTx) => outboxTx.enqueue({
+    id: idempotencyKeyHash,
+    tenantId: scope.tenantId,
+    payload: draft.outboxEntry,
+  }));
+});
+```
+
+The exact adapter wiring depends on the host database wrapper. The important
+invariant is that `tx.veritioOutboxExecutor.transaction(...)` participates in
+the already-active host transaction instead of opening an unrelated commit.
+
+Dispatch is retry-safe. If a worker crashes after appending some events, the
+next run replays the same event and edge IDs and the evidence sink rejects
+duplicates or conflicts deterministically.
+
+```ts
+await createOutboxDispatcher({
+  adapter: veritioOutbox,
+  target: createFileEvidenceStore("./.veritio/evidence"),
+}).dispatchBatch({ tenantId: scope.tenantId });
+```
+
+`createFileOutboxAdapter` is useful for local examples and self-hosted file
+workflows. It persists outbox rows atomically within its own file lock, but it
+does not prove a separate application database mutation committed in the same
+transaction. Use `mutationBinding: "not_transaction_bound"` or `"best_effort"`
+unless the host can prove the business mutation shares the same transaction
+boundary.
 
 ## Redis
 
@@ -108,6 +179,10 @@ suite. Test Redis only as a validated tenant-tip cache beside a durable store.
 `POSTGRES_AUDIT_RECORDS_SCHEMA_SQL` and `MYSQL_AUDIT_RECORDS_SCHEMA_SQL`
 provide starting table definitions. Review them for your database policy,
 backup, retention, and migration requirements before applying them.
+
+`POSTGRES_OUTBOX_SCHEMA_SQL` and `MYSQL_OUTBOX_SCHEMA_SQL` provide starting
+table definitions for transactional outbox rows. Apply them in the same database
+where the host mutation transaction runs when using the SQL outbox adapters.
 
 Veritio supports evidence collection and verification workflows. It is not legal
 advice and does not make an application automatically compliant with any

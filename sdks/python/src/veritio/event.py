@@ -9,12 +9,30 @@ from typing import Any
 
 SCHEMA_VERSION = "2026-06-10"
 EDGE_SCHEMA_VERSION = "2026-06-13"
+EVIDENCE_COMMIT_SCHEMA_VERSION = "2026-06-23"
 HASH_ALGORITHM = "sha256"
+EVIDENCE_COMMIT_TREE_ALGORITHM = "veritio-merkle-v1"
 _SENSITIVE_KEY_PATTERN = re.compile(r"(password|secret|token|api[_-]?key|authorization|email|phone|ssn)", re.I)
 _ACTION_PATTERN = re.compile(r"^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$")
+_SHA256_DIGEST_PATTERN = re.compile(r"^sha256:[a-f0-9]{64}$")
+_EVIDENCE_COMMIT_MEMBER_RECORD_TYPES = {
+    "audit.record",
+    "evidence.edge.record",
+    "entity.revision.record",
+    "activity.record",
+    "assertion.record",
+    "change.record",
+}
 _EVIDENCE_ENTITY_TYPES = {
     "tenant",
+    "principal",
     "actor",
+    "activity",
+    "change",
+    "revision",
+    "assertion",
+    "record",
+    "evidence_commit",
     "data_subject",
     "resource",
     "data_category",
@@ -60,6 +78,22 @@ _EVIDENCE_EDGE_RELATIONS = {
     "processed_for",
     "retained_under",
     "sent_to",
+    "has_activity",
+    "has_input",
+    "has_output",
+    "has_assertion",
+    "resulted_in",
+    "performed_by",
+    "used",
+    "generated",
+    "based_on",
+    "asserts_about",
+    "retracts",
+    "corrects",
+    "supersedes",
+    "disputes",
+    "confirms",
+    "compensates",
 }
 
 
@@ -140,6 +174,76 @@ def hash_evidence_edge_record(record: dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 
+def create_evidence_commit(input_commit: dict[str, Any]) -> dict[str, Any]:
+    """Create an EvidenceCommit for one atomic evidence append manifest."""
+    _assert_non_empty(input_commit.get("commitId"), "commitId")
+    _assert_non_empty(input_commit.get("streamId"), "streamId")
+    _assert_positive_integer(input_commit.get("sequence"), "sequence")
+    previous_hash = input_commit.get("previousCommitHash")
+    if previous_hash is not None and not _is_sha256_digest(previous_hash):
+        raise TypeError("previousCommitHash must be null or sha256 digest")
+
+    members = _normalize_commit_members(input_commit.get("members"))
+    commit = {
+        "recordType": "evidence.commit",
+        "schemaVersion": EVIDENCE_COMMIT_SCHEMA_VERSION,
+        "commitId": input_commit["commitId"],
+        "streamId": input_commit["streamId"],
+        "sequence": input_commit["sequence"],
+        "previousCommitHash": previous_hash,
+        "members": members,
+        "recordCount": len(members),
+        "recordsRoot": _compute_records_root(members),
+        "canonicalization": "veritio-json-v1",
+        "hashAlgorithm": HASH_ALGORITHM,
+        "treeAlgorithm": EVIDENCE_COMMIT_TREE_ALGORITHM,
+        "committedAt": _normalize_datetime(input_commit.get("committedAt") or datetime.now(timezone.utc)),
+    }
+    commit["hash"] = hash_evidence_commit(commit)
+    return commit
+
+
+def hash_evidence_commit(commit: dict[str, Any]) -> str:
+    """Hash an EvidenceCommit over canonical fields excluding its stored hash."""
+    commit_without_hash = {key: value for key, value in commit.items() if key != "hash"}
+    return _prefixed_sha256(canonical_json({"domain": "veritio-commit-v1", "commit": commit_without_hash}))
+
+
+def verify_evidence_commits(commits: list[dict[str, Any]]) -> dict[str, Any]:
+    """Verify EvidenceCommit chains independently per stream id."""
+    stream_state: dict[str, dict[str, Any]] = {}
+    for index, commit in enumerate(commits):
+        if commit.get("hashAlgorithm") != HASH_ALGORITHM:
+            return {"ok": False, "index": index, "reason": "unsupported_hash_algorithm"}
+        if commit.get("canonicalization") != "veritio-json-v1":
+            return {"ok": False, "index": index, "reason": "unsupported_canonicalization"}
+        if commit.get("treeAlgorithm") != EVIDENCE_COMMIT_TREE_ALGORITHM:
+            return {"ok": False, "index": index, "reason": "unsupported_tree_algorithm"}
+        if not isinstance(commit.get("streamId"), str) or not commit["streamId"]:
+            return {"ok": False, "index": index, "reason": "invalid_member_manifest"}
+        if not isinstance(commit.get("hash"), str):
+            return {"ok": False, "index": index, "reason": "hash_mismatch"}
+
+        state = stream_state.get(commit["streamId"], {"previousHash": None, "sequence": 0})
+        if commit.get("previousCommitHash") != state["previousHash"]:
+            return {"ok": False, "index": index, "reason": "previous_hash_mismatch"}
+        if commit.get("sequence") != state["sequence"] + 1:
+            return {"ok": False, "index": index, "reason": "sequence_mismatch"}
+        try:
+            members = _normalize_commit_members(commit.get("members"))
+        except TypeError:
+            return {"ok": False, "index": index, "reason": "invalid_member_manifest"}
+        if commit.get("recordCount") != len(members):
+            return {"ok": False, "index": index, "reason": "record_count_mismatch"}
+        if commit.get("recordsRoot") != _compute_records_root(members):
+            return {"ok": False, "index": index, "reason": "records_root_mismatch"}
+        if commit.get("hash") != hash_evidence_commit(commit):
+            return {"ok": False, "index": index, "reason": "hash_mismatch"}
+
+        stream_state[commit["streamId"]] = {"previousHash": commit["hash"], "sequence": commit["sequence"]}
+    return {"ok": True}
+
+
 def hash_idempotency_key(tenant_id: str, idempotency_key: str) -> str:
     """Hash idempotency keys with tenant scope to avoid cross-tenant collisions."""
     _assert_non_empty(tenant_id, "tenantId")
@@ -155,6 +259,9 @@ def _redact_metadata(value: dict[str, Any]) -> dict[str, Any]:
 def _redact_any(value: Any, key: str) -> Any:
     """Recursively convert metadata to JSON-compatible values with redaction."""
     if _SENSITIVE_KEY_PATTERN.search(key):
+        digest_envelope = _sanitize_digest_envelope(value)
+        if digest_envelope is not None:
+            return digest_envelope
         return "[redacted]"
     if value is None or isinstance(value, (str, bool, int, float)):
         return value
@@ -163,8 +270,32 @@ def _redact_any(value: Any, key: str) -> Any:
     if isinstance(value, datetime):
         return _normalize_datetime(value)
     if isinstance(value, dict):
+        digest_envelope = _sanitize_digest_envelope(value)
+        if digest_envelope is not None:
+            return digest_envelope
         return {nested_key: _redact_any(nested_value, nested_key) for nested_key, nested_value in sorted(value.items())}
     return str(value)
+
+
+def _sanitize_digest_envelope(value: Any) -> dict[str, Any] | None:
+    """Return only the allowlisted minimized digest envelope shape."""
+    if not isinstance(value, dict):
+        return None
+    digest = value.get("digest")
+    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[a-f0-9]{64}", digest):
+        return None
+    if any(key in value for key in ("canonicalization", "schemaRef", "fieldSetRef", "fields")):
+        return None
+    if value.get("algorithm") == "hmac-sha256":
+        key_version = value.get("keyVersion")
+        if isinstance(key_version, str) and key_version.strip():
+            return {"algorithm": "hmac-sha256", "digest": digest, "keyVersion": key_version}
+        return None
+    if value.get("algorithm") == "sha256":
+        return {"algorithm": "sha256", "digest": digest}
+    if value.get("captureMode") in {"content_digest", "randomized_digest", "reference", "redact", "encrypt"}:
+        return {"captureMode": value["captureMode"], "digest": digest}
+    return None
 
 
 def _normalize_json(value: Any) -> Any:
@@ -193,6 +324,86 @@ def _normalize_datetime(value: str | datetime) -> str:
         date = date.replace(tzinfo=timezone.utc)
     date = date.astimezone(timezone.utc)
     return date.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def _assert_positive_integer(value: Any, field: str) -> None:
+    """Require positive integer sequence values in commit hash inputs."""
+    if not isinstance(value, int) or value < 1:
+        raise TypeError(f"{field} must be a positive integer")
+
+
+def _normalize_commit_members(members: Any) -> list[dict[str, Any]]:
+    """Normalize and validate ordered EvidenceCommit members."""
+    if not isinstance(members, list) or len(members) == 0:
+        raise TypeError("members must not be empty")
+    sorted_members = sorted((_clean_commit_member(member) for member in members), key=lambda member: member["index"])
+    identities: set[tuple[str, str]] = set()
+    for expected_index, member in enumerate(sorted_members):
+        if member["index"] != expected_index:
+            raise TypeError("member indices must be contiguous from zero")
+        identity = (member["recordType"], member["recordId"])
+        if identity in identities:
+            raise TypeError("duplicate commit member")
+        identities.add(identity)
+    return sorted_members
+
+
+def _clean_commit_member(member: dict[str, Any]) -> dict[str, Any]:
+    """Validate one commit member and drop non-protocol fields."""
+    if not isinstance(member, dict):
+        raise TypeError("commit member must be an object")
+    index = member.get("index")
+    if not isinstance(index, int) or index < 0:
+        raise TypeError("member index must be a non-negative integer")
+    if member.get("recordType") not in _EVIDENCE_COMMIT_MEMBER_RECORD_TYPES:
+        raise TypeError("recordType must be a supported commit member record type")
+    _assert_non_empty(member.get("recordId"), "recordId")
+    if not _is_sha256_digest(member.get("recordHash")):
+        raise TypeError("recordHash must be a sha256 digest")
+    return {
+        "index": index,
+        "recordType": member["recordType"],
+        "recordId": member["recordId"],
+        "recordHash": member["recordHash"],
+    }
+
+
+def _compute_records_root(members: list[dict[str, Any]]) -> str:
+    """Compute a veritio-merkle-v1 root, duplicating odd leaves at each level."""
+    level = [_commit_leaf_hash(member) for member in members]
+    while len(level) > 1:
+        next_level = []
+        for index in range(0, len(level), 2):
+            left = level[index]
+            right = level[index + 1] if index + 1 < len(level) else left
+            next_level.append(_prefixed_sha256(canonical_json({"domain": "veritio-merkle-node-v1", "left": left, "right": right})))
+        level = next_level
+    return level[0]
+
+
+def _commit_leaf_hash(member: dict[str, Any]) -> str:
+    """Hash a single commit member with a leaf-specific domain separator."""
+    return _prefixed_sha256(
+        canonical_json(
+            {
+                "domain": "veritio-record-leaf-v1",
+                "index": member["index"],
+                "recordType": member["recordType"],
+                "recordId": member["recordId"],
+                "recordHash": member["recordHash"],
+            }
+        )
+    )
+
+
+def _is_sha256_digest(value: Any) -> bool:
+    """Check algorithm-qualified SHA-256 digests used by EvidenceCommit."""
+    return isinstance(value, str) and _SHA256_DIGEST_PATTERN.fullmatch(value) is not None
+
+
+def _prefixed_sha256(value: str) -> str:
+    """Return an algorithm-qualified SHA-256 digest for EvidenceCommit fields."""
+    return f"sha256:{hashlib.sha256(value.encode('utf-8')).hexdigest()}"
 
 
 def _clean_evidence_entity(value: dict[str, Any], field: str) -> dict[str, Any]:

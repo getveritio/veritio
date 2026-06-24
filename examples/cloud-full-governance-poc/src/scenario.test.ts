@@ -32,7 +32,7 @@ describe("cloud full governance POC", () => {
     expect(actions.some((action) => action.startsWith("deploy."))).toBe(false);
   });
 
-  test("covers hosted Cloud project, scoped-key, ingest, read, audit, and retention actions", () => {
+  test("covers hosted-compatible project, scoped-key, ingest, read, audit, and retention actions", () => {
     const scenario = buildFullGovernanceScenario({
       tenantId: "tenant_full_governance",
       runId: "run_full_governance",

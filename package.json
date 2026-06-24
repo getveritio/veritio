@@ -46,6 +46,9 @@
     "typecheck": "bun run --cwd sdks/typescript typecheck && bun run --cwd sdks/typescript build && bun run --cwd storage typecheck && bun run --cwd adapters/better-auth typecheck && bun run --cwd adapters/next typecheck && bun run --cwd adapters/tanstack-start typecheck && bun run --cwd adapters/sveltekit typecheck && bun run --cwd adapters/react typecheck && bun run --cwd adapters/vue typecheck && bun run --cwd adapters/svelte typecheck && bun run --cwd adapters/claude-code typecheck && bun run --cwd server/node typecheck && bun run --cwd cli typecheck",
     "verify": "bun run test && bun run typecheck && bun run build",
     "verify:examples": "scripts/verify-examples.sh",
+    "verify:examples:browser": "node scripts/verify-nextjs-browser.mjs && node scripts/verify-workbench-browser.mjs",
+    "verify:workbench:browser": "node scripts/verify-workbench-browser.mjs",
+    "verify:examples:docker": "scripts/verify-example-docker.sh",
     "status:split": "scripts/verify-split.sh status",
     "verify:siblings": "scripts/verify-split.sh siblings",
     "verify:split": "scripts/verify-split.sh all",
@@ -55,6 +58,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.0",
     "bun-types": "^1.3.14",
+    "playwright": "^1.61.0",
     "typescript": "^5.9.3"
   }
 }

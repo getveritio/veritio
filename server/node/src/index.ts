@@ -4,22 +4,32 @@ import {
   HASH_ALGORITHM,
   canonicalJson,
   createAuditEvent,
+  createEvidenceCommit,
   createEvidenceEdge,
+  createGovernedChangeDraft,
   createProvenanceRecorder,
+  defineEntity,
   hashAuditRecord,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
   verifyAuditRecords,
+  verifyEvidenceCommits,
   verifyEvidenceEdgeRecords,
   type AuditEvent,
   type AuditEventInput,
   type AuditRecord,
   type AuditStoreAppendOptions,
+  type EvidenceCommit,
+  type EvidenceCommitInput,
+  type EvidenceCommitVerificationResult,
   type EvidenceEdge,
   type EvidenceEdgeInput,
   type EvidenceEdgeRecord,
   type EvidenceEntity,
+  type EvidenceRef,
   type EvidenceScope,
+  type GovernedChangeDraft,
+  type JsonObject,
   type VerificationResult,
 } from "@veritio/core";
 
@@ -56,10 +66,54 @@ export interface EvidenceGraph {
   edges: EvidenceGraphEdge[];
 }
 
+export interface ChangeView {
+  id: string;
+  title: string;
+  status: "declared";
+  occurredAt: string;
+  initiatedBy?: EvidenceRef;
+  activityIds: string[];
+  outputRevisionIds: string[];
+  supportingRecordIds: string[];
+  assurance: string[];
+}
+
+export interface EntityTimeline {
+  tenantId: string;
+  entityId: string;
+  entityType: string;
+  revisions: Array<{
+    id: string;
+    occurredAt: string;
+    changedPaths: string[];
+    stateCommitment: JsonObject;
+    generatedBy?: EvidenceRef;
+    supportingRecordId: string;
+  }>;
+}
+
+export interface ExplainResult {
+  changeId: string;
+  actor?: string;
+  activityIds: string[];
+  outputRevisionIds: string[];
+  supportingRecordIds: string[];
+  evidenceAssurance: string[];
+  knownCoverage: string[];
+  notCaptured: string[];
+}
+
+export interface RevisionDiff {
+  revisionId: string;
+  changedPaths: string[];
+  after: JsonObject;
+}
+
 export interface VerificationReport {
   ok: boolean;
   audit: VerificationResult;
   edges: VerificationResult;
+  commits: EvidenceCommitVerificationResult;
 }
 
 export interface ExportBundlePreview {
@@ -69,12 +123,13 @@ export interface ExportBundlePreview {
     createdAt: string;
     canonicalization: "veritio-json-v1";
     hashAlgorithm: typeof HASH_ALGORITHM;
-    recordCounts: { events: number; edges: number };
+    recordCounts: { events: number; edges: number; commits: number };
     verification: VerificationReport;
     files: Array<{ name: string; sha256: string }>;
   };
   eventsJsonl: string;
   edgesJsonl: string;
+  commitsJsonl: string;
   verificationReport: VerificationReport;
   redactionManifest: {
     rules: string[];
@@ -86,6 +141,31 @@ export interface ScenarioResult {
   graph: EvidenceGraph;
   verification: VerificationReport;
   exportPreview: ExportBundlePreview;
+}
+
+export interface LocalEvidenceBatchInput {
+  commitId: string;
+  streamId: string;
+  events: AuditEventInput[];
+  edges: EvidenceEdgeInput[];
+  committedAt?: string | Date;
+}
+
+export interface LocalEvidenceBatchResult {
+  auditRecords: AuditRecord[];
+  edgeRecords: EvidenceEdgeRecord[];
+  commit: EvidenceCommit;
+}
+
+export interface LocalEvidenceCommitListOptions extends LocalEvidenceStoreListOptions {
+  streamId?: string;
+}
+
+export interface GovernedChangeScenarioResult extends ScenarioResult {
+  changes: ChangeView[];
+  entityTimeline: EntityTimeline;
+  explain: ExplainResult;
+  diff: RevisionDiff;
 }
 
 export interface WorkbenchAppOptions {
@@ -130,6 +210,8 @@ const READ_TOOLS = [
   "veritio.list_events",
   "veritio.get_event",
   "veritio.list_edges",
+  "veritio.list_commits",
+  "veritio.list_changes",
   "veritio.get_evidence_graph",
   "veritio.verify_chain",
   "veritio.preview_export_bundle",
@@ -141,6 +223,7 @@ const READ_TOOLS = [
 const WRITE_TOOLS = [
   "veritio.record_event",
   "veritio.record_edge",
+  "veritio.record_batch",
   "veritio.reset_dev_store",
   "veritio.create_export_bundle",
 ] as const;
@@ -153,10 +236,12 @@ const WRITE_TOOLS = [
 export class LocalEvidenceStore {
   #auditRecords: AuditRecord[] = [];
   #edgeRecords: EvidenceEdgeRecord[] = [];
+  #commits: EvidenceCommit[] = [];
   #auditIdempotency = new Map<string, { canonical: string; record: AuditRecord }>();
   #edgeIdempotency = new Map<string, { canonical: string; record: EvidenceEdgeRecord }>();
   #auditTips = new Map<string, AuditRecord>();
   #edgeTips = new Map<string, EvidenceEdgeRecord>();
+  #commitTips = new Map<string, EvidenceCommit>();
 
   /**
    * Records an audit event or normalized event input into the tenant audit
@@ -243,6 +328,91 @@ export class LocalEvidenceStore {
   }
 
   /**
+   * Records one local batch of audit events and graph edges, then appends an
+   * EvidenceCommit manifest that binds the resulting record hashes in order.
+   * The commit stream is separate from tenant chains and models ordered
+   * membership; this in-memory store does not claim host transaction binding.
+   */
+  async recordBatch(input: LocalEvidenceBatchInput): Promise<LocalEvidenceBatchResult> {
+    if (input.events.length + input.edges.length === 0) {
+      throw new TypeError("batch must include at least one event or edge");
+    }
+
+    const existingCommit = this.#commits.find((commit) => commit.streamId === input.streamId && commit.commitId === input.commitId);
+    if (existingCommit) {
+      const auditRecords = input.events.map((eventInput) => {
+        const event = createAuditEvent(eventInput);
+        const record = this.#auditRecords.find((candidate) => candidate.event.id === event.id);
+        if (!record || canonicalJson(record.event) !== canonicalJson(event)) {
+          throw new TypeError("commit id conflict");
+        }
+        return record;
+      });
+      const edgeRecords = input.edges.map((edgeInput) => {
+        const edge = createEvidenceEdge(edgeInput);
+        const record = this.#edgeRecords.find((candidate) => candidate.edge.id === edge.id);
+        if (!record || canonicalJson(record.edge) !== canonicalJson(edge)) {
+          throw new TypeError("commit id conflict");
+        }
+        return record;
+      });
+      const members = buildEvidenceCommitMembers(auditRecords, edgeRecords);
+      if (canonicalJson(existingCommit.members) !== canonicalJson(members)) {
+        throw new TypeError("commit id conflict");
+      }
+      return {
+        auditRecords: auditRecords.map(clone),
+        edgeRecords: edgeRecords.map(clone),
+        commit: clone(existingCommit),
+      };
+    }
+
+    const auditRecords: AuditRecord[] = [];
+    const edgeRecords: EvidenceEdgeRecord[] = [];
+    for (const event of input.events) {
+      auditRecords.push(await this.recordEvent(event));
+    }
+    for (const edge of input.edges) {
+      edgeRecords.push(await this.recordEdge(edge));
+    }
+
+    const previousCommit = this.#commitTips.get(input.streamId);
+    const commitInput: EvidenceCommitInput = {
+      commitId: input.commitId,
+      streamId: input.streamId,
+      sequence: (previousCommit?.sequence ?? 0) + 1,
+      previousCommitHash: previousCommit?.hash ?? null,
+      members: buildEvidenceCommitMembers(auditRecords, edgeRecords),
+    };
+    if (input.committedAt !== undefined) {
+      commitInput.committedAt = input.committedAt;
+    }
+    const commit = createEvidenceCommit(commitInput);
+    this.#commits.push(commit);
+    this.#commitTips.set(input.streamId, commit);
+    return { auditRecords: auditRecords.map(clone), edgeRecords: edgeRecords.map(clone), commit: clone(commit) };
+  }
+
+  /**
+   * Appends a governed-change draft through the v1 compatibility record shape.
+   * Callers that need an explicit multi-record commit should use `recordBatch`
+   * so the EvidenceCommit stream is created deliberately.
+   */
+  async recordGovernedChangeDraft(
+    draft: GovernedChangeDraft,
+  ): Promise<{ auditRecords: AuditRecord[]; edgeRecords: EvidenceEdgeRecord[] }> {
+    const auditRecords: AuditRecord[] = [];
+    const edgeRecords: EvidenceEdgeRecord[] = [];
+    for (const event of draft.events) {
+      auditRecords.push(await this.recordEvent(event));
+    }
+    for (const edge of draft.edges) {
+      edgeRecords.push(await this.recordEdge(edge));
+    }
+    return { auditRecords, edgeRecords };
+  }
+
+  /**
    * Lists audit records for one tenant with optional sequence and limit controls.
    */
   async listEvents(
@@ -274,6 +444,25 @@ export class LocalEvidenceStore {
   }
 
   /**
+   * Lists EvidenceCommit manifests by optional stream and sequence cursor. Commit
+   * streams are not tenant-scoped in PR5, so callers must choose tenant evidence
+   * records separately when building export bundles.
+   */
+  async listCommits(options: LocalEvidenceCommitListOptions = {}): Promise<EvidenceCommit[]> {
+    validateListOptions(options);
+    if (options.streamId !== undefined) {
+      requireString(options.streamId, "streamId");
+    }
+    const commits = this.#commits.filter((commit) => {
+      return (
+        (options.streamId === undefined || commit.streamId === options.streamId) &&
+        commit.sequence > (options.afterSequence ?? 0)
+      );
+    });
+    return limited(commits, options.limit).map(clone);
+  }
+
+  /**
    * Looks up a cloned audit record by event id for Workbench detail views.
    */
   async getEvent(id: string): Promise<AuditRecord | null> {
@@ -297,7 +486,8 @@ export class LocalEvidenceStore {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     const audit = verifyAuditRecords(await this.listEvents({ tenantId }));
     const edges = verifyEvidenceEdgeRecords(await this.listEdges({ tenantId }));
-    return { ok: audit.ok && edges.ok, audit, edges };
+    const commits = verifyEvidenceCommits(await this.listCommits());
+    return { ok: audit.ok && edges.ok && commits.ok, audit, edges, commits };
   }
 
   /**
@@ -331,15 +521,96 @@ export class LocalEvidenceStore {
   }
 
   /**
+   * Rebuilds Change views from v1 audit events and edge records. The projection
+   * is disposable read-model state; canonical evidence remains the stored records.
+   */
+  async listChanges(scope: EvidenceScope & { tenantId: string }): Promise<ChangeView[]> {
+    const tenantId = requireTenantId(scope, "scope.tenantId");
+    const events = await this.listEvents({ tenantId });
+    const edges = await this.listEdges({ tenantId });
+    return events
+      .filter((record) => record.event.action === "change.declared")
+      .map((record) => changeViewFromRecord(record, edges))
+      .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+  }
+
+  /**
+   * Rebuilds one entity revision timeline from revision compatibility events.
+   * Payloads show minimized governed fields only, never raw omitted fields.
+   */
+  async getEntityTimeline(query: {
+    tenantId: string;
+    entityType: string;
+    entityId: string;
+  }): Promise<EntityTimeline> {
+    const tenantId = requireTenantId({ tenantId: query.tenantId }, "tenantId");
+    const events = await this.listEvents({ tenantId });
+    const revisions = events
+      .filter((record) => {
+        return (
+          record.event.action === "entity.revision.created" &&
+          record.event.target.type === query.entityType &&
+          record.event.target.id === query.entityId
+        );
+      })
+      .map(revisionFromRecord)
+      .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+    return { tenantId, entityType: query.entityType, entityId: query.entityId, revisions };
+  }
+
+  /**
+   * Explains a change by joining the declared change event with its current v1
+   * relation edges and listing evidence gaps that the current protocol cannot
+   * truthfully prove yet.
+   */
+  async explainChange(scope: EvidenceScope & { tenantId: string }, changeId: string): Promise<ExplainResult> {
+    const tenantId = requireTenantId(scope, "scope.tenantId");
+    const events = await this.listEvents({ tenantId });
+    const edges = await this.listEdges({ tenantId });
+    const changeRecord = events.find((record) => record.event.action === "change.declared" && record.event.target.id === changeId);
+    if (!changeRecord) {
+      throw new TypeError("change not found");
+    }
+    const outgoing = edges.filter((record) => record.edge.from.id === changeId);
+    return {
+      changeId,
+      actor: changeRecord.event.actor.id,
+      activityIds: outgoing.filter((record) => record.edge.relation === "has_activity").map((record) => record.edge.to.id),
+      outputRevisionIds: outgoing.filter((record) => record.edge.relation === "has_output").map((record) => record.edge.to.id),
+      supportingRecordIds: [changeRecord.event.id, ...outgoing.map((record) => record.edge.id)],
+      evidenceAssurance: ["current-protocol relation links present"],
+      knownCoverage: ["change", "activity", "revision", "relations", "audit_records"],
+      notCaptured: ["raw full row", "business transaction proof", "independent state verification"],
+    };
+  }
+
+  /**
+   * Returns the captured governed-field diff for a revision. Hash-only fields are
+   * surfaced as digest metadata because the original value was intentionally not
+   * captured.
+   */
+  async diffRevision(scope: EvidenceScope & { tenantId: string }, revisionId: string): Promise<RevisionDiff> {
+    const tenantId = requireTenantId(scope, "scope.tenantId");
+    const events = await this.listEvents({ tenantId });
+    const revision = events.map(revisionFromRecordOrNull).find((candidate) => candidate?.id === revisionId);
+    if (!revision) {
+      throw new TypeError("revision not found");
+    }
+    return { revisionId, changedPaths: revision.changedPaths, after: revision.stateCommitment.fields as JsonObject };
+  }
+
+  /**
    * Builds a deterministic preview of exportable JSONL artifacts for one tenant.
    */
   async previewExportBundle(scope: EvidenceScope & { tenantId: string }): Promise<ExportBundlePreview> {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     const events = await this.listEvents({ tenantId });
     const edges = await this.listEdges({ tenantId });
+    const commits = await this.listCommits();
     const verification = await this.verify({ tenantId });
     const eventsJsonl = toJsonl(events);
     const edgesJsonl = toJsonl(edges);
+    const commitsJsonl = toJsonl(commits);
     const verificationJson = canonicalJson(verification);
     const redactionManifest = { rules: [REDACTION_RULE] };
     const redactionJson = canonicalJson(redactionManifest);
@@ -351,17 +622,19 @@ export class LocalEvidenceStore {
         createdAt: new Date().toISOString(),
         canonicalization: "veritio-json-v1",
         hashAlgorithm: HASH_ALGORITHM,
-        recordCounts: { events: events.length, edges: edges.length },
+        recordCounts: { events: events.length, edges: edges.length, commits: commits.length },
         verification,
         files: [
           { name: "events.jsonl", sha256: sha256Hex(eventsJsonl) },
           { name: "edges.jsonl", sha256: sha256Hex(edgesJsonl) },
+          { name: "commits.jsonl", sha256: sha256Hex(commitsJsonl) },
           { name: "verification.json", sha256: sha256Hex(verificationJson) },
           { name: "redaction-manifest.json", sha256: sha256Hex(redactionJson) },
         ],
       },
       eventsJsonl,
       edgesJsonl,
+      commitsJsonl,
       verificationReport: verification,
       redactionManifest,
     };
@@ -373,10 +646,12 @@ export class LocalEvidenceStore {
   async reset(): Promise<void> {
     this.#auditRecords = [];
     this.#edgeRecords = [];
+    this.#commits = [];
     this.#auditIdempotency.clear();
     this.#edgeIdempotency.clear();
     this.#auditTips.clear();
     this.#edgeTips.clear();
+    this.#commitTips.clear();
   }
 }
 
@@ -949,6 +1224,109 @@ export async function runRecorderProvenanceScenario(
 }
 
 /**
+ * Seeds the first exceptional governed-change demo with a project-entry update,
+ * derived estimate revision, and rollback-as-new-revision. Each governed change
+ * is grouped through an EvidenceCommit batch so export and Workbench surfaces
+ * can show ordered commit membership without claiming host transaction binding.
+ */
+export async function runGovernedChangeScenario(
+  store: LocalEvidenceStore,
+  options: { tenantId?: string } = {},
+): Promise<GovernedChangeScenarioResult> {
+  const tenantId = options.tenantId ?? "tenant_governed_change_demo";
+  const scope = { tenantId, workspaceId: "workspace_estimates", environment: "dev" };
+  const streamId = `str_${tenantId}_governed_changes`;
+  const producer: EvidenceRef = { authority: "acme.billing", kind: "principal", type: "service", id: "billing-api" };
+  const user: EvidenceRef = { authority: "auth.acme.internal", kind: "principal", type: "user", id: "usr_123" };
+  const agent: EvidenceRef = { authority: "acme.ai", kind: "principal", type: "ai_agent", id: "cost_agent_7" };
+  const projectEntry = defineEntity<{
+    id: string;
+    quantity: number;
+    monthlyPrice: number;
+    customerEmail: string;
+    temporaryCache: string;
+  }>({
+    authority: "acme.billing",
+    type: "project_entry",
+    schemaRef: "acme.billing/project_entry@3",
+    fieldSetRef: "project-entry-governed-fields@2",
+    identity: (row) => row.id,
+    fields: {
+      quantity: { capture: "full" },
+      monthlyPrice: { capture: "full" },
+      customerEmail: { capture: "keyed_digest" },
+      temporaryCache: { capture: "omit" },
+    },
+  });
+
+  const priceDraft = createGovernedChangeDraft({
+    scope,
+    entity: projectEntry,
+    before: { id: "42", quantity: 10, monthlyPrice: 142800, customerEmail: "buyer@example.com", temporaryCache: "hot" },
+    after: { id: "42", quantity: 11, monthlyPrice: 148220, customerEmail: "buyer@example.com", temporaryCache: "warm" },
+    changedPaths: ["/quantity", "/monthlyPrice"],
+    change: { id: "chg_project_entry_price_01", type: "project.entry.price_recalculation", initiatedBy: user },
+    activity: { id: "act_project_entry_price_01", type: "computation.project_cost_estimate", performedBy: agent },
+    producer,
+    occurredAt: "2026-06-23T10:18:00.000Z",
+    idempotencyKeyHash: "sha256:price-change",
+    context: { changeId: "chg_project_entry_price_01", traceId: "trc_project_entry_price", collectionSource: "governed-change-scenario" },
+    capturePolicyRef: { id: "cap_project_changes", version: "3" },
+    digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "scenario-hmac-secret" } },
+  });
+  await store.recordBatch({
+    commitId: "cmt_project_entry_price_01",
+    streamId,
+    events: priceDraft.events,
+    edges: priceDraft.edges,
+    committedAt: "2026-06-23T10:18:01.000Z",
+  });
+
+  const rollbackDraft = createGovernedChangeDraft({
+    scope,
+    entity: projectEntry,
+    before: { id: "42", quantity: 11, monthlyPrice: 148220, customerEmail: "buyer@example.com", temporaryCache: "warm" },
+    after: { id: "42", quantity: 10, monthlyPrice: 142800, customerEmail: "buyer@example.com", temporaryCache: "restored" },
+    changedPaths: ["/quantity", "/monthlyPrice"],
+    change: { id: "chg_project_entry_revert_01", type: "project.entry.rollback", initiatedBy: user },
+    activity: { id: "act_project_entry_revert_01", type: "project.entry.rollback", performedBy: user },
+    producer,
+    occurredAt: "2026-06-23T10:24:00.000Z",
+    idempotencyKeyHash: "sha256:rollback-change",
+    context: { changeId: "chg_project_entry_revert_01", traceId: "trc_project_entry_revert", collectionSource: "governed-change-scenario" },
+    capturePolicyRef: { id: "cap_project_changes", version: "3" },
+    digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "scenario-hmac-secret" } },
+  });
+  await store.recordBatch({
+    commitId: "cmt_project_entry_revert_01",
+    streamId,
+    events: rollbackDraft.events,
+    edges: rollbackDraft.edges,
+    committedAt: "2026-06-23T10:24:01.000Z",
+  });
+
+  const changes = await store.listChanges({ tenantId });
+  const entityTimeline = await store.getEntityTimeline({ tenantId, entityType: "project_entry", entityId: "42" });
+  const explain = await store.explainChange({ tenantId }, "chg_project_entry_price_01");
+  const firstOutputRevision = explain.outputRevisionIds[0];
+  if (!firstOutputRevision) {
+    throw new TypeError("governed change scenario did not produce an output revision");
+  }
+  const diff = await store.diffRevision({ tenantId }, firstOutputRevision);
+
+  return {
+    tenantId,
+    graph: await store.getEvidenceGraph({ tenantId }),
+    verification: await store.verify({ tenantId }),
+    exportPreview: await store.previewExportBundle({ tenantId }),
+    changes,
+    entityTimeline,
+    explain,
+    diff,
+  };
+}
+
+/**
  * Creates a fetch-compatible Workbench app around an injected LocalEvidenceStore.
  * The app boundary keeps storage injection explicit for tests and CLI startup.
  */
@@ -1050,6 +1428,10 @@ export async function handleMcpRequest(
         return rpcResult(id, {
           records: await store.listEdges({ tenantId: requireTenantArg(args) }, listOptions(args)),
         });
+      case "veritio.list_commits":
+        return rpcResult(id, { records: await store.listCommits(commitListOptions(args)) });
+      case "veritio.list_changes":
+        return rpcResult(id, { records: await store.listChanges({ tenantId: requireTenantArg(args) }) });
       case "veritio.get_evidence_graph":
         return rpcResult(id, { graph: await store.getEvidenceGraph(graphQuery(args)) });
       case "veritio.verify_chain":
@@ -1069,6 +1451,8 @@ export async function handleMcpRequest(
         return rpcResult(id, { record: await store.recordEvent(args as unknown as AuditEventInput) });
       case "veritio.record_edge":
         return rpcResult(id, { record: await store.recordEdge(args as unknown as EvidenceEdgeInput) });
+      case "veritio.record_batch":
+        return rpcResult(id, await store.recordBatch(args as unknown as LocalEvidenceBatchInput));
       case "veritio.reset_dev_store":
         await store.reset();
         return rpcResult(id, { ok: true });
@@ -1116,6 +1500,21 @@ async function handleWorkbenchRequest(
         return jsonResponse({ record: await store.recordEdge((await request.json()) as EvidenceEdgeInput) }, 201);
       }
     }
+    if (url.pathname === "/v1/commits") {
+      if (request.method === "GET") {
+        return jsonResponse({ records: await store.listCommits(commitListOptionsFromUrl(url)) });
+      }
+    }
+    if (url.pathname === "/v1/changes") {
+      if (request.method === "GET") {
+        return jsonResponse({ records: await store.listChanges({ tenantId: requireTenantParam(url) }) });
+      }
+    }
+    if (url.pathname === "/v1/batches") {
+      if (request.method === "POST") {
+        return jsonResponse(await store.recordBatch((await request.json()) as LocalEvidenceBatchInput), 201);
+      }
+    }
     if (request.method === "GET" && url.pathname === "/v1/graph") {
       return jsonResponse(await store.getEvidenceGraph(graphQueryFromUrl(url)));
     }
@@ -1137,6 +1536,10 @@ async function handleWorkbenchRequest(
     if (request.method === "POST" && url.pathname === "/v1/scenarios/recorder") {
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
       return jsonResponse(await runRecorderProvenanceScenario(store, scenarioOptions(optionalString(body.tenantId))));
+    }
+    if (request.method === "POST" && url.pathname === "/v1/scenarios/governed-change") {
+      const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+      return jsonResponse(await runGovernedChangeScenario(store, scenarioOptions(optionalString(body.tenantId))));
     }
     if (request.method === "POST" && url.pathname === "/mcp") {
       const body = (await request.json()) as McpRequest;
@@ -1160,56 +1563,212 @@ function renderWorkbenchHtml(): string {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Veritio Workbench</title>
   <style>
-    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f8fa; color: #111827; }
-    header { padding: 20px 24px; border-bottom: 1px solid #d8dde6; background: #ffffff; }
-    main { display: grid; grid-template-columns: minmax(260px, 360px) 1fr; min-height: calc(100vh - 73px); }
-    aside { border-right: 1px solid #d8dde6; padding: 16px; background: #ffffff; }
-    section { padding: 16px; }
-    h1 { margin: 0; font-size: 20px; }
-    h2 { font-size: 14px; margin: 0 0 10px; }
-    pre { white-space: pre-wrap; background: #101827; color: #f9fafb; padding: 12px; border-radius: 6px; overflow: auto; }
-    button { border: 1px solid #9aa4b2; background: #ffffff; border-radius: 6px; padding: 8px 10px; cursor: pointer; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f6f7f9; color: #111827; letter-spacing: 0; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 18px; border-bottom: 1px solid #d7dde7; background: #ffffff; }
+    main { display: grid; grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); min-height: calc(100vh - 61px); }
+    aside { border-right: 1px solid #d7dde7; padding: 14px; background: #ffffff; }
+    section { padding: 14px; }
+    h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+    h2 { font-size: 13px; margin: 0; color: #374151; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; background: #ffffff; border: 1px solid #d7dde7; }
+    th, td { padding: 8px 10px; border-bottom: 1px solid #e4e8ef; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    th { color: #4b5563; font-size: 12px; font-weight: 650; background: #f8fafc; }
+    tbody tr:last-child td { border-bottom: 0; }
+    pre { min-width: 0; white-space: pre-wrap; background: #111827; color: #f9fafb; padding: 10px; border-radius: 6px; overflow: auto; max-height: 300px; font-size: 12px; }
+    button { width: 100%; border: 1px solid #9aa4b2; background: #ffffff; border-radius: 6px; padding: 8px 10px; cursor: pointer; text-align: left; font: inherit; }
+    button:hover { background: #f2f6fb; }
+    input { width: 100%; border: 1px solid #9aa4b2; border-radius: 6px; padding: 8px 10px; font: inherit; }
     .stack { display: grid; gap: 10px; }
+    .panel { display: grid; gap: 10px; min-width: 0; }
+    .content { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(300px, .85fr); gap: 14px; align-items: start; }
+    .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .metric { border: 1px solid #d7dde7; background: #ffffff; padding: 10px; border-radius: 6px; min-width: 0; }
+    .metric strong { display: block; font-size: 20px; line-height: 1.1; }
+    .metric span, .muted { color: #5b6472; font-size: 12px; }
+    .status { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 12px; }
+    .pill { border-radius: 999px; padding: 4px 8px; border: 1px solid #c9d2df; background: #ffffff; color: #374151; }
+    .pill.ok { border-color: #7eb391; color: #14532d; background: #edf8f0; }
+    .pill.warn { border-color: #e0b65a; color: #713f12; background: #fff7df; }
+    .split { display: grid; gap: 14px; min-width: 0; }
+    .hash { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; word-break: break-all; }
+    @media (max-width: 900px) {
+      header { align-items: flex-start; flex-direction: column; }
+      main, .content { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid #d7dde7; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
   </style>
 </head>
 <body>
-  <header><h1>Veritio Workbench</h1></header>
+  <header>
+    <h1>Veritio Workbench</h1>
+    <div class="status" id="status">
+      <span class="pill">audit pending</span>
+      <span class="pill">edges pending</span>
+      <span class="pill">commits pending</span>
+    </div>
+  </header>
   <main>
     <aside class="stack">
-      <h2>Local Actions</h2>
+      <h2>Tenant</h2>
+      <input id="tenant" value="tenant_local_demo" autocomplete="off">
+      <h2>Scenarios</h2>
+      <button id="governed">Run governed change demo</button>
       <button id="scenario">Run integration scenario</button>
-      <button id="change-provenance">Run change provenance tree</button>
-      <button id="recorder">Run recorder provenance (agent canvas)</button>
+      <button id="change-provenance">Run agent provenance tree</button>
+      <button id="recorder">Run recorder provenance</button>
       <button id="refresh">Refresh graph</button>
     </aside>
-    <section class="stack">
-      <h2>Evidence Graph</h2>
-      <pre id="output">{"status":"ready"}</pre>
+    <section class="panel">
+      <div class="metrics">
+        <div class="metric"><strong id="metric-events">0</strong><span>audit records</span></div>
+        <div class="metric"><strong id="metric-edges">0</strong><span>edge records</span></div>
+        <div class="metric"><strong id="metric-commits">0</strong><span>evidence commits</span></div>
+        <div class="metric"><strong id="metric-changes">0</strong><span>changes</span></div>
+      </div>
+      <div class="content">
+        <div class="split">
+          <div class="stack">
+            <h2>Changes</h2>
+            <table>
+              <thead><tr><th>Change</th><th>Status</th><th>Activity</th><th>Outputs</th></tr></thead>
+              <tbody id="changes"><tr><td colspan="4" class="muted">No changes</td></tr></tbody>
+            </table>
+          </div>
+          <div class="stack">
+            <h2>Evidence Graph</h2>
+            <table>
+              <thead><tr><th>Nodes</th><th>Edges</th><th>Relations</th></tr></thead>
+              <tbody id="graph"><tr><td colspan="3" class="muted">No graph loaded</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="split">
+          <div class="stack">
+            <h2>Evidence Commits</h2>
+            <table>
+              <thead><tr><th>Sequence</th><th>Commit</th><th>Members</th></tr></thead>
+              <tbody id="commits"><tr><td colspan="3" class="muted">No commits</td></tr></tbody>
+            </table>
+          </div>
+          <div class="stack">
+            <h2>Export Files</h2>
+            <table>
+              <thead><tr><th>File</th><th>Digest</th></tr></thead>
+              <tbody id="files"><tr><td colspan="2" class="muted">No export preview</td></tr></tbody>
+            </table>
+          </div>
+          <div class="stack">
+            <h2>Selected Response</h2>
+            <pre id="output">{"status":"ready"}</pre>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
   <script>
-    const tenantId = "tenant_local_demo";
+    const tenantInput = document.getElementById("tenant");
     const output = document.getElementById("output");
-    /**
-     * Loads the current tenant graph through the local Workbench API.
-     */
+    const status = document.getElementById("status");
+    const changesBody = document.getElementById("changes");
+    const commitsBody = document.getElementById("commits");
+    const graphBody = document.getElementById("graph");
+    const filesBody = document.getElementById("files");
+    const metricEvents = document.getElementById("metric-events");
+    const metricEdges = document.getElementById("metric-edges");
+    const metricCommits = document.getElementById("metric-commits");
+    const metricChanges = document.getElementById("metric-changes");
+
+    function tenantId() {
+      return tenantInput.value.trim() || "tenant_local_demo";
+    }
+
     async function showGraph() {
-      const response = await fetch("/v1/graph?tenantId=" + encodeURIComponent(tenantId));
-      output.textContent = JSON.stringify(await response.json(), null, 2);
+      const snapshot = await loadSnapshot();
+      output.textContent = JSON.stringify(snapshot, null, 2);
+      renderSnapshot(snapshot);
+    }
+
+    async function loadSnapshot() {
+      const tenant = encodeURIComponent(tenantId());
+      const [graph, changes, commits, verification, bundle] = await Promise.all([
+        fetch("/v1/graph?tenantId=" + tenant).then((response) => response.json()),
+        fetch("/v1/changes?tenantId=" + tenant).then((response) => response.json()),
+        fetch("/v1/commits").then((response) => response.json()),
+        fetch("/v1/verify?tenantId=" + tenant).then((response) => response.json()),
+        fetch("/v1/exports/preview", { method: "POST", body: JSON.stringify({ tenantId: tenantId() }) }).then((response) => response.json()),
+      ]);
+      return { graph, changes: changes.records || [], commits: commits.records || [], verification, bundle };
+    }
+
+    function renderSnapshot(snapshot) {
+      metricEvents.textContent = String(snapshot.bundle.manifest.recordCounts.events);
+      metricEdges.textContent = String(snapshot.bundle.manifest.recordCounts.edges);
+      metricCommits.textContent = String(snapshot.bundle.manifest.recordCounts.commits);
+      metricChanges.textContent = String(snapshot.changes.length);
+      status.innerHTML = [
+        pill("audit", snapshot.verification.audit.ok),
+        pill("edges", snapshot.verification.edges.ok),
+        pill("commits", snapshot.verification.commits.ok),
+      ].join("");
+      changesBody.innerHTML = snapshot.changes.length ? snapshot.changes.map(renderChangeRow).join("") : emptyRow(4, "No changes");
+      commitsBody.innerHTML = snapshot.commits.length ? snapshot.commits.map(renderCommitRow).join("") : emptyRow(3, "No commits");
+      graphBody.innerHTML = renderGraphRow(snapshot.graph);
+      filesBody.innerHTML = snapshot.bundle.manifest.files.map(renderFileRow).join("");
+    }
+
+    function pill(label, ok) {
+      return '<span class="pill ' + (ok ? "ok" : "warn") + '">' + escapeHtml(label) + " " + (ok ? "ok" : "check") + "</span>";
+    }
+
+    function renderChangeRow(change) {
+      return "<tr><td>" + escapeHtml(change.title) + '<div class="muted">' + escapeHtml(change.id) + "</div></td><td>" + escapeHtml(change.status) + "</td><td>" + escapeHtml(change.activityIds.join(", ")) + "</td><td>" + escapeHtml(change.outputRevisionIds.length) + "</td></tr>";
+    }
+
+    function renderCommitRow(commit) {
+      return "<tr><td>" + escapeHtml(String(commit.sequence)) + "</td><td>" + escapeHtml(commit.commitId) + '<div class="hash">' + escapeHtml(commit.hash.slice(0, 19)) + "...</div></td><td>" + escapeHtml(String(commit.recordCount)) + "</td></tr>";
+    }
+
+    function renderGraphRow(graph) {
+      const relations = Array.from(new Set(graph.edges.map((edge) => edge.relation))).slice(0, 8).join(", ");
+      return "<tr><td>" + escapeHtml(String(graph.nodes.length)) + "</td><td>" + escapeHtml(String(graph.edges.length)) + "</td><td>" + escapeHtml(relations || "none") + "</td></tr>";
+    }
+
+    function renderFileRow(file) {
+      return '<tr><td>' + escapeHtml(file.name) + '</td><td class="hash">' + escapeHtml(file.sha256) + "</td></tr>";
+    }
+
+    function emptyRow(columns, label) {
+      return '<tr><td colspan="' + columns + '" class="muted">' + escapeHtml(label) + "</td></tr>";
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+    }
+
+    async function runScenario(path) {
+      const response = await fetch(path, { method: "POST", body: JSON.stringify({ tenantId: tenantId() }) });
+      const result = await response.json();
+      output.textContent = JSON.stringify(result, null, 2);
+      renderSnapshot(await loadSnapshot());
     }
     document.getElementById("scenario").addEventListener("click", async () => {
-      const response = await fetch("/v1/scenarios/integration", { method: "POST", body: JSON.stringify({ tenantId }) });
-      output.textContent = JSON.stringify(await response.json(), null, 2);
+      await runScenario("/v1/scenarios/integration");
     });
     document.getElementById("change-provenance").addEventListener("click", async () => {
-      const response = await fetch("/v1/scenarios/change-provenance", { method: "POST", body: JSON.stringify({ tenantId }) });
-      output.textContent = JSON.stringify(await response.json(), null, 2);
+      await runScenario("/v1/scenarios/change-provenance");
     });
     document.getElementById("recorder").addEventListener("click", async () => {
-      const response = await fetch("/v1/scenarios/recorder", { method: "POST", body: JSON.stringify({ tenantId }) });
-      output.textContent = JSON.stringify(await response.json(), null, 2);
+      await runScenario("/v1/scenarios/recorder");
+    });
+    document.getElementById("governed").addEventListener("click", async () => {
+      await runScenario("/v1/scenarios/governed-change");
     });
     document.getElementById("refresh").addEventListener("click", showGraph);
+    showGraph().catch((error) => {
+      output.textContent = JSON.stringify({ error: String(error) }, null, 2);
+    });
   </script>
 </body>
 </html>`;
@@ -1367,6 +1926,30 @@ function listOptionsFromUrl(url: URL): LocalEvidenceStoreListOptions {
 }
 
 /**
+ * Converts MCP JSON arguments into EvidenceCommit list options.
+ */
+function commitListOptions(value: Record<string, unknown>): LocalEvidenceCommitListOptions {
+  const options: LocalEvidenceCommitListOptions = { ...listOptions(value) };
+  const streamId = optionalString(value.streamId);
+  if (streamId) {
+    options.streamId = streamId;
+  }
+  return options;
+}
+
+/**
+ * Converts Workbench URL parameters into EvidenceCommit list options.
+ */
+function commitListOptionsFromUrl(url: URL): LocalEvidenceCommitListOptions {
+  const options: LocalEvidenceCommitListOptions = { ...listOptionsFromUrl(url) };
+  const streamId = url.searchParams.get("streamId");
+  if (streamId) {
+    options.streamId = streamId;
+  }
+  return options;
+}
+
+/**
  * Converts MCP JSON arguments into an evidence graph query.
  */
 function graphQuery(value: Record<string, unknown>): EvidenceGraphQuery {
@@ -1438,10 +2021,126 @@ function edgeRecordToGraphEdge(record: EvidenceEdgeRecord): EvidenceGraphEdge {
 }
 
 /**
+ * Projects one change declaration event plus related edges into the product
+ * Change row shape used by Workbench and examples.
+ */
+function changeViewFromRecord(record: AuditRecord, edgeRecords: EvidenceEdgeRecord[]): ChangeView {
+  const relatedEdges = edgeRecords.filter((edgeRecord) => edgeRecord.edge.from.id === record.event.target.id);
+  const metadata = record.event.metadata as JsonObject;
+  const view: ChangeView = {
+    id: record.event.target.id,
+    title: stringFromJson(metadata.changeType) ?? record.event.action,
+    status: "declared",
+    occurredAt: record.event.occurredAt,
+    activityIds: relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_activity").map((edgeRecord) => edgeRecord.edge.to.id),
+    outputRevisionIds: relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_output").map((edgeRecord) => edgeRecord.edge.to.id),
+    supportingRecordIds: [record.event.id, ...relatedEdges.map((edgeRecord) => edgeRecord.edge.id)],
+    assurance: ["current-protocol relation links present"],
+  };
+  const initiatedBy = evidenceRefFromJson(metadata.initiatedBy);
+  if (initiatedBy) {
+    view.initiatedBy = initiatedBy;
+  }
+  return view;
+}
+
+/**
+ * Converts a revision compatibility event into one entity timeline row.
+ */
+function revisionFromRecord(record: AuditRecord): EntityTimeline["revisions"][number] {
+  const revision = revisionPayloadFromRecord(record);
+  const row: EntityTimeline["revisions"][number] = {
+    id: revision.ref.id,
+    occurredAt: record.event.occurredAt,
+    changedPaths: Array.isArray(revision.changedPaths) ? revision.changedPaths.map(String) : [],
+    stateCommitment: revision.stateCommitment as JsonObject,
+    supportingRecordId: record.event.id,
+  };
+  const generatedBy = evidenceRefFromJson(revision.generatedBy);
+  if (generatedBy) {
+    row.generatedBy = generatedBy;
+  }
+  return row;
+}
+
+/**
+ * Returns a timeline row only for records that actually contain revision
+ * compatibility metadata.
+ */
+function revisionFromRecordOrNull(record: AuditRecord): EntityTimeline["revisions"][number] | null {
+  try {
+    return record.event.action === "entity.revision.created" ? revisionFromRecord(record) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reads the current v1 revision compatibility encoding from event metadata.
+ */
+function revisionPayloadFromRecord(record: AuditRecord): Record<string, any> {
+  const metadata = record.event.metadata as Record<string, any>;
+  const revision = metadata.veritio?.revision;
+  if (!revision || typeof revision !== "object") {
+    throw new TypeError("revision metadata is missing");
+  }
+  return revision as Record<string, any>;
+}
+
+/**
+ * Narrows JSON metadata back to an authority-qualified evidence ref when present.
+ */
+function evidenceRefFromJson(value: unknown): EvidenceRef | undefined {
+  if (!isObject(value)) {
+    return undefined;
+  }
+  const authority = optionalString(value.authority);
+  const kind = optionalString(value.kind);
+  const type = optionalString(value.type);
+  const id = optionalString(value.id);
+  if (!authority || !kind || !type || !id) {
+    return undefined;
+  }
+  return { authority, kind: kind as EvidenceRef["kind"], type, id };
+}
+
+/**
+ * Reads optional string values from JSON metadata without coercing objects.
+ */
+function stringFromJson(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
  * Sorts graph nodes deterministically for stable API responses.
  */
 function compareNodes(left: EvidenceGraphNode, right: EvidenceGraphNode): number {
   return left.id.localeCompare(right.id);
+}
+
+/**
+ * Builds the physical-record EvidenceCommit member manifest used by local
+ * stores. Audit and edge hashes stay in their v1 envelope format and are
+ * wrapped as algorithm-qualified commit member digests.
+ */
+function buildEvidenceCommitMembers(
+  auditRecords: readonly AuditRecord[],
+  edgeRecords: readonly EvidenceEdgeRecord[],
+): EvidenceCommitInput["members"] {
+  return [
+    ...auditRecords.map((record, index) => ({
+      index,
+      recordType: "audit.record" as const,
+      recordId: record.event.id,
+      recordHash: `sha256:${record.hash}`,
+    })),
+    ...edgeRecords.map((record, index) => ({
+      index: auditRecords.length + index,
+      recordType: "evidence.edge.record" as const,
+      recordId: record.edge.id,
+      recordHash: `sha256:${record.hash}`,
+    })),
+  ];
 }
 
 /**
@@ -1493,6 +2192,8 @@ function toolDescription(name: string): string {
       return "Record a local Veritio audit event when write tools are enabled.";
     case "veritio.record_edge":
       return "Record a local Veritio evidence graph edge when write tools are enabled.";
+    case "veritio.record_batch":
+      return "Record local audit events and graph edges with an EvidenceCommit when write tools are enabled.";
     case "veritio.reset_dev_store":
       return "Clear the local development evidence store.";
     default:

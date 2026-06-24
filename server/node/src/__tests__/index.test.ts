@@ -3,6 +3,7 @@ import {
   LocalEvidenceStore,
   createWorkbenchApp,
   handleMcpRequest,
+  runGovernedChangeScenario,
   runChangeProvenanceScenario,
   runIntegrationScenario,
   runRecorderProvenanceScenario,
@@ -58,6 +59,7 @@ describe("LocalEvidenceStore", () => {
     expect(verification.ok).toBe(true);
     expect(verification.audit).toEqual({ ok: true });
     expect(verification.edges).toEqual({ ok: true });
+    expect(verification.commits).toEqual({ ok: true });
 
     const graph = await store.getEvidenceGraph({ tenantId, rootId: "evt_local_01" });
     expect(graph.nodes.map((node) => node.id).sort()).toEqual(["evt_local_01", "usr_123"]);
@@ -73,7 +75,7 @@ describe("LocalEvidenceStore", () => {
     ]);
 
     const bundle = await store.previewExportBundle({ tenantId });
-    expect(bundle.manifest.recordCounts).toEqual({ events: 1, edges: 1 });
+    expect(bundle.manifest.recordCounts).toEqual({ events: 1, edges: 1, commits: 0 });
     expect(bundle.manifest.verification.ok).toBe(true);
     expect(bundle.eventsJsonl).toContain('"id":"evt_local_01"');
     expect(bundle.edgesJsonl).toContain('"id":"edge_local_01"');
@@ -84,6 +86,31 @@ describe("LocalEvidenceStore", () => {
     await store.reset();
     expect(await store.listEvents({ tenantId })).toEqual([]);
     expect(await store.listEdges({ tenantId })).toEqual([]);
+  });
+
+  test("batch records event and edge members with an EvidenceCommit", async () => {
+    const store = new LocalEvidenceStore();
+
+    const batch = await store.recordBatch({
+      commitId: "cmt_local_memory_01",
+      streamId: "str_local_memory",
+      events: [eventInput("evt_batch_memory")],
+      edges: [edgeInput("edge_batch_memory")],
+      committedAt: "2026-06-23T10:15:31.000Z",
+    });
+
+    expect(batch.commit.recordCount).toBe(2);
+    expect(batch.commit.members.map((member) => member.recordType)).toEqual(["audit.record", "evidence.edge.record"]);
+    const replay = await store.recordBatch({
+      commitId: "cmt_local_memory_01",
+      streamId: "str_local_memory",
+      events: [eventInput("evt_batch_memory")],
+      edges: [edgeInput("edge_batch_memory")],
+      committedAt: "2026-06-23T10:15:31.000Z",
+    });
+    expect(replay.commit).toEqual(batch.commit);
+    expect(await store.listCommits({ streamId: "str_local_memory" })).toEqual([batch.commit]);
+    expect(await store.verify({ tenantId })).toMatchObject({ ok: true, commits: { ok: true } });
   });
 
   test("runs the local integration scenario from agent session to runtime audit event", async () => {
@@ -103,7 +130,7 @@ describe("LocalEvidenceStore", () => {
     const result = await runChangeProvenanceScenario(store, { tenantId });
 
     expect(result.verification.ok).toBe(true);
-    expect(result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14 });
+    expect(result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14, commits: 0 });
     expect(result.graph.nodes.map((node) => node.type)).toEqual(
       expect.arrayContaining([
         "actor",
@@ -170,6 +197,30 @@ describe("LocalEvidenceStore", () => {
     );
     expect(sessionToHuman).toBe(true);
   });
+
+  test("projects governed changes, entity timelines, explain, and diff from current protocol evidence", async () => {
+    const store = new LocalEvidenceStore();
+
+    const result = await runGovernedChangeScenario(store, { tenantId });
+
+    expect(result.verification.ok).toBe(true);
+    expect(result.exportPreview.manifest.recordCounts.commits).toBe(2);
+    expect(result.changes).toHaveLength(2);
+    expect(result.changes[0]).toMatchObject({
+      id: "chg_project_entry_revert_01",
+      status: "declared",
+      title: "project.entry.rollback",
+      outputRevisionIds: expect.arrayContaining([expect.stringContaining("rev_project_entry_42_")]),
+    });
+    expect(result.entityTimeline.revisions).toHaveLength(2);
+    expect(result.explain.changeId).toBe("chg_project_entry_price_01");
+    expect(result.explain.evidenceAssurance).toEqual(["current-protocol relation links present"]);
+    expect(result.explain.knownCoverage).toEqual(["change", "activity", "revision", "relations", "audit_records"]);
+    expect(result.explain.notCaptured).toEqual(["raw full row", "business transaction proof", "independent state verification"]);
+    expect(result.diff.changedPaths).toEqual(["/monthlyPrice", "/quantity"]);
+    expect(result.diff.after.monthlyPrice).toBe(148220);
+    expect(JSON.stringify(result.entityTimeline)).not.toContain("buyer@example.com");
+  });
 });
 
 describe("Workbench HTTP app", () => {
@@ -179,7 +230,9 @@ describe("Workbench HTTP app", () => {
 
     const home = await app.fetch(new Request("http://veritio.local/"));
     expect(home.headers.get("content-type")).toContain("text/html");
-    expect(await home.text()).toContain("Veritio Workbench");
+    const homeText = await home.text();
+    expect(homeText).toContain("Veritio Workbench");
+    expect(homeText).toContain("Evidence Commits");
 
     const eventResponse = await app.fetch(
       new Request("http://veritio.local/v1/events", {
@@ -223,6 +276,24 @@ describe("Workbench HTTP app", () => {
       verification: { ok: true },
       exportPreview: { manifest: { recordCounts: { events: 9, edges: 14 } } },
     });
+
+    const governedScenarioResponse = await app.fetch(
+      new Request("http://veritio.local/v1/scenarios/governed-change", {
+        method: "POST",
+        body: JSON.stringify({ tenantId: "tenant_governed_http" }),
+      }),
+    );
+    expect(governedScenarioResponse.status).toBe(200);
+    const governedScenario = await json(governedScenarioResponse);
+    expect(governedScenario).toMatchObject({
+      verification: { ok: true },
+      exportPreview: { manifest: { recordCounts: { commits: 2 } } },
+      changes: [{ id: "chg_project_entry_revert_01" }, { id: "chg_project_entry_price_01" }],
+    });
+    const changesResponse = await app.fetch(new Request("http://veritio.local/v1/changes?tenantId=tenant_governed_http"));
+    expect((await json(changesResponse)).records).toHaveLength(2);
+    const commitsResponse = await app.fetch(new Request("http://veritio.local/v1/commits"));
+    expect((await json(commitsResponse)).records).toHaveLength(2);
   });
 });
 
@@ -290,6 +361,6 @@ describe("MCP JSON-RPC handler", () => {
     });
 
     expect(response.result.verification.ok).toBe(true);
-    expect(response.result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14 });
+    expect(response.result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14, commits: 0 });
   });
 });

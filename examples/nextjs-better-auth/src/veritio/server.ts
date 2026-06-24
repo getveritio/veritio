@@ -11,7 +11,9 @@ import {
   consentGrantedTemplate,
   createAuditRecorder,
   createEvidenceEdge,
+  createGovernedChangeDraft,
   dataSubjectRequestCreatedTemplate,
+  defineEntity,
   exportBundleCreatedTemplate,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
@@ -26,6 +28,9 @@ import {
   type AuditRecord,
   type EvidenceEdgeRecord,
   type EvidenceEdgeRelation,
+  type EvidenceRef,
+  type GovernedChangeDraft,
+  type JsonObject,
   type VerificationResult,
 } from "@veritio/core";
 
@@ -73,6 +78,47 @@ export interface ReferenceEvidenceTrail extends ReferenceAuditTrail {
   projects: ReferenceProject[];
 }
 
+export interface ReferenceChangeView {
+  id: string;
+  title: string;
+  occurredAt: string;
+  activityIds: string[];
+  outputRevisionIds: string[];
+  supportingRecordIds: string[];
+}
+
+export interface ReferenceEntityTimeline {
+  entityType: string;
+  entityId: string;
+  revisions: Array<{
+    id: string;
+    occurredAt: string;
+    changedPaths: string[];
+    stateCommitment: JsonObject;
+  }>;
+}
+
+export interface ReferenceExplainResult {
+  changeId: string;
+  activityIds: string[];
+  outputRevisionIds: string[];
+  knownCoverage: string[];
+  notCaptured: string[];
+}
+
+export interface ReferenceRevisionDiff {
+  revisionId: string;
+  changedPaths: string[];
+  after: JsonObject;
+}
+
+export interface ReferenceGovernedProvenance {
+  changes: ReferenceChangeView[];
+  entityTimeline: ReferenceEntityTimeline;
+  explain: ReferenceExplainResult | null;
+  diff: ReferenceRevisionDiff | null;
+}
+
 export type ProjectMutationKind = "create" | "update" | "delete";
 
 export interface ProjectMutationInput {
@@ -93,6 +139,8 @@ export interface ScenarioRunResult {
   auditVerification: VerificationResult;
   edgeVerification: VerificationResult;
 }
+
+export interface GovernedChangeScenarioRunResult extends ScenarioRunResult, ReferenceGovernedProvenance {}
 
 /**
  * Reference-only server boundary. Host apps must replace this with a Better Auth
@@ -200,6 +248,20 @@ export async function getReferenceEvidenceTrail(limit = 50): Promise<ReferenceEv
     edgeVerification: verifyEvidenceEdgeRecords(tenantEdges),
     projects: [...projects.values()],
   };
+}
+
+/**
+ * Returns rebuildable Change, entity timeline, Explain, and Diff projections
+ * derived from the current v1 audit and edge records.
+ */
+export async function getReferenceGovernedProvenance(): Promise<ReferenceGovernedProvenance> {
+  const trail = await getReferenceEvidenceTrail(10_000);
+  const changes = projectChanges(trail.records, trail.edgeRecords);
+  const entityTimeline = projectEntityTimeline(trail.records, "project_entry", "42");
+  const explain = explainChange("chg_project_entry_price_01", trail.records, trail.edgeRecords);
+  const firstOutput = explain?.outputRevisionIds[0];
+  const diff = firstOutput ? diffRevision(firstOutput, trail.records) : null;
+  return { changes, entityTimeline, explain, diff };
 }
 
 /**
@@ -345,6 +407,88 @@ export async function runGovernedLifecycleScenario(session?: ReferenceSession): 
     edgeCount: edgeInputs.length,
     auditVerification: trail.verification,
     edgeVerification: trail.edgeVerification,
+  };
+}
+
+/**
+ * Runs a governed project-entry change, price recalculation, and rollback. This
+ * uses current AuditEvent and EvidenceEdge records only, so the example does not
+ * claim EvidenceCommit atomicity or independent state verification.
+ */
+export async function runGovernedChangeScenario(session?: ReferenceSession): Promise<GovernedChangeScenarioRunResult> {
+  const resolvedSession = session ?? (await resolveReferenceSession());
+  const scope = { tenantId: resolvedSession.tenantId, workspaceId: "workspace_estimates", environment: "reference" };
+  const producer: EvidenceRef = { authority: "acme.billing", kind: "principal", type: "service", id: "billing-api" };
+  const user: EvidenceRef = { authority: "auth.acme.internal", kind: "principal", type: "user", id: resolvedSession.actorUserId };
+  const agent: EvidenceRef = { authority: "acme.ai", kind: "principal", type: "ai_agent", id: "cost_agent_7" };
+  const projectEntry = defineEntity<{
+    id: string;
+    quantity: number;
+    monthlyPrice: number;
+    customerEmail: string;
+    temporaryCache: string;
+  }>({
+    authority: "acme.billing",
+    type: "project_entry",
+    schemaRef: "acme.billing/project_entry@3",
+    fieldSetRef: "project-entry-governed-fields@2",
+    identity: (row) => row.id,
+    fields: {
+      quantity: { capture: "full" },
+      monthlyPrice: { capture: "full" },
+      customerEmail: { capture: "keyed_digest" },
+      temporaryCache: { capture: "omit" },
+    },
+  });
+
+  const firstEventCount = (await listAuditTrailForTenant({ tenantId: resolvedSession.tenantId, limit: 10_000 })).length;
+  await appendGovernedChangeDraft(
+    resolvedSession,
+    createGovernedChangeDraft({
+      scope,
+      entity: projectEntry,
+      before: { id: "42", quantity: 10, monthlyPrice: 142800, customerEmail: "buyer@example.com", temporaryCache: "hot" },
+      after: { id: "42", quantity: 11, monthlyPrice: 148220, customerEmail: "buyer@example.com", temporaryCache: "warm" },
+      changedPaths: ["/quantity", "/monthlyPrice"],
+      change: { id: "chg_project_entry_price_01", type: "project.entry.price_recalculation", initiatedBy: user },
+      activity: { id: "act_project_entry_price_01", type: "computation.project_cost_estimate", performedBy: agent },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:price-change",
+      context: { changeId: "chg_project_entry_price_01", traceId: "trc_project_entry_price", collectionSource: "nextjs-example" },
+      capturePolicyRef: { id: "cap_project_changes", version: "3" },
+      digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "next-example-hmac-secret" } },
+    }),
+  );
+  await appendGovernedChangeDraft(
+    resolvedSession,
+    createGovernedChangeDraft({
+      scope,
+      entity: projectEntry,
+      before: { id: "42", quantity: 11, monthlyPrice: 148220, customerEmail: "buyer@example.com", temporaryCache: "warm" },
+      after: { id: "42", quantity: 10, monthlyPrice: 142800, customerEmail: "buyer@example.com", temporaryCache: "restored" },
+      changedPaths: ["/quantity", "/monthlyPrice"],
+      change: { id: "chg_project_entry_revert_01", type: "project.entry.rollback", initiatedBy: user },
+      activity: { id: "act_project_entry_revert_01", type: "project.entry.rollback", performedBy: user },
+      producer,
+      occurredAt: "2026-06-23T10:24:00.000Z",
+      idempotencyKeyHash: "sha256:rollback-change",
+      context: { changeId: "chg_project_entry_revert_01", traceId: "trc_project_entry_revert", collectionSource: "nextjs-example" },
+      capturePolicyRef: { id: "cap_project_changes", version: "3" },
+      digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "next-example-hmac-secret" } },
+    }),
+  );
+
+  const trail = await getReferenceEvidenceTrail(10_000);
+  const projections = await getReferenceGovernedProvenance();
+  return {
+    scenario: "governed_change",
+    canonicalPlanHash: stableHash("nextjs-governed-change"),
+    eventCount: trail.records.length - firstEventCount,
+    edgeCount: 10,
+    auditVerification: trail.verification,
+    edgeVerification: trail.edgeVerification,
+    ...projections,
   };
 }
 
@@ -498,6 +642,166 @@ function appendScenarioEdgeRecord(
   };
   edgeRecords.push(record);
   return record;
+}
+
+/**
+ * Appends a governed-change draft through existing v1 audit and graph chains.
+ * Sequential append is sufficient for this reference UI and intentionally does
+ * not claim EvidenceCommit atomicity.
+ */
+async function appendGovernedChangeDraft(session: ReferenceSession, draft: GovernedChangeDraft): Promise<void> {
+  for (const event of draft.events) {
+    await auditRecorder.record(event, { idempotencyKey: `governed:${session.tenantId}:event:${event.id}` });
+  }
+  for (const edge of draft.edges) {
+    appendEvidenceEdgeInputRecord(session, edge, `governed:${session.tenantId}:edge:${edge.id}`);
+  }
+}
+
+/**
+ * Appends an already-built edge input with the same tenant-scoped envelope as
+ * other example graph records.
+ */
+function appendEvidenceEdgeInputRecord(
+  session: ReferenceSession,
+  input: ReturnType<typeof createEvidenceEdge> | Parameters<typeof createEvidenceEdge>[0],
+  idempotencyKey: string,
+): EvidenceEdgeRecord {
+  const previous = edgeRecords
+    .filter((record) => record.edge.scope?.tenantId === session.tenantId)
+    .at(-1);
+  const edge = createEvidenceEdge(input);
+  const recordWithoutHash: Omit<EvidenceEdgeRecord, "hash"> = {
+    edge,
+    sequence: (previous?.sequence ?? 0) + 1,
+    previousHash: previous?.hash ?? null,
+    hashAlgorithm: HASH_ALGORITHM,
+    canonicalization: "veritio-json-v1",
+    appendedAt: new Date().toISOString(),
+    idempotencyKeyHash: hashIdempotencyKey(session.tenantId, idempotencyKey),
+  };
+  const record: EvidenceEdgeRecord = {
+    ...recordWithoutHash,
+    hash: hashEvidenceEdgeRecord(recordWithoutHash),
+  };
+  edgeRecords.push(record);
+  return record;
+}
+
+/**
+ * Rebuilds Change list rows from current protocol evidence.
+ */
+function projectChanges(records: AuditRecord[], edges: EvidenceEdgeRecord[]): ReferenceChangeView[] {
+  return records
+    .filter((record) => record.event.action === "change.declared")
+    .map((record) => {
+      const relatedEdges = edges.filter((edgeRecord) => edgeRecord.edge.from.id === record.event.target.id);
+      return {
+        id: record.event.target.id,
+        title: stringFromJson(record.event.metadata.changeType) ?? record.event.action,
+        occurredAt: record.event.occurredAt,
+        activityIds: uniqueInOrder(relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_activity").map((edgeRecord) => edgeRecord.edge.to.id)),
+        outputRevisionIds: uniqueInOrder(relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_output").map((edgeRecord) => edgeRecord.edge.to.id)),
+        supportingRecordIds: [record.event.id, ...relatedEdges.map((edgeRecord) => edgeRecord.edge.id)],
+      };
+    })
+    .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt));
+}
+
+/**
+ * Rebuilds the project-entry entity timeline from revision compatibility events.
+ */
+function projectEntityTimeline(records: AuditRecord[], entityType: string, entityId: string): ReferenceEntityTimeline {
+  const revisions = records
+    .filter((record) => {
+      return (
+        record.event.action === "entity.revision.created" &&
+        record.event.target.type === entityType &&
+        record.event.target.id === entityId
+      );
+    })
+    .map((record) => {
+      const revision = revisionPayload(record);
+      return {
+        id: revision.ref.id,
+        occurredAt: record.event.occurredAt,
+        changedPaths: Array.isArray(revision.changedPaths) ? revision.changedPaths.map(String) : [],
+        stateCommitment: revision.stateCommitment as JsonObject,
+      };
+    })
+    .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+  return { entityType, entityId, revisions };
+}
+
+/**
+ * Explains one Change through its declared event, relation edges, and explicit
+ * current-protocol evidence gaps.
+ */
+function explainChange(
+  changeId: string,
+  records: AuditRecord[],
+  edges: EvidenceEdgeRecord[],
+): ReferenceExplainResult | null {
+  const record = records.find((candidate) => candidate.event.action === "change.declared" && candidate.event.target.id === changeId);
+  if (!record) {
+    return null;
+  }
+  const outgoing = edges.filter((edgeRecord) => edgeRecord.edge.from.id === changeId);
+  return {
+    changeId,
+    activityIds: uniqueInOrder(outgoing.filter((edgeRecord) => edgeRecord.edge.relation === "has_activity").map((edgeRecord) => edgeRecord.edge.to.id)),
+    outputRevisionIds: uniqueInOrder(outgoing.filter((edgeRecord) => edgeRecord.edge.relation === "has_output").map((edgeRecord) => edgeRecord.edge.to.id)),
+    knownCoverage: ["change", "activity", "revision", "relations", "audit_records"],
+    notCaptured: ["raw full row", "business transaction proof", "independent state verification"],
+  };
+}
+
+/**
+ * Deduplicates projection labels without sorting so repeated scenario runs keep
+ * their first-observed provenance order and do not produce duplicate UI keys.
+ */
+function uniqueInOrder(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+/**
+ * Presents the captured governed-field state for one revision; digest-only
+ * fields stay digest metadata.
+ */
+function diffRevision(revisionId: string, records: AuditRecord[]): ReferenceRevisionDiff | null {
+  for (const record of records) {
+    if (record.event.action !== "entity.revision.created") {
+      continue;
+    }
+    const revision = revisionPayload(record);
+    if (revision.ref.id === revisionId) {
+      return {
+        revisionId,
+        changedPaths: Array.isArray(revision.changedPaths) ? revision.changedPaths.map(String) : [],
+        after: revision.stateCommitment.fields as JsonObject,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Reads the current v1 revision compatibility encoding from event metadata.
+ */
+function revisionPayload(record: AuditRecord): Record<string, any> {
+  const metadata = record.event.metadata as Record<string, any>;
+  const revision = metadata.veritio?.revision;
+  if (!revision || typeof revision !== "object") {
+    throw new TypeError("revision metadata is missing");
+  }
+  return revision as Record<string, any>;
+}
+
+/**
+ * Reads a display string from metadata without coercing objects.
+ */
+function stringFromJson(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /**

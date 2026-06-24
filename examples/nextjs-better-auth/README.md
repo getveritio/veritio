@@ -19,10 +19,15 @@ the Veritio recorder in server-only modules. Browser forms never submit
   auth session with country/region context, organization bootstrap, membership,
   consent, data-subject request, export bundle, retention policy, and processor
   transfer graph evidence.
+- `app/actions/run-governed-change.ts` runs the change-centric provenance
+  scenario: project-entry quantity change, price recalculation, generated
+  revision, Explain, Diff, and rollback as a later revision.
 - `app/api/projects/route.ts` exposes the same CRUD mechanics through
   `POST`, `PUT`, and `DELETE` route handlers.
 - `app/api/scenarios/governed-lifecycle/route.ts` exposes the lifecycle scenario
   for local HTTP smoke tests.
+- `app/api/scenarios/governed-change/route.ts` exposes the change-centric
+  scenario for browser and curl smoke tests.
 - Each project mutation records a Veritio audit event and a graph edge using
   shared protocol relations: `created`, `modified`, and `deleted`.
 - `app/api/evidence/route.ts` returns audit records, graph edges, local project
@@ -36,9 +41,12 @@ the Veritio recorder in server-only modules. Browser forms never submit
 - `app/actions/run-governed-crud.ts` runs the full CRUD sequence.
 - `app/actions/run-governed-lifecycle.ts` runs the broader helper-driven
   lifecycle scenario.
+- `app/actions/run-governed-change.ts` runs the project-entry provenance
+  scenario.
 - `app/api/auth/[...all]/route.ts` mounts Better Auth.
 - `app/api/projects/route.ts` records governed project mutations through API routes.
 - `app/api/scenarios/governed-lifecycle/route.ts` records the broader lifecycle scenario.
+- `app/api/scenarios/governed-change/route.ts` records the governed-change scenario.
 - `app/api/evidence/route.ts` returns the composed evidence trail.
 - `src/veritio/server.ts` owns the recorder, in-memory stores, graph edge chain,
   and reference session boundary.
@@ -54,8 +62,10 @@ bun run build
 bun run dev
 ```
 
-Open `http://localhost:3000`, click **Run sequence**, then view `/audit`,
-`/api/audit`, or `/api/evidence`.
+Open `http://localhost:3000`, click **Run governed change**, then inspect the
+Changes, Entity timeline, Explain value, and Revision diff sections. The
+scenario uses the current audit and edge chains, so it reports known coverage
+and explicit `not captured` gaps instead of claiming EvidenceCommit atomicity.
 
 API smoke:
 
@@ -70,6 +80,7 @@ curl -X DELETE http://localhost:3000/api/projects \
   -H 'content-type: application/json' \
   -d '{"projectId":"project_demo","requestId":"demo:delete"}'
 curl -X POST http://localhost:3000/api/scenarios/governed-lifecycle
+curl -X POST http://localhost:3000/api/scenarios/governed-change
 curl http://localhost:3000/api/evidence
 ```
 

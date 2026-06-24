@@ -9,8 +9,9 @@ import (
 	veritio "github.com/getveritio/veritio/sdks/go"
 )
 
-// recordProjectMutation appends protocol audit and graph records in one locked
-// state transition so the demo's audit and edge chains stay in request order.
+// recordProjectMutation appends protocol audit and graph records plus one
+// EvidenceCommit in one locked state transition so the demo's chains and commit
+// stream stay in request order.
 func (state *demoState) recordProjectMutation(value project, action string, relation string) error {
 	event, err := veritio.CreateAuditEvent(veritio.AuditEventInput{
 		ID:         fmt.Sprintf("evt_%s_%s", value.ID, relation),
@@ -35,7 +36,8 @@ func (state *demoState) recordProjectMutation(value project, action string, rela
 	if err != nil {
 		return err
 	}
-	if err := state.appendAuditRecord(event, relation); err != nil {
+	auditRecord, err := state.appendAuditRecord(event, relation)
+	if err != nil {
 		return err
 	}
 
@@ -62,7 +64,17 @@ func (state *demoState) recordProjectMutation(value project, action string, rela
 	if err != nil {
 		return err
 	}
-	return state.appendEdgeRecord(edge, relation)
+	edgeRecord, err := state.appendEdgeRecord(edge, relation)
+	if err != nil {
+		return err
+	}
+	_, err = state.appendCommit(
+		fmt.Sprintf("cmt_%s_%s", value.ID, relation),
+		"str_"+demoTenantID+"_project_mutations",
+		[]veritio.AuditRecord{auditRecord},
+		[]veritio.EvidenceEdgeRecord{edgeRecord},
+	)
+	return err
 }
 
 // recordGovernedLifecycleScenario records a realistic multi-step governed
@@ -112,7 +124,7 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 		AuditTemplateCommonInput: veritio.AuditTemplateCommonInput{
 			Scope:     scope,
 			RequestID: "scenario:auth-session",
-			Metadata: mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
+			Metadata:  mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
 		},
 		UserID:    demoUserID,
 		SessionID: "session_demo_us_ca",
@@ -201,7 +213,7 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 		AuditTemplateCommonInput: veritio.AuditTemplateCommonInput{
 			Scope:     scope,
 			RequestID: "scenario:export-created",
-			Metadata: mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
+			Metadata:  mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
 		},
 		Actor:          service,
 		ExportBundleID: "export_bundle_demo",
@@ -224,10 +236,13 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 	events = append(events, retentionEvent)
 
 	firstEventSequence := len(state.auditRecords)
+	eventRecords := []veritio.AuditRecord{}
 	for _, eventInput := range events {
-		if err := state.recordTemplateEvent(eventInput); err != nil {
+		record, err := state.recordTemplateEvent(eventInput)
+		if err != nil {
 			return nil, err
 		}
+		eventRecords = append(eventRecords, record)
 	}
 
 	edges := []veritio.EvidenceEdgeInput{
@@ -242,37 +257,48 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 		scenarioEdge("system", "system_exports", "attests_to", "export_bundle", "export_bundle_demo", "", canonicalPlanHash),
 		scenarioEdge("resource", "project_demo", "part_of", "resource", demoTenantID, "organization", canonicalPlanHash),
 	}
+	edgeRecords := []veritio.EvidenceEdgeRecord{}
 	for _, edgeInput := range edges {
-		if err := state.recordScenarioEdge(edgeInput); err != nil {
+		record, err := state.recordScenarioEdge(edgeInput)
+		if err != nil {
 			return nil, err
 		}
+		edgeRecords = append(edgeRecords, record)
+	}
+
+	commit, err := state.appendCommit("cmt_governed_lifecycle_demo", "str_"+demoTenantID+"_governed_lifecycle", eventRecords, edgeRecords)
+	if err != nil {
+		return nil, err
 	}
 
 	return map[string]any{
-		"scenario":          "governed_lifecycle",
-		"canonicalPlanHash": canonicalPlanHash,
-		"eventCount":        len(state.auditRecords) - firstEventSequence,
-		"edgeCount":         len(edges),
-		"auditVerification": verifyAuditRecords(state.auditRecords),
-		"edgeVerification":  verifyEdgeRecords(state.edgeRecords),
+		"scenario":           "governed_lifecycle",
+		"canonicalPlanHash":  canonicalPlanHash,
+		"eventCount":         len(state.auditRecords) - firstEventSequence,
+		"edgeCount":          len(edges),
+		"commitId":           commit.CommitID,
+		"commitRecordCount":  commit.RecordCount,
+		"auditVerification":  verifyAuditRecords(state.auditRecords),
+		"edgeVerification":   verifyEdgeRecords(state.edgeRecords),
+		"commitVerification": veritio.VerifyEvidenceCommits(state.commitRecords),
 	}, nil
 }
 
 // recordTemplateEvent appends a helper-built audit input using the example's
 // existing hash-chain envelope path.
-func (state *demoState) recordTemplateEvent(input veritio.AuditEventInput) error {
+func (state *demoState) recordTemplateEvent(input veritio.AuditEventInput) (veritio.AuditRecord, error) {
 	event, err := veritio.CreateAuditEvent(input)
 	if err != nil {
-		return err
+		return veritio.AuditRecord{}, err
 	}
 	return state.appendAuditRecord(event, "scenario:"+event.Action+":"+event.Target.ID)
 }
 
 // recordScenarioEdge appends one helper scenario edge after SDK validation.
-func (state *demoState) recordScenarioEdge(input veritio.EvidenceEdgeInput) error {
+func (state *demoState) recordScenarioEdge(input veritio.EvidenceEdgeInput) (veritio.EvidenceEdgeRecord, error) {
 	edge, err := veritio.CreateEvidenceEdge(input)
 	if err != nil {
-		return err
+		return veritio.EvidenceEdgeRecord{}, err
 	}
 	return state.appendEdgeRecord(edge, "scenario:"+edge.Relation+":"+edge.To.ID)
 }
@@ -319,12 +345,12 @@ func mergeMaps(left map[string]any, right map[string]any) map[string]any {
 
 // appendAuditRecord creates a tamper-evident audit record envelope with the
 // prior hash carried forward for tenant-scoped chain verification.
-func (state *demoState) appendAuditRecord(event veritio.AuditEvent, idempotencySuffix string) error {
+func (state *demoState) appendAuditRecord(event veritio.AuditEvent, idempotencySuffix string) (veritio.AuditRecord, error) {
 	sequence := len(state.auditRecords) + 1
 	previousHash := previousAuditHash(state.auditRecords)
 	idempotencyKeyHash, err := veritio.HashIdempotencyKey(demoTenantID, "audit:"+event.ID+":"+idempotencySuffix)
 	if err != nil {
-		return err
+		return veritio.AuditRecord{}, err
 	}
 	record := veritio.AuditRecord{
 		Event:              event,
@@ -337,21 +363,21 @@ func (state *demoState) appendAuditRecord(event veritio.AuditEvent, idempotencyS
 	}
 	hash, err := veritio.HashAuditRecord(record)
 	if err != nil {
-		return err
+		return veritio.AuditRecord{}, err
 	}
 	record.Hash = hash
 	state.auditRecords = append(state.auditRecords, record)
-	return nil
+	return record, nil
 }
 
 // appendEdgeRecord creates a tamper-evident graph edge envelope using the same
 // tenant-bound idempotency convention as audit records.
-func (state *demoState) appendEdgeRecord(edge veritio.EvidenceEdge, idempotencySuffix string) error {
+func (state *demoState) appendEdgeRecord(edge veritio.EvidenceEdge, idempotencySuffix string) (veritio.EvidenceEdgeRecord, error) {
 	sequence := len(state.edgeRecords) + 1
 	previousHash := previousEdgeHash(state.edgeRecords)
 	idempotencyKeyHash, err := veritio.HashIdempotencyKey(demoTenantID, "edge:"+edge.ID+":"+idempotencySuffix)
 	if err != nil {
-		return err
+		return veritio.EvidenceEdgeRecord{}, err
 	}
 	record := veritio.EvidenceEdgeRecord{
 		Edge:               edge,
@@ -364,11 +390,58 @@ func (state *demoState) appendEdgeRecord(edge veritio.EvidenceEdge, idempotencyS
 	}
 	hash, err := veritio.HashEvidenceEdgeRecord(record)
 	if err != nil {
-		return err
+		return veritio.EvidenceEdgeRecord{}, err
 	}
 	record.Hash = hash
 	state.edgeRecords = append(state.edgeRecords, record)
-	return nil
+	return record, nil
+}
+
+// appendCommit creates an EvidenceCommit over local record envelopes while
+// keeping ordered membership separate from any host transaction-binding claim.
+func (state *demoState) appendCommit(
+	commitID string,
+	streamID string,
+	auditRecords []veritio.AuditRecord,
+	edgeRecords []veritio.EvidenceEdgeRecord,
+) (veritio.EvidenceCommit, error) {
+	members := []veritio.EvidenceCommitMember{}
+	for index, record := range auditRecords {
+		members = append(members, veritio.EvidenceCommitMember{
+			Index:      index,
+			RecordType: "audit.record",
+			RecordID:   record.Event.ID,
+			RecordHash: "sha256:" + record.Hash,
+		})
+	}
+	for index, record := range edgeRecords {
+		members = append(members, veritio.EvidenceCommitMember{
+			Index:      len(auditRecords) + index,
+			RecordType: "evidence.edge.record",
+			RecordID:   record.Edge.ID,
+			RecordHash: "sha256:" + record.Hash,
+		})
+	}
+
+	previousCommit := previousCommitForStream(state.commitRecords, streamID)
+	sequence := 1
+	var previousHash *string
+	if previousCommit != nil {
+		sequence = previousCommit.Sequence + 1
+		previousHash = stringPointer(previousCommit.Hash)
+	}
+	commit, err := veritio.CreateEvidenceCommit(veritio.EvidenceCommitInput{
+		CommitID:           commitID,
+		StreamID:           streamID,
+		Sequence:           sequence,
+		PreviousCommitHash: previousHash,
+		Members:            members,
+	})
+	if err != nil {
+		return veritio.EvidenceCommit{}, err
+	}
+	state.commitRecords = append(state.commitRecords, commit)
+	return commit, nil
 }
 
 // verifyAuditRecords recomputes the audit record chain and fails closed when
@@ -447,6 +520,17 @@ func previousEdgeHash(records []veritio.EvidenceEdgeRecord) *string {
 		return nil
 	}
 	return stringPointer(records[len(records)-1].Hash)
+}
+
+// previousCommitForStream returns the last commit in a logical stream so the
+// example can maintain per-stream commit sequence and previous-hash linkage.
+func previousCommitForStream(records []veritio.EvidenceCommit, streamID string) *veritio.EvidenceCommit {
+	for index := len(records) - 1; index >= 0; index-- {
+		if records[index].StreamID == streamID {
+			return &records[index]
+		}
+	}
+	return nil
 }
 
 // sameOptionalString compares nullable hashes without treating nil and empty

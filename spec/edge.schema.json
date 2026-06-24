@@ -55,7 +55,23 @@
         "subject_of",
         "processed_for",
         "retained_under",
-        "sent_to"
+        "sent_to",
+        "has_activity",
+        "has_input",
+        "has_output",
+        "has_assertion",
+        "resulted_in",
+        "performed_by",
+        "used",
+        "generated",
+        "based_on",
+        "asserts_about",
+        "retracts",
+        "corrects",
+        "supersedes",
+        "disputes",
+        "confirms",
+        "compensates"
       ]
     },
     "to": {
@@ -74,7 +90,14 @@
         "type": {
           "enum": [
             "tenant",
+            "principal",
             "actor",
+            "activity",
+            "change",
+            "revision",
+            "assertion",
+            "record",
+            "evidence_commit",
             "data_subject",
             "resource",
             "data_category",

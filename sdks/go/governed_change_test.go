@@ -1,0 +1,255 @@
+package veritio
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestRefKeyFormatsAuthorityQualifiedRefs(t *testing.T) {
+	actual, err := RefKey(EvidenceRef{Authority: "acme.billing", Kind: "entity", Type: "project_entry", ID: "42"})
+	if err != nil {
+		t.Fatalf("RefKey returned error: %v", err)
+	}
+	expected := "acme.billing:entity:project_entry:42"
+	if actual != expected {
+		t.Fatalf("expected %s, got %s", expected, actual)
+	}
+}
+
+func TestMergeVeritioMetadataRejectsReservedShadowing(t *testing.T) {
+	_, err := MergeVeritioMetadata(map[string]any{"changeId": "caller_supplied"}, map[string]any{"changeId": "chg_01"})
+	if err == nil {
+		t.Fatal("expected reserved key error")
+	}
+	if err.Error() != "metadata.changeId is reserved by Veritio" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	actual, err := MergeVeritioMetadata(
+		map[string]any{"safe": true},
+		map[string]any{
+			"authSessionId":     "ses_123",
+			"authContextId":     "authctx_123_v4",
+			"activityEpisodeId": "episode_20260623_1000_usr_admin",
+			"traceId":           "trc_01jz_estimate",
+			"correlationId":     "workflow_project_estimate",
+			"causationEventId":  "evt_previous_trigger",
+			"changeId":          "chg_project_estimate_91",
+			"capturePolicyId":   "cap_project_changes",
+			"collectionSource":  "governed-change-test",
+		},
+	)
+	if err != nil {
+		t.Fatalf("MergeVeritioMetadata returned error: %v", err)
+	}
+	if actual["changeId"] != "chg_project_estimate_91" || actual["safe"] != true || actual["traceId"] != "trc_01jz_estimate" {
+		t.Fatalf("unexpected merged metadata: %#v", actual)
+	}
+}
+
+func TestCreateGovernedChangeDraftDerivesMinimizedRevisionEvidence(t *testing.T) {
+	projectEntry, err := DefineEntity(GovernedEntityDefinition{
+		Authority:   "acme.billing",
+		Type:        "project_entry",
+		SchemaRef:   "acme.billing/project_entry@3",
+		FieldSetRef: "project-entry-governed-fields@2",
+		Identity: func(row map[string]any) string {
+			return row["id"].(string)
+		},
+		Fields: map[string]EntityFieldPolicy{
+			"quantity":       {Capture: "full"},
+			"monthlyPrice":   {Capture: "full"},
+			"updatedAt":      {Capture: "full"},
+			"customerEmail":  {Capture: "keyed_digest"},
+			"temporaryCache": {Capture: "omit"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineEntity returned error: %v", err)
+	}
+
+	draft, err := CreateGovernedChangeDraft(GovernedChangeDraftInput{
+		Scope:  EvidenceScope{TenantID: "org_acme_123", WorkspaceID: "wks_security_456", Environment: "test"},
+		Entity: projectEntry,
+		Before: map[string]any{
+			"id":             "42",
+			"quantity":       10,
+			"monthlyPrice":   142800,
+			"updatedAt":      time.Date(2026, 6, 23, 10, 17, 0, 0, time.UTC),
+			"customerEmail":  "buyer@example.com",
+			"temporaryCache": "hot",
+		},
+		After: map[string]any{
+			"id":             "42",
+			"quantity":       11,
+			"monthlyPrice":   148220,
+			"updatedAt":      time.Date(2026, 6, 23, 10, 18, 0, 0, time.UTC),
+			"customerEmail":  "buyer@example.com",
+			"temporaryCache": "warm",
+		},
+		ChangedPaths: []string{"/quantity", "/monthlyPrice"},
+		Change: GovernedChangeDeclaration{
+			ID:          "chg_project_estimate_91",
+			Type:        "project.estimate.recalculation",
+			InitiatedBy: EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		},
+		Activity: GovernedActivityDeclaration{
+			ID:          "act_calculation_91",
+			Type:        "computation.project_cost_estimate",
+			PerformedBy: EvidenceRef{Authority: "acme.ai", Kind: "principal", Type: "ai_agent", ID: "cost_agent_7"},
+		},
+		Producer:           EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		OccurredAt:         "2026-06-23T10:18:00.000Z",
+		IdempotencyKeyHash: "sha256:governed-change-test",
+		Context:            map[string]any{"changeId": "chg_project_estimate_91", "traceId": "trc_01jz_estimate", "collectionSource": "test"},
+		CapturePolicyRef:   &CapturePolicyRef{ID: "cap_project_changes", Version: "3"},
+		DigestKeys:         DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedChangeDraft returned error: %v", err)
+	}
+
+	if draft.OutboxEntry.MutationBinding != "not_transaction_bound" {
+		t.Fatalf("unexpected mutation binding: %s", draft.OutboxEntry.MutationBinding)
+	}
+	if draft.OutboxEntry.ExpectedParentRevisionRef == nil || *draft.OutboxEntry.ExpectedParentRevisionRef != draft.Revision.Parents[0] {
+		t.Fatalf("expected parent revision ref was not persisted in outbox: %#v", draft.OutboxEntry.ExpectedParentRevisionRef)
+	}
+	captureAssurance := draft.Events[0].Metadata["captureAssurance"].(map[string]any)
+	if captureAssurance["captureMethod"] != "transactional_outbox" || captureAssurance["mutationBinding"] != "not_transaction_bound" {
+		t.Fatalf("unexpected capture assurance: %#v", captureAssurance)
+	}
+	actions := []string{draft.OutboxEntry.Records[0].Action, draft.OutboxEntry.Records[1].Action, draft.OutboxEntry.Records[2].Action}
+	expectedActions := []string{"change.declared", "activity.recorded", "entity.revision.created"}
+	for index := range expectedActions {
+		if actions[index] != expectedActions[index] {
+			t.Fatalf("expected actions %#v, got %#v", expectedActions, actions)
+		}
+	}
+	fields := draft.Revision.StateCommitment.Fields
+	if fields["quantity"] != 11 || fields["monthlyPrice"] != 148220 {
+		t.Fatalf("unexpected fields: %#v", fields)
+	}
+	if fields["updatedAt"] != "2026-06-23T10:18:00.000Z" {
+		t.Fatalf("expected normalized updatedAt, got %#v", fields["updatedAt"])
+	}
+	customerEmail := fields["customerEmail"].(map[string]any)
+	if customerEmail["algorithm"] != "hmac-sha256" || customerEmail["keyVersion"] != "tenant-key-7" {
+		t.Fatalf("unexpected keyed digest metadata: %#v", customerEmail)
+	}
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("json marshal failed: %v", err)
+	}
+	if strings.Contains(string(encoded), "buyer@example.com") || strings.Contains(string(encoded), "test-hmac-secret") || strings.Contains(string(encoded), "temporaryCache") {
+		t.Fatalf("fields leaked raw data: %s", string(encoded))
+	}
+	revisionEvent, err := CreateAuditEvent(draft.Events[2])
+	if err != nil {
+		t.Fatalf("CreateAuditEvent returned error: %v", err)
+	}
+	veritioMetadata := revisionEvent.Metadata["veritio"].(map[string]any)
+	revisionMetadata := veritioMetadata["revision"].(map[string]any)
+	stateCommitment := revisionMetadata["stateCommitment"].(map[string]any)
+	storedFields := stateCommitment["fields"].(map[string]any)
+	storedCustomerEmail := storedFields["customerEmail"].(map[string]any)
+	if storedCustomerEmail["digest"] != customerEmail["digest"] {
+		t.Fatalf("digest envelope was not preserved after redaction: %#v", storedCustomerEmail)
+	}
+	outboxJSON, err := json.Marshal(draft.OutboxEntry)
+	if err != nil {
+		t.Fatalf("outbox marshal failed: %v", err)
+	}
+	outboxText := string(outboxJSON)
+	if !strings.Contains(outboxText, `"occurredAt"`) || strings.Contains(outboxText, `"OccurredAt"`) || strings.Contains(outboxText, `"requestId":""`) {
+		t.Fatalf("outbox JSON shape is not lower-camel with omitted optionals: %s", outboxText)
+	}
+	relations := []string{}
+	for _, edge := range draft.Edges {
+		relations = append(relations, edge.Relation)
+	}
+	expectedRelations := []string{"has_activity", "has_output", "performed_by", "generated", "derived_from"}
+	for index := range expectedRelations {
+		if relations[index] != expectedRelations[index] {
+			t.Fatalf("expected relations %#v, got %#v", expectedRelations, relations)
+		}
+	}
+}
+
+func TestCreateGovernedChangeDraftRejectsInvalidTimestamp(t *testing.T) {
+	input := validGovernedChangeInput(t)
+	input.OccurredAt = "not-a-date"
+
+	_, err := CreateGovernedChangeDraft(input)
+	if err == nil || err.Error() != "occurredAt must be a valid date" {
+		t.Fatalf("expected invalid date error, got %v", err)
+	}
+}
+
+func TestCreateGovernedChangeDraftRequiresPrincipalRefsForActors(t *testing.T) {
+	input := validGovernedChangeInput(t)
+	input.Change.InitiatedBy = EvidenceRef{Authority: "acme.billing", Kind: "entity", Type: "project_entry", ID: "42"}
+
+	_, err := CreateGovernedChangeDraft(input)
+	if err == nil || err.Error() != "principal ref is required" {
+		t.Fatalf("expected principal ref error, got %v", err)
+	}
+}
+
+func TestCreateGovernedChangeDraftFailsClosedForUnsupportedCaptureMode(t *testing.T) {
+	input := validGovernedChangeInput(t)
+	input.Entity.Fields = map[string]EntityFieldPolicy{"sensitiveRef": {Capture: "reference"}}
+	input.After["sensitiveRef"] = "external-secret-ref"
+	input.ChangedPaths = []string{"/sensitiveRef"}
+
+	_, err := CreateGovernedChangeDraft(input)
+	if err == nil || !strings.Contains(err.Error(), "capture mode reference is not supported") {
+		t.Fatalf("expected unsupported capture mode error, got %v", err)
+	}
+}
+
+func validGovernedChangeInput(t *testing.T) GovernedChangeDraftInput {
+	t.Helper()
+	projectEntry, err := DefineEntity(GovernedEntityDefinition{
+		Authority:   "acme.billing",
+		Type:        "project_entry",
+		SchemaRef:   "acme.billing/project_entry@3",
+		FieldSetRef: "project-entry-governed-fields@2",
+		Identity: func(row map[string]any) string {
+			return row["id"].(string)
+		},
+		Fields: map[string]EntityFieldPolicy{
+			"quantity":      {Capture: "full"},
+			"customerEmail": {Capture: "keyed_digest"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineEntity returned error: %v", err)
+	}
+	return GovernedChangeDraftInput{
+		Scope:  EvidenceScope{TenantID: "org_acme_123", WorkspaceID: "wks_security_456", Environment: "test"},
+		Entity: projectEntry,
+		After: map[string]any{
+			"id":            "42",
+			"quantity":      11,
+			"customerEmail": "buyer@example.com",
+		},
+		ChangedPaths: []string{"/quantity"},
+		Change: GovernedChangeDeclaration{
+			ID:          "chg_project_estimate_91",
+			Type:        "project.estimate.recalculation",
+			InitiatedBy: EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		},
+		Activity: GovernedActivityDeclaration{
+			ID:          "act_calculation_91",
+			Type:        "computation.project_cost_estimate",
+			PerformedBy: EvidenceRef{Authority: "acme.ai", Kind: "principal", Type: "ai_agent", ID: "cost_agent_7"},
+		},
+		Producer:           EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		OccurredAt:         "2026-06-23T10:18:00.000Z",
+		IdempotencyKeyHash: "sha256:governed-change-test",
+		DigestKeys:         DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
+	}
+}

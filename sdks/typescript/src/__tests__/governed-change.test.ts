@@ -1,0 +1,217 @@
+import { describe, expect, test } from "bun:test";
+import {
+  createAuditEvent,
+  createGovernedChangeDraft,
+  defineEntity,
+  mergeVeritioMetadata,
+  refKey,
+  type EvidenceRef,
+} from "../index";
+
+const scope = { tenantId: "org_acme_123", workspaceId: "wks_security_456", environment: "test" };
+const producer: EvidenceRef = {
+  authority: "acme.billing",
+  kind: "principal",
+  type: "service",
+  id: "billing-api",
+};
+const initiatedBy: EvidenceRef = {
+  authority: "auth.acme.internal",
+  kind: "principal",
+  type: "user",
+  id: "usr_123",
+};
+
+describe("authority-qualified evidence refs", () => {
+  test("formats stable ref keys without dropping authority", () => {
+    expect(refKey({ authority: "acme.billing", kind: "entity", type: "project_entry", id: "42" })).toBe(
+      "acme.billing:entity:project_entry:42",
+    );
+  });
+});
+
+describe("mergeVeritioMetadata", () => {
+  test("prevents caller metadata from shadowing reserved context keys", () => {
+    expect(() =>
+      mergeVeritioMetadata(
+        { changeId: "caller_supplied", safe: true },
+        { changeId: "chg_project_estimate_91", traceId: "trc_01jz_estimate" },
+      ),
+    ).toThrow("metadata.changeId is reserved by Veritio");
+
+    expect(
+      mergeVeritioMetadata(
+        { optional: null, safe: true },
+        {
+          authSessionId: "ses_123",
+          authContextId: "authctx_123_v4",
+          activityEpisodeId: "episode_20260623_1000_usr_admin",
+          traceId: "trc_01jz_estimate",
+          correlationId: "workflow_project_estimate",
+          causationEventId: "evt_previous_trigger",
+          changeId: "chg_project_estimate_91",
+          capturePolicyId: "cap_project_changes",
+          collectionSource: "governed-change-test",
+        },
+      ),
+    ).toEqual({
+      activityEpisodeId: "episode_20260623_1000_usr_admin",
+      authContextId: "authctx_123_v4",
+      authSessionId: "ses_123",
+      capturePolicyId: "cap_project_changes",
+      causationEventId: "evt_previous_trigger",
+      changeId: "chg_project_estimate_91",
+      collectionSource: "governed-change-test",
+      correlationId: "workflow_project_estimate",
+      safe: true,
+      traceId: "trc_01jz_estimate",
+    });
+  });
+});
+
+describe("createGovernedChangeDraft", () => {
+  test("derives minimized revision evidence and change relations with current protocol records", () => {
+    const projectEntry = defineEntity<{
+      id: string;
+      quantity: number;
+      monthlyPrice: number;
+      updatedAt: Date;
+      customerEmail: string;
+      temporaryCache: string;
+    }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: {
+        quantity: { capture: "full" },
+        monthlyPrice: { capture: "full" },
+        updatedAt: { capture: "full" },
+        customerEmail: { capture: "keyed_digest" },
+        temporaryCache: { capture: "omit" },
+      },
+    });
+
+    const draft = createGovernedChangeDraft({
+      scope,
+      entity: projectEntry,
+      before: {
+        id: "42",
+        quantity: 10,
+        monthlyPrice: 142800,
+        updatedAt: new Date("2026-06-23T10:17:00.000Z"),
+        customerEmail: "buyer@example.com",
+        temporaryCache: "hot",
+      },
+      after: {
+        id: "42",
+        quantity: 11,
+        monthlyPrice: 148220,
+        updatedAt: new Date("2026-06-23T10:18:00.000Z"),
+        customerEmail: "buyer@example.com",
+        temporaryCache: "warm",
+      },
+      changedPaths: ["/quantity", "/monthlyPrice"],
+      change: {
+        id: "chg_project_estimate_91",
+        type: "project.estimate.recalculation",
+        initiatedBy,
+      },
+      activity: {
+        id: "act_calculation_91",
+        type: "computation.project_cost_estimate",
+        performedBy: { authority: "acme.ai", kind: "principal", type: "ai_agent", id: "cost_agent_7" },
+      },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:governed-change-test",
+      context: { changeId: "chg_project_estimate_91", traceId: "trc_01jz_estimate", collectionSource: "test" },
+      capturePolicyRef: { id: "cap_project_changes", version: "3" },
+      digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "test-hmac-secret" } },
+    });
+
+    expect(draft.outboxEntry.mutationBinding).toBe("not_transaction_bound");
+    expect(draft.outboxEntry.expectedParentRevisionRef).toEqual(draft.revision.parents[0]);
+    expect(draft.events[0]?.metadata.captureAssurance).toEqual({
+      captureMethod: "transactional_outbox",
+      mutationBinding: "not_transaction_bound",
+    });
+    expect(draft.outboxEntry.records.map((record) => record.action)).toEqual([
+      "change.declared",
+      "activity.recorded",
+      "entity.revision.created",
+    ]);
+    expect(draft.revision.stateCommitment.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    expect(draft.revision.stateCommitment.fields).toEqual({
+      customerEmail: { algorithm: "hmac-sha256", digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/), keyVersion: "tenant-key-7" },
+      monthlyPrice: 148220,
+      quantity: 11,
+      updatedAt: "2026-06-23T10:18:00.000Z",
+    });
+    expect(JSON.stringify(draft.revision.stateCommitment.fields)).not.toContain("temporaryCache");
+    expect(JSON.stringify(draft.revision.stateCommitment.fields)).not.toContain("buyer@example.com");
+    expect(JSON.stringify(draft.revision.stateCommitment.fields)).not.toContain("test-hmac-secret");
+    expect(draft.edges.map((edge) => edge.relation)).toEqual([
+      "has_activity",
+      "has_output",
+      "performed_by",
+      "generated",
+      "derived_from",
+    ]);
+
+    const revisionEvent = createAuditEvent(draft.events[2]);
+    const storedRevision = (revisionEvent.metadata.veritio as { revision: typeof draft.revision }).revision;
+    expect(storedRevision.stateCommitment.fields.customerEmail).toEqual(draft.revision.stateCommitment.fields.customerEmail);
+  });
+
+  test("rejects invalid governed-change timestamps", () => {
+    const projectEntry = defineEntity<{ id: string }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: {},
+    });
+
+    expect(() =>
+      createGovernedChangeDraft({
+        scope,
+        entity: projectEntry,
+        after: { id: "42" },
+        changedPaths: [],
+        change: { id: "chg_invalid_date", type: "project.invalid", initiatedBy },
+        activity: { id: "act_invalid_date", type: "project.invalid", performedBy: producer },
+        producer,
+        occurredAt: "not-a-date",
+        idempotencyKeyHash: "sha256:invalid-date",
+      }),
+    ).toThrow("occurredAt must be a valid date");
+  });
+
+  test("fails closed for capture modes the current draft helper cannot implement", () => {
+    const projectEntry = defineEntity<{ id: string; sensitiveRef: string }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: { sensitiveRef: { capture: "reference" } },
+    });
+
+    expect(() =>
+      createGovernedChangeDraft({
+        scope,
+        entity: projectEntry,
+        after: { id: "42", sensitiveRef: "external-secret-ref" },
+        changedPaths: ["/sensitiveRef"],
+        change: { id: "chg_unsupported_capture", type: "project.unsupported_capture", initiatedBy },
+        activity: { id: "act_unsupported_capture", type: "project.unsupported_capture", performedBy: producer },
+        producer,
+        occurredAt: "2026-06-23T10:18:00.000Z",
+        idempotencyKeyHash: "sha256:unsupported-capture",
+      }),
+    ).toThrow("capture mode reference is not supported by the current governed-change draft helper");
+  });
+});

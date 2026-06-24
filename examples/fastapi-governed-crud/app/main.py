@@ -14,6 +14,7 @@ from veritio import (
     canonical_json,
     consent_granted_template,
     create_audit_event,
+    create_evidence_commit,
     create_evidence_edge,
     data_subject_request_created_template,
     export_bundle_created_template,
@@ -24,6 +25,7 @@ from veritio import (
     organization_member_invited_template,
     organization_member_joined_template,
     retention_policy_applied_template,
+    verify_evidence_commits,
 )
 
 CANONICALIZATION = "veritio-json-v1"
@@ -50,9 +52,10 @@ class DemoState:
         self.projects: dict[str, dict[str, Any]] = {}
         self.audit_records: list[dict[str, Any]] = []
         self.edge_records: list[dict[str, Any]] = []
+        self.commit_records: list[dict[str, Any]] = []
 
     def append_project_evidence(self, action: str, relation: str, project: dict[str, Any], request_id: str) -> None:
-        """Append matching audit and graph records for one server-authorized CRUD action."""
+        """Append matching audit and graph records plus one EvidenceCommit for a CRUD action."""
         audit_event = create_audit_event(
             {
                 "actor": {"type": "user", "id": self.actor_user_id},
@@ -71,7 +74,8 @@ class DemoState:
                 },
             }
         )
-        self.audit_records.append(build_audit_record(self.audit_records, audit_event, request_id, self.tenant_id))
+        audit_record = build_audit_record(self.audit_records, audit_event, request_id, self.tenant_id)
+        self.audit_records.append(audit_record)
 
         edge = create_evidence_edge(
             {
@@ -86,7 +90,14 @@ class DemoState:
                 },
             }
         )
-        self.edge_records.append(build_edge_record(self.edge_records, edge, request_id, self.tenant_id))
+        edge_record = build_edge_record(self.edge_records, edge, request_id, self.tenant_id)
+        self.edge_records.append(edge_record)
+        self.append_commit(
+            commit_id=f"cmt_{project['id']}_{relation}",
+            stream_id=f"str_{self.tenant_id}_project_mutations",
+            audit_records=[audit_record],
+            edge_records=[edge_record],
+        )
 
     def append_template_event(self, event_input: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
         """Normalize a helper-produced audit input and append it to the local audit chain."""
@@ -101,6 +112,47 @@ class DemoState:
         record = build_edge_record(self.edge_records, edge, idempotency_key, self.tenant_id)
         self.edge_records.append(record)
         return record
+
+    def append_commit(
+        self,
+        commit_id: str,
+        stream_id: str,
+        audit_records: list[dict[str, Any]],
+        edge_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Append an EvidenceCommit that binds already appended local record envelopes."""
+        previous_commit = next((commit for commit in reversed(self.commit_records) if commit["streamId"] == stream_id), None)
+        members = [
+            *[
+                {
+                    "index": index,
+                    "recordType": "audit.record",
+                    "recordId": record["event"]["id"],
+                    "recordHash": f"sha256:{record['hash']}",
+                }
+                for index, record in enumerate(audit_records)
+            ],
+            *[
+                {
+                    "index": len(audit_records) + index,
+                    "recordType": "evidence.edge.record",
+                    "recordId": record["edge"]["id"],
+                    "recordHash": f"sha256:{record['hash']}",
+                }
+                for index, record in enumerate(edge_records)
+            ],
+        ]
+        commit = create_evidence_commit(
+            {
+                "commitId": commit_id,
+                "streamId": stream_id,
+                "sequence": (previous_commit["sequence"] if previous_commit else 0) + 1,
+                "previousCommitHash": previous_commit["hash"] if previous_commit else None,
+                "members": members,
+            }
+        )
+        self.commit_records.append(commit)
+        return commit
 
     def run_governed_lifecycle_scenario(self) -> dict[str, Any]:
         """Record a realistic multi-step governed system flow using SDK helper templates."""
@@ -207,8 +259,11 @@ class DemoState:
         ]
 
         first_event_sequence = len(self.audit_records)
+        event_records = []
         for event_input in event_inputs:
-            self.append_template_event(event_input, f"scenario:event:{event_input['action']}:{event_input['target']['id']}")
+            event_records.append(
+                self.append_template_event(event_input, f"scenario:event:{event_input['action']}:{event_input['target']['id']}")
+            )
 
         edge_inputs = [
             graph_edge("actor", self.actor_user_id, "created", "resource", self.tenant_id, "organization", scope, canonical_plan_hash),
@@ -222,16 +277,26 @@ class DemoState:
             graph_edge("system", "system_exports", "attests_to", "export_bundle", "export_bundle_demo", None, scope, canonical_plan_hash),
             graph_edge("resource", "project_demo", "part_of", "resource", self.tenant_id, "organization", scope, canonical_plan_hash),
         ]
+        edge_records = []
         for edge_input in edge_inputs:
-            self.append_edge(edge_input, f"scenario:edge:{edge_input['relation']}:{edge_input['to']['id']}")
+            edge_records.append(self.append_edge(edge_input, f"scenario:edge:{edge_input['relation']}:{edge_input['to']['id']}"))
+        commit = self.append_commit(
+            commit_id="cmt_governed_lifecycle_demo",
+            stream_id=f"str_{self.tenant_id}_governed_lifecycle",
+            audit_records=event_records,
+            edge_records=edge_records,
+        )
 
         return {
             "scenario": "governed_lifecycle",
             "canonicalPlanHash": canonical_plan_hash,
             "eventCount": len(self.audit_records) - first_event_sequence,
             "edgeCount": len(edge_inputs),
+            "commitId": commit["commitId"],
+            "commitRecordCount": commit["recordCount"],
             "auditVerification": verify_records(self.audit_records, "event"),
             "edgeVerification": verify_records(self.edge_records, "edge"),
+            "commitVerification": verify_evidence_commits(self.commit_records),
         }
 
 
@@ -279,8 +344,10 @@ def create_app(state: DemoState | None = None) -> FastAPI:
             "tenantId": demo_state.tenant_id,
             "auditRecords": demo_state.audit_records,
             "edgeRecords": demo_state.edge_records,
+            "commitRecords": demo_state.commit_records,
             "auditVerification": verify_records(demo_state.audit_records, "event"),
             "edgeVerification": verify_records(demo_state.edge_records, "edge"),
+            "commitVerification": verify_evidence_commits(demo_state.commit_records),
         }
 
     @app.post("/scenarios/governed-lifecycle")

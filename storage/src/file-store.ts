@@ -4,18 +4,23 @@ import {
   type AuditEvent,
   type AuditEventInput,
   type AuditRecord,
+  type EvidenceCommit,
+  type EvidenceCommitInput,
+  type EvidenceCommitVerificationResult,
   type EvidenceEdge,
   type EvidenceEdgeInput,
   type EvidenceEdgeRecord,
   HASH_ALGORITHM,
   canonicalJson,
   createAuditEvent,
+  createEvidenceCommit,
   createEvidenceEdge,
   hashAuditRecord,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
   type VerificationResult,
   verifyAuditRecords,
+  verifyEvidenceCommits,
   verifyEvidenceEdgeRecords,
 } from "@veritio/core";
 
@@ -26,6 +31,21 @@ export type FileEvidenceVerification = {
   ok: boolean;
   audit: VerificationResult;
   edges: VerificationResult;
+  commits: EvidenceCommitVerificationResult;
+};
+
+export interface FileEvidenceBatchInput {
+  commitId: string;
+  streamId: string;
+  events: AuditEventInput[];
+  edges: EvidenceEdgeInput[];
+  committedAt?: string | Date;
+}
+
+export interface FileEvidenceBatchResult {
+  events: AuditRecord[];
+  edges: EvidenceEdgeRecord[];
+  commit: EvidenceCommit;
 };
 
 /**
@@ -43,8 +63,10 @@ export type FileEvidenceVerification = {
 export interface FileEvidenceStore {
   recordEvent(input: AuditEventInput): Promise<AuditRecord>;
   recordEdge(input: EvidenceEdgeInput): Promise<EvidenceEdgeRecord>;
+  recordBatch(input: FileEvidenceBatchInput): Promise<FileEvidenceBatchResult>;
   listEvents(): Promise<AuditRecord[]>;
   listEdges(): Promise<EvidenceEdgeRecord[]>;
+  listCommits(): Promise<EvidenceCommit[]>;
   verify(): Promise<FileEvidenceVerification>;
 }
 
@@ -55,6 +77,7 @@ export interface FileEvidenceStore {
 export function createFileEvidenceStore(dir: string): FileEvidenceStore {
   const eventsPath = join(dir, "events.jsonl");
   const edgesPath = join(dir, "edges.jsonl");
+  const commitsPath = join(dir, "commits.jsonl");
 
   return {
     async recordEvent(input) {
@@ -62,26 +85,10 @@ export function createFileEvidenceStore(dir: string): FileEvidenceStore {
       requireTenantId(event.scope?.tenantId);
       return withLock(dir, async () => {
         const records = await readJsonl<AuditRecord>(eventsPath);
-        const idempotencyKeyHash = hashIdempotencyKey(event.scope!.tenantId as string, event.id);
-        const existing = records.find((record) => record.idempotencyKeyHash === idempotencyKeyHash);
-        if (existing) {
-          if (canonicalJson(existing.event) !== canonicalJson(event)) {
-            throw new TypeError("idempotency conflict");
-          }
-          return existing;
+        const { record, appended } = appendEventRecord(records, event);
+        if (appended) {
+          await appendJsonl(dir, eventsPath, record);
         }
-        const tip = records[records.length - 1];
-        const recordWithoutHash: Omit<AuditRecord, "hash"> = {
-          event,
-          sequence: (tip?.sequence ?? 0) + 1,
-          previousHash: tip?.hash ?? null,
-          hashAlgorithm: HASH_ALGORITHM,
-          canonicalization: CANONICALIZATION,
-          appendedAt: new Date().toISOString(),
-          idempotencyKeyHash,
-        };
-        const record: AuditRecord = { ...recordWithoutHash, hash: hashAuditRecord(recordWithoutHash) };
-        await appendJsonl(dir, eventsPath, record);
         return record;
       });
     },
@@ -91,39 +98,150 @@ export function createFileEvidenceStore(dir: string): FileEvidenceStore {
       requireTenantId(edge.scope?.tenantId);
       return withLock(dir, async () => {
         const records = await readJsonl<EvidenceEdgeRecord>(edgesPath);
-        const idempotencyKeyHash = hashIdempotencyKey(edge.scope!.tenantId as string, edge.id);
-        const existing = records.find((record) => record.idempotencyKeyHash === idempotencyKeyHash);
-        if (existing) {
-          if (canonicalJson(existing.edge) !== canonicalJson(edge)) {
-            throw new TypeError("idempotency conflict");
-          }
-          return existing;
+        const { record, appended } = appendEdgeRecord(records, edge);
+        if (appended) {
+          await appendJsonl(dir, edgesPath, record);
         }
-        const tip = records[records.length - 1];
-        const recordWithoutHash: Omit<EvidenceEdgeRecord, "hash"> = {
-          edge,
-          sequence: (tip?.sequence ?? 0) + 1,
-          previousHash: tip?.hash ?? null,
-          hashAlgorithm: HASH_ALGORITHM,
-          canonicalization: CANONICALIZATION,
-          appendedAt: new Date().toISOString(),
-          idempotencyKeyHash,
-        };
-        const record: EvidenceEdgeRecord = { ...recordWithoutHash, hash: hashEvidenceEdgeRecord(recordWithoutHash) };
-        await appendJsonl(dir, edgesPath, record);
         return record;
+      });
+    },
+
+    async recordBatch(input) {
+      return withLock(dir, async () => {
+        const eventRecords = await readJsonl<AuditRecord>(eventsPath);
+        const edgeRecords = await readJsonl<EvidenceEdgeRecord>(edgesPath);
+        const commits = await readJsonl<EvidenceCommit>(commitsPath);
+        const appendedEvents = input.events.map((eventInput) => {
+          const event = createAuditEvent(eventInput);
+          requireTenantId(event.scope?.tenantId);
+          return appendEventRecord(eventRecords, event);
+        });
+        const appendedEdges = input.edges.map((edgeInput) => {
+          const edge = createEvidenceEdge(edgeInput);
+          requireTenantId(edge.scope?.tenantId);
+          return appendEdgeRecord(edgeRecords, edge);
+        });
+        if (appendedEvents.length + appendedEdges.length === 0) {
+          throw new TypeError("batch must include at least one event or edge");
+        }
+
+        const members = [
+          ...appendedEvents.map(({ record }, index) => ({
+            index,
+            recordType: "audit.record" as const,
+            recordId: record.event.id,
+            recordHash: `sha256:${record.hash}`,
+          })),
+          ...appendedEdges.map(({ record }, index) => ({
+            index: appendedEvents.length + index,
+            recordType: "evidence.edge.record" as const,
+            recordId: record.edge.id,
+            recordHash: `sha256:${record.hash}`,
+          })),
+        ];
+        const existingCommit = commits.find((commit) => commit.streamId === input.streamId && commit.commitId === input.commitId);
+        if (existingCommit) {
+          if (canonicalJson(existingCommit.members) !== canonicalJson(members)) {
+            throw new TypeError("commit id conflict");
+          }
+          return {
+            events: appendedEvents.map(({ record }) => record),
+            edges: appendedEdges.map(({ record }) => record),
+            commit: existingCommit,
+          };
+        }
+
+        const previousCommit = commits.filter((commit) => commit.streamId === input.streamId).at(-1);
+        const commitInput: EvidenceCommitInput = {
+          commitId: input.commitId,
+          streamId: input.streamId,
+          sequence: (previousCommit?.sequence ?? 0) + 1,
+          previousCommitHash: previousCommit?.hash ?? null,
+          members,
+        };
+        if (input.committedAt !== undefined) {
+          commitInput.committedAt = input.committedAt;
+        }
+        const commit = createEvidenceCommit(commitInput);
+
+        for (const { record, appended } of appendedEvents) {
+          if (!appended) {
+            continue;
+          }
+          await appendJsonl(dir, eventsPath, record);
+        }
+        for (const { record, appended } of appendedEdges) {
+          if (!appended) {
+            continue;
+          }
+          await appendJsonl(dir, edgesPath, record);
+        }
+        await appendJsonl(dir, commitsPath, commit);
+        return { events: appendedEvents.map(({ record }) => record), edges: appendedEdges.map(({ record }) => record), commit };
       });
     },
 
     listEvents: () => readJsonl<AuditRecord>(eventsPath),
     listEdges: () => readJsonl<EvidenceEdgeRecord>(edgesPath),
+    listCommits: () => readJsonl<EvidenceCommit>(commitsPath),
 
     async verify() {
       const audit = verifyAuditRecords(await readJsonl<AuditRecord>(eventsPath));
       const edges = verifyEvidenceEdgeRecords(await readJsonl<EvidenceEdgeRecord>(edgesPath));
-      return { ok: audit.ok && edges.ok, audit, edges };
+      const commits = verifyEvidenceCommits(await readJsonl<EvidenceCommit>(commitsPath));
+      return { ok: audit.ok && edges.ok && commits.ok, audit, edges, commits };
     },
   };
+}
+
+/** Appends or replays one event record in an already locked file-store transaction. */
+function appendEventRecord(records: AuditRecord[], event: AuditEvent): { record: AuditRecord; appended: boolean } {
+  const idempotencyKeyHash = hashIdempotencyKey(event.scope!.tenantId as string, event.id);
+  const existing = records.find((record) => record.idempotencyKeyHash === idempotencyKeyHash);
+  if (existing) {
+    if (canonicalJson(existing.event) !== canonicalJson(event)) {
+      throw new TypeError("idempotency conflict");
+    }
+    return { record: existing, appended: false };
+  }
+  const tip = records[records.length - 1];
+  const recordWithoutHash: Omit<AuditRecord, "hash"> = {
+    event,
+    sequence: (tip?.sequence ?? 0) + 1,
+    previousHash: tip?.hash ?? null,
+    hashAlgorithm: HASH_ALGORITHM,
+    canonicalization: CANONICALIZATION,
+    appendedAt: new Date().toISOString(),
+    idempotencyKeyHash,
+  };
+  const record: AuditRecord = { ...recordWithoutHash, hash: hashAuditRecord(recordWithoutHash) };
+  records.push(record);
+  return { record, appended: true };
+}
+
+/** Appends or replays one edge record in an already locked file-store transaction. */
+function appendEdgeRecord(records: EvidenceEdgeRecord[], edge: EvidenceEdge): { record: EvidenceEdgeRecord; appended: boolean } {
+  const idempotencyKeyHash = hashIdempotencyKey(edge.scope!.tenantId as string, edge.id);
+  const existing = records.find((record) => record.idempotencyKeyHash === idempotencyKeyHash);
+  if (existing) {
+    if (canonicalJson(existing.edge) !== canonicalJson(edge)) {
+      throw new TypeError("idempotency conflict");
+    }
+    return { record: existing, appended: false };
+  }
+  const tip = records[records.length - 1];
+  const recordWithoutHash: Omit<EvidenceEdgeRecord, "hash"> = {
+    edge,
+    sequence: (tip?.sequence ?? 0) + 1,
+    previousHash: tip?.hash ?? null,
+    hashAlgorithm: HASH_ALGORITHM,
+    canonicalization: CANONICALIZATION,
+    appendedAt: new Date().toISOString(),
+    idempotencyKeyHash,
+  };
+  const record: EvidenceEdgeRecord = { ...recordWithoutHash, hash: hashEvidenceEdgeRecord(recordWithoutHash) };
+  records.push(record);
+  return { record, appended: true };
 }
 
 /** Fails closed when a record carries no tenant scope so a tenantless row can never enter a chain. */

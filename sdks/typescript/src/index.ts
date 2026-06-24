@@ -2,12 +2,22 @@ import { createHash, randomUUID } from "node:crypto";
 
 export const SCHEMA_VERSION = "2026-06-10";
 export const EDGE_SCHEMA_VERSION = "2026-06-13";
+export const EVIDENCE_COMMIT_SCHEMA_VERSION = "2026-06-23";
 export const HASH_ALGORITHM = "sha256";
+export const EVIDENCE_COMMIT_TREE_ALGORITHM = "veritio-merkle-v1";
 const ACTION_PATTERN = /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)+$/;
+const SHA256_DIGEST_PATTERN = /^sha256:[a-f0-9]{64}$/;
 
 export const EVIDENCE_ENTITY_TYPES = [
   "tenant",
+  "principal",
   "actor",
+  "activity",
+  "change",
+  "revision",
+  "assertion",
+  "record",
+  "evidence_commit",
   "data_subject",
   "resource",
   "data_category",
@@ -54,6 +64,22 @@ export const EVIDENCE_EDGE_RELATIONS = [
   "processed_for",
   "retained_under",
   "sent_to",
+  "has_activity",
+  "has_input",
+  "has_output",
+  "has_assertion",
+  "resulted_in",
+  "performed_by",
+  "used",
+  "generated",
+  "based_on",
+  "asserts_about",
+  "retracts",
+  "corrects",
+  "supersedes",
+  "disputes",
+  "confirms",
+  "compensates",
 ] as const;
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
@@ -174,6 +200,47 @@ export interface EvidenceEdgeRecord {
   idempotencyKeyHash: string;
 }
 
+export type EvidenceCommitMemberRecordType =
+  | "audit.record"
+  | "evidence.edge.record"
+  | "entity.revision.record"
+  | "activity.record"
+  | "assertion.record"
+  | "change.record";
+
+export interface EvidenceCommitMember {
+  index: number;
+  recordType: EvidenceCommitMemberRecordType;
+  recordId: string;
+  recordHash: string;
+}
+
+export interface EvidenceCommitInput {
+  commitId: string;
+  streamId: string;
+  sequence: number;
+  previousCommitHash: string | null;
+  members: EvidenceCommitMember[];
+  committedAt?: string | Date;
+}
+
+export interface EvidenceCommit {
+  recordType: "evidence.commit";
+  schemaVersion: typeof EVIDENCE_COMMIT_SCHEMA_VERSION;
+  commitId: string;
+  streamId: string;
+  sequence: number;
+  previousCommitHash: string | null;
+  members: EvidenceCommitMember[];
+  recordCount: number;
+  recordsRoot: string;
+  canonicalization: "veritio-json-v1";
+  hashAlgorithm: typeof HASH_ALGORITHM;
+  treeAlgorithm: typeof EVIDENCE_COMMIT_TREE_ALGORITHM;
+  committedAt: string;
+  hash: string;
+}
+
 export interface AuditStoreAppendOptions {
   idempotencyKey?: string;
   expectedPreviousHash?: string | null;
@@ -205,6 +272,23 @@ export type VerificationResult =
         | "sequence_mismatch"
         | "previous_hash_mismatch"
         | "hash_mismatch";
+    };
+
+export type EvidenceCommitVerificationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      index: number;
+      reason:
+        | "unsupported_hash_algorithm"
+        | "unsupported_canonicalization"
+        | "unsupported_tree_algorithm"
+        | "sequence_mismatch"
+        | "previous_hash_mismatch"
+        | "record_count_mismatch"
+        | "records_root_mismatch"
+        | "hash_mismatch"
+        | "invalid_member_manifest";
     };
 
 const SENSITIVE_KEY_PATTERN = /(password|secret|token|api[_-]?key|authorization|email|phone|ssn)/i;
@@ -339,6 +423,109 @@ export function hashAuditRecord(record: AuditRecord | Omit<AuditRecord, "hash">)
 export function hashEvidenceEdgeRecord(record: EvidenceEdgeRecord | Omit<EvidenceEdgeRecord, "hash">): string {
   const { hash: _hash, ...hashInput } = record as EvidenceEdgeRecord;
   return sha256Hex(canonicalJson(hashInput));
+}
+
+/**
+ * Creates an EvidenceCommit that binds an ordered manifest of already-persisted
+ * evidence records. The commit hash is algorithm-qualified and does not rewrite
+ * existing v1 audit or edge record hashes.
+ */
+export function createEvidenceCommit(input: EvidenceCommitInput): EvidenceCommit {
+  assertNonEmpty(input.commitId, "commitId");
+  assertNonEmpty(input.streamId, "streamId");
+  assertPositiveInteger(input.sequence, "sequence");
+  if (input.previousCommitHash !== null && !isSha256Digest(input.previousCommitHash)) {
+    throw new TypeError("previousCommitHash must be null or sha256 digest");
+  }
+
+  const members = normalizeCommitMembers(input.members);
+  const recordsRoot = computeRecordsRoot(members);
+  const commitWithoutHash: Omit<EvidenceCommit, "hash"> = {
+    recordType: "evidence.commit",
+    schemaVersion: EVIDENCE_COMMIT_SCHEMA_VERSION,
+    commitId: input.commitId,
+    streamId: input.streamId,
+    sequence: input.sequence,
+    previousCommitHash: input.previousCommitHash,
+    members,
+    recordCount: members.length,
+    recordsRoot,
+    canonicalization: "veritio-json-v1",
+    hashAlgorithm: HASH_ALGORITHM,
+    treeAlgorithm: EVIDENCE_COMMIT_TREE_ALGORITHM,
+    committedAt: normalizeDate(input.committedAt ?? new Date()),
+  };
+
+  return {
+    ...commitWithoutHash,
+    hash: hashEvidenceCommit(commitWithoutHash),
+  };
+}
+
+/**
+ * Recomputes the EvidenceCommit hash from canonical fields excluding `hash`.
+ * The domain marker keeps commit hashes separate from v1 record envelope hashes.
+ */
+export function hashEvidenceCommit(commit: EvidenceCommit | Omit<EvidenceCommit, "hash">): string {
+  const { hash: _hash, ...commitWithoutHash } = commit as EvidenceCommit;
+  return prefixedSha256(
+    canonicalJson({
+      domain: "veritio-commit-v1",
+      commit: commitWithoutHash,
+    }),
+  );
+}
+
+/**
+ * Verifies EvidenceCommit chains per stream. A valid chain starts at sequence 1
+ * with `previousCommitHash: null`, then increments by one and points to the
+ * previous commit hash for that stream.
+ */
+export function verifyEvidenceCommits(commits: readonly EvidenceCommit[]): EvidenceCommitVerificationResult {
+  const streamState = new Map<string, { previousHash: string | null; sequence: number }>();
+
+  for (const [index, commit] of commits.entries()) {
+    if (commit.hashAlgorithm !== HASH_ALGORITHM) {
+      return { ok: false, index, reason: "unsupported_hash_algorithm" };
+    }
+    if (commit.canonicalization !== "veritio-json-v1") {
+      return { ok: false, index, reason: "unsupported_canonicalization" };
+    }
+    if (commit.treeAlgorithm !== EVIDENCE_COMMIT_TREE_ALGORITHM) {
+      return { ok: false, index, reason: "unsupported_tree_algorithm" };
+    }
+
+    const state = streamState.get(commit.streamId) ?? { previousHash: null, sequence: 0 };
+    if (commit.previousCommitHash !== state.previousHash) {
+      return { ok: false, index, reason: "previous_hash_mismatch" };
+    }
+    if (commit.sequence !== state.sequence + 1) {
+      return { ok: false, index, reason: "sequence_mismatch" };
+    }
+
+    let members: EvidenceCommitMember[];
+    try {
+      members = normalizeCommitMembers(commit.members);
+    } catch {
+      return { ok: false, index, reason: "invalid_member_manifest" };
+    }
+    if (commit.recordCount !== members.length) {
+      return { ok: false, index, reason: "record_count_mismatch" };
+    }
+    if (commit.recordsRoot !== computeRecordsRoot(members)) {
+      return { ok: false, index, reason: "records_root_mismatch" };
+    }
+    if (commit.hash !== hashEvidenceCommit(commit)) {
+      return { ok: false, index, reason: "hash_mismatch" };
+    }
+
+    streamState.set(commit.streamId, {
+      previousHash: commit.hash,
+      sequence: commit.sequence,
+    });
+  }
+
+  return { ok: true };
 }
 
 /**
@@ -536,6 +723,10 @@ function redactMetadata(value: Record<string, unknown>): JsonObject {
  */
 function redactAny(value: unknown, key: string): JsonValue {
   if (SENSITIVE_KEY_PATTERN.test(key)) {
+    const digestEnvelope = sanitizeDigestEnvelope(value);
+    if (digestEnvelope) {
+      return digestEnvelope;
+    }
     return "[redacted]";
   }
 
@@ -563,6 +754,10 @@ function redactAny(value: unknown, key: string): JsonValue {
   }
 
   if (typeof value === "object") {
+    const digestEnvelope = sanitizeDigestEnvelope(value);
+    if (digestEnvelope) {
+      return digestEnvelope;
+    }
     const result: JsonObject = {};
     for (const objectKey of Object.keys(value as Record<string, unknown>).sort()) {
       const objectValue = (value as Record<string, unknown>)[objectKey];
@@ -574,6 +769,52 @@ function redactAny(value: unknown, key: string): JsonValue {
   }
 
   return String(value);
+}
+
+/**
+ * Allows only the minimized digest envelope fields to survive key-name
+ * redaction. This keeps governed revision commitments useful for fields such as
+ * `customerEmail` without letting sibling raw values or key material ride along.
+ */
+function sanitizeDigestEnvelope(value: unknown): JsonObject | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return undefined;
+  }
+  const envelope = value as Record<string, unknown>;
+  const digest = envelope.digest;
+  if (typeof digest !== "string" || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
+    return undefined;
+  }
+  if (
+    Object.hasOwn(envelope, "canonicalization") ||
+    Object.hasOwn(envelope, "schemaRef") ||
+    Object.hasOwn(envelope, "fieldSetRef") ||
+    Object.hasOwn(envelope, "fields")
+  ) {
+    return undefined;
+  }
+
+  if (envelope.algorithm === "hmac-sha256") {
+    return typeof envelope.keyVersion === "string" && envelope.keyVersion.trim().length > 0
+      ? { algorithm: "hmac-sha256", digest, keyVersion: envelope.keyVersion }
+      : undefined;
+  }
+
+  if (envelope.algorithm === "sha256") {
+    return { algorithm: "sha256", digest };
+  }
+
+  if (
+    envelope.captureMode === "content_digest" ||
+    envelope.captureMode === "randomized_digest" ||
+    envelope.captureMode === "reference" ||
+    envelope.captureMode === "redact" ||
+    envelope.captureMode === "encrypt"
+  ) {
+    return { captureMode: envelope.captureMode, digest };
+  }
+
+  return undefined;
 }
 
 /**
@@ -638,6 +879,123 @@ function assertNonEmpty(value: unknown, field: string): void {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);
   }
+}
+
+/**
+ * Requires positive integer sequence values before they enter hash inputs.
+ */
+function assertPositiveInteger(value: unknown, field: string): void {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new TypeError(`${field} must be a positive integer`);
+  }
+}
+
+/**
+ * Normalizes and validates the ordered EvidenceCommit member manifest. Duplicate
+ * indices or duplicate physical record identities fail rather than being
+ * silently de-duplicated.
+ */
+function normalizeCommitMembers(members: readonly EvidenceCommitMember[]): EvidenceCommitMember[] {
+  if (!Array.isArray(members) || members.length === 0) {
+    throw new TypeError("members must not be empty");
+  }
+  const sorted = members.map(cleanCommitMember).sort((left, right) => left.index - right.index);
+  const identities = new Set<string>();
+  for (const [expectedIndex, member] of sorted.entries()) {
+    if (member.index !== expectedIndex) {
+      throw new TypeError("member indices must be contiguous from zero");
+    }
+    const identity = `${member.recordType}\u0000${member.recordId}`;
+    if (identities.has(identity)) {
+      throw new TypeError("duplicate commit member");
+    }
+    identities.add(identity);
+  }
+  return sorted;
+}
+
+/**
+ * Validates one EvidenceCommit member and strips unknown fields before hashing.
+ */
+function cleanCommitMember(member: EvidenceCommitMember): EvidenceCommitMember {
+  if (typeof member.index !== "number" || !Number.isInteger(member.index) || member.index < 0) {
+    throw new TypeError("member index must be a non-negative integer");
+  }
+  if (!isEvidenceCommitMemberRecordType(member.recordType)) {
+    throw new TypeError("recordType must be a supported commit member record type");
+  }
+  assertNonEmpty(member.recordId, "recordId");
+  if (!isSha256Digest(member.recordHash)) {
+    throw new TypeError("recordHash must be a sha256 digest");
+  }
+  return {
+    index: member.index,
+    recordType: member.recordType,
+    recordId: member.recordId,
+    recordHash: member.recordHash,
+  };
+}
+
+/**
+ * Computes the Merkle root for sorted commit members. Odd levels duplicate the
+ * final hash at that level, matching the PR5 conformance fixture.
+ */
+function computeRecordsRoot(members: readonly EvidenceCommitMember[]): string {
+  let level = members.map((member) => commitLeafHash(member));
+  while (level.length > 1) {
+    const nextLevel: string[] = [];
+    for (let index = 0; index < level.length; index += 2) {
+      const left = level[index]!;
+      const right = level[index + 1] ?? left;
+      nextLevel.push(
+        prefixedSha256(
+          canonicalJson({
+            domain: "veritio-merkle-node-v1",
+            left,
+            right,
+          }),
+        ),
+      );
+    }
+    level = nextLevel;
+  }
+  return level[0]!;
+}
+
+/**
+ * Hashes one ordered commit member leaf with an explicit domain separator.
+ */
+function commitLeafHash(member: EvidenceCommitMember): string {
+  return prefixedSha256(
+    canonicalJson({
+      domain: "veritio-record-leaf-v1",
+      index: member.index,
+      recordType: member.recordType,
+      recordId: member.recordId,
+      recordHash: member.recordHash,
+    }),
+  );
+}
+
+/**
+ * Narrows commit member record types to the initial physical record vocabulary.
+ */
+function isEvidenceCommitMemberRecordType(value: unknown): value is EvidenceCommitMemberRecordType {
+  return (
+    value === "audit.record" ||
+    value === "evidence.edge.record" ||
+    value === "entity.revision.record" ||
+    value === "activity.record" ||
+    value === "assertion.record" ||
+    value === "change.record"
+  );
+}
+
+/**
+ * Checks algorithm-qualified SHA-256 digests used by EvidenceCommit v2 fields.
+ */
+function isSha256Digest(value: unknown): value is string {
+  return typeof value === "string" && SHA256_DIGEST_PATTERN.test(value);
 }
 
 /**
@@ -762,5 +1120,14 @@ function sha256Hex(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+/**
+ * Computes an algorithm-qualified SHA-256 digest for EvidenceCommit fields while
+ * leaving v1 audit/edge record hashes in their existing bare-hex shape.
+ */
+function prefixedSha256(value: string): string {
+  return `sha256:${sha256Hex(value)}`;
+}
+
 export * from "./provenance";
+export * from "./governed-change";
 export * from "./templates";

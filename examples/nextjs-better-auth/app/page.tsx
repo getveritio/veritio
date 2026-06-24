@@ -1,13 +1,15 @@
 import Link from "next/link";
+import { runGovernedChange } from "./actions/run-governed-change";
 import { recordProfileUpdate } from "./actions/record-profile-update";
 import { runGovernedCrud } from "./actions/run-governed-crud";
 import { runGovernedLifecycle } from "./actions/run-governed-lifecycle";
-import { getReferenceEvidenceTrail } from "../src/veritio/server";
+import { getReferenceEvidenceTrail, getReferenceGovernedProvenance } from "../src/veritio/server";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const trail = await getReferenceEvidenceTrail(5);
+  const provenance = await getReferenceGovernedProvenance();
 
   return (
     <main className="shell">
@@ -35,6 +37,14 @@ export default async function HomePage() {
             <p>Record auth, org, consent, subject request, export, retention, and processor evidence.</p>
           </div>
           <button type="submit">Run lifecycle</button>
+        </form>
+
+        <form action={runGovernedChange} className="panel form-panel">
+          <div>
+            <h2>Run governed change</h2>
+            <p>Record a project-entry recalculation, entity revision, explain path, diff, and rollback revision.</p>
+          </div>
+          <button type="submit">Run change</button>
         </form>
 
         <form action={recordProfileUpdate} className="panel form-panel">
@@ -79,6 +89,100 @@ export default async function HomePage() {
 
       <section className="panel">
         <div className="section-header">
+          <h2>Changes</h2>
+          <span className="badge">current protocol</span>
+        </div>
+        {provenance.changes.length === 0 ? (
+          <p className="empty">Run the governed change scenario to create Change views.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Change</th>
+                  <th>Activity</th>
+                  <th>Output revision</th>
+                  <th>Evidence</th>
+                </tr>
+              </thead>
+              <tbody>
+                {provenance.changes.map((change) => (
+                  <tr key={change.id}>
+                    <td>
+                      <strong>{change.title}</strong>
+                      <br />
+                      <code>{change.id}</code>
+                    </td>
+                    <td>{change.activityIds.join(", ")}</td>
+                    <td>{change.outputRevisionIds.map((id, index) => <code key={`${id}-${index}`}>{id}</code>)}</td>
+                    <td>{change.supportingRecordIds.length} records</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="grid">
+        <section className="panel">
+          <h2>Entity timeline</h2>
+          {provenance.entityTimeline.revisions.length === 0 ? (
+            <p className="empty">No project-entry revisions captured yet.</p>
+          ) : (
+            <ol className="timeline">
+              {provenance.entityTimeline.revisions.map((revision) => (
+                <li key={revision.id}>
+                  <code>{revision.id}</code>
+                  <span>{revision.changedPaths.join(", ")}</span>
+                  <small>{revision.occurredAt}</small>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
+        <section className="panel">
+          <h2>Explain value</h2>
+          {provenance.explain ? (
+            <dl className="facts">
+              <div>
+                <dt>Change</dt>
+                <dd><code>{provenance.explain.changeId}</code></dd>
+              </div>
+              <div>
+                <dt>Known coverage</dt>
+                <dd>{provenance.explain.knownCoverage.join(", ")}</dd>
+              </div>
+              <div>
+                <dt>Not captured</dt>
+                <dd>{provenance.explain.notCaptured.join(", ")}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="empty">No explainable change yet.</p>
+          )}
+        </section>
+      </section>
+
+      <section className="panel">
+        <h2>Revision diff</h2>
+        {provenance.diff ? (
+          <div className="diff-grid">
+            {Object.entries(provenance.diff.after).map(([key, value]) => (
+              <div key={key} className="diff-cell">
+                <span>{key}</span>
+                <code>{formatDiffValue(value)}</code>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="empty">No captured revision diff yet.</p>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="section-header">
           <h2>Recent records</h2>
           <Link href="/audit">View all</Link>
         </div>
@@ -105,6 +209,14 @@ export default async function HomePage() {
       </section>
     </main>
   );
+}
+
+/**
+ * Formats captured governed-field values without exposing object internals as
+ * `[object Object]`.
+ */
+function formatDiffValue(value: unknown): string {
+  return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
 }
 
 /**

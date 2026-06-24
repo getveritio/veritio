@@ -14,16 +14,19 @@ from veritio import (
     canonical_json,
     change_proposal_created_template,
     create_audit_event,
+    create_evidence_commit,
     create_evidence_edge,
     detect_audit_log_classifiers,
     files_changed_template,
     hash_audit_event,
     hash_audit_record,
+    hash_evidence_commit,
     hash_evidence_edge,
     hash_evidence_edge_record,
     hash_idempotency_key,
     organization_created_template,
     review_waiver_recorded_template,
+    verify_evidence_commits,
 )
 
 CONFORMANCE_DIR = Path(__file__).resolve().parents[3] / "spec" / "conformance"
@@ -64,6 +67,17 @@ class EventTests(unittest.TestCase):
                     }
                 )
                 self.assertEqual(event["metadata"], conformance_case["expectedMetadata"])
+                edge = create_evidence_edge(
+                    {
+                        "id": "edge_redaction_fixture",
+                        "occurredAt": "2026-06-23T10:18:04.000Z",
+                        "from": {"type": "change", "id": "chg_redaction_fixture"},
+                        "relation": "has_output",
+                        "to": {"type": "revision", "id": "rev_redaction_fixture"},
+                        "metadata": conformance_case["metadata"],
+                    }
+                )
+                self.assertEqual(edge["metadata"], conformance_case["expectedMetadata"])
 
     def test_create_audit_event_rejects_invalid_action(self):
         with self.assertRaisesRegex(TypeError, "action must use dotted lowercase protocol form"):
@@ -101,6 +115,108 @@ class EventTests(unittest.TestCase):
                     hash_audit_record(conformance_case["recordWithoutHash"]),
                     conformance_case["expectedHash"],
                 )
+
+    def test_evidence_commit_matches_conformance_fixtures(self):
+        fixture = load_fixture("evidence-commit.json")
+        ordered_case = fixture["cases"][0]
+        odd_case = fixture["cases"][1]
+
+        commit = create_evidence_commit(ordered_case["input"])
+        self.assertEqual(commit, ordered_case["expected"])
+        self.assertEqual(hash_evidence_commit(commit), commit["hash"])
+        self.assertEqual(
+            verify_evidence_commits([commit]),
+            {"ok": False, "index": 0, "reason": "previous_hash_mismatch"},
+        )
+
+        odd_commit = create_evidence_commit(odd_case["input"])
+        self.assertEqual(odd_commit["recordsRoot"], odd_case["expectedRecordsRoot"])
+
+    def test_evidence_commit_rejects_empty_and_duplicate_members(self):
+        base_input = {
+            "commitId": "cmt_empty",
+            "streamId": "str_fixture",
+            "sequence": 1,
+            "previousCommitHash": None,
+            "committedAt": "2026-06-23T10:15:31.000Z",
+            "members": [],
+        }
+
+        with self.assertRaisesRegex(TypeError, "members must not be empty"):
+            create_evidence_commit(base_input)
+        with self.assertRaisesRegex(TypeError, "duplicate commit member"):
+            create_evidence_commit(
+                {
+                    **base_input,
+                    "commitId": "cmt_duplicate",
+                    "members": [
+                        {
+                            "index": 0,
+                            "recordType": "audit.record",
+                            "recordId": "evt_01",
+                            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        },
+                        {
+                            "index": 1,
+                            "recordType": "audit.record",
+                            "recordId": "evt_01",
+                            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        },
+                    ],
+                }
+            )
+
+    def test_evidence_commit_verifier_detects_chain_and_hash_tampering(self):
+        first = create_evidence_commit(
+            {
+                "commitId": "cmt_01",
+                "streamId": "str_fixture",
+                "sequence": 1,
+                "previousCommitHash": None,
+                "committedAt": "2026-06-23T10:15:31.000Z",
+                "members": [
+                    {
+                        "index": 0,
+                        "recordType": "audit.record",
+                        "recordId": "evt_01",
+                        "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                    }
+                ],
+            }
+        )
+        second = create_evidence_commit(
+            {
+                "commitId": "cmt_02",
+                "streamId": "str_fixture",
+                "sequence": 2,
+                "previousCommitHash": first["hash"],
+                "committedAt": "2026-06-23T10:16:31.000Z",
+                "members": [
+                    {
+                        "index": 0,
+                        "recordType": "evidence.edge.record",
+                        "recordId": "edge_01",
+                        "recordHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    }
+                ],
+            }
+        )
+
+        self.assertEqual(verify_evidence_commits([first, second]), {"ok": True})
+        self.assertEqual(
+            verify_evidence_commits([{**second, "previousCommitHash": None}]),
+            {"ok": False, "index": 0, "reason": "sequence_mismatch"},
+        )
+        self.assertEqual(
+            verify_evidence_commits([first, {**second, "recordCount": 2}]),
+            {"ok": False, "index": 1, "reason": "record_count_mismatch"},
+        )
+        malformed = {**first}
+        del malformed["streamId"]
+        self.assertEqual(
+            verify_evidence_commits([malformed]),
+            {"ok": False, "index": 0, "reason": "invalid_member_manifest"},
+        )
 
     def test_create_evidence_edge_matches_conformance_fixtures(self):
         fixture = load_fixture("edge-creation.json")
