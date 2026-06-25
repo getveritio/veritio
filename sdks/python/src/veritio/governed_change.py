@@ -94,13 +94,14 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
 
     change_ref = {"authority": "veritio", "kind": "change", "type": change["type"], "id": change["id"]}
     activity_ref = {"authority": "veritio", "kind": "activity", "type": activity["type"], "id": activity["id"]}
-    previous_revision_ref = input_change.get("expectedParentRevisionRef") or {
-        "authority": "veritio",
-        "kind": "revision",
-        "type": entity["type"],
-        "id": f"rev_{entity['type']}_{entity_ref['id']}_previous",
-    }
-    _assert_ref(previous_revision_ref)
+    # Use ONLY a caller-supplied parent revision; never fabricate a placeholder
+    # rev_..._previous (mirrors the TS/Go SDKs). A synthetic parent asserts a
+    # false derived_from edge to a revision that never existed and feeds the host
+    # store an optimistic-concurrency token its real head can never match.
+    expected_parent = input_change.get("expectedParentRevisionRef")
+    if expected_parent:
+        _assert_ref(expected_parent)
+    parent_ref = expected_parent if input_change.get("before") else None
     state_commitment = _state_commitment(entity, after, input_change.get("digestKeys") or {})
     revision_ref = {
         "authority": "veritio",
@@ -111,7 +112,7 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
     revision = {
         "ref": revision_ref,
         "entity": entity_ref,
-        "parents": [previous_revision_ref] if input_change.get("before") else [],
+        "parents": [parent_ref] if parent_ref else [],
         "stateCommitment": state_commitment,
         "changedPaths": sorted(input_change.get("changedPaths") or []),
         "generatedBy": activity_ref,
@@ -192,8 +193,8 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
         _draft_edge("performed_by", activity_ref, activity["performedBy"], occurred_at, scope),
         _draft_edge("generated", activity_ref, revision_ref, occurred_at, scope),
     ]
-    if input_change.get("before"):
-        edges.append(_draft_edge("derived_from", revision_ref, previous_revision_ref, occurred_at, scope))
+    if parent_ref:
+        edges.append(_draft_edge("derived_from", revision_ref, parent_ref, occurred_at, scope))
 
     outbox_entry = {
         "schemaVersion": "2026-06-23",
@@ -201,8 +202,8 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
         "records": events,
         "edges": edges,
     }
-    if input_change.get("before"):
-        outbox_entry["expectedParentRevisionRef"] = previous_revision_ref
+    if parent_ref:
+        outbox_entry["expectedParentRevisionRef"] = parent_ref
 
     return {
         "changeRef": change_ref,

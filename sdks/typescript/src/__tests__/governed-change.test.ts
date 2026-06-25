@@ -132,7 +132,10 @@ describe("createGovernedChangeDraft", () => {
     });
 
     expect(draft.outboxEntry.mutationBinding).toBe("not_transaction_bound");
-    expect(draft.outboxEntry.expectedParentRevisionRef).toEqual(draft.revision.parents[0]);
+    // An update with no caller-supplied parent leaves lineage open — no synthetic
+    // `rev_..._previous` parent is fabricated.
+    expect(draft.outboxEntry.expectedParentRevisionRef).toBeUndefined();
+    expect(draft.revision.parents).toEqual([]);
     expect(draft.events[0]?.metadata.captureAssurance).toEqual({
       captureMethod: "transactional_outbox",
       mutationBinding: "not_transaction_bound",
@@ -144,7 +147,11 @@ describe("createGovernedChangeDraft", () => {
     ]);
     expect(draft.revision.stateCommitment.digest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(draft.revision.stateCommitment.fields).toEqual({
-      customerEmail: { algorithm: "hmac-sha256", digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/), keyVersion: "tenant-key-7" },
+      customerEmail: {
+        algorithm: "hmac-sha256",
+        digest: expect.stringMatching(/^sha256:[a-f0-9]{64}$/),
+        keyVersion: "tenant-key-7",
+      },
       monthlyPrice: 148220,
       quantity: 11,
       updatedAt: "2026-06-23T10:18:00.000Z",
@@ -157,12 +164,74 @@ describe("createGovernedChangeDraft", () => {
       "has_output",
       "performed_by",
       "generated",
-      "derived_from",
     ]);
 
     const revisionEvent = createAuditEvent(draft.events[2]);
     const storedRevision = (revisionEvent.metadata.veritio as { revision: typeof draft.revision }).revision;
-    expect(storedRevision.stateCommitment.fields.customerEmail).toEqual(draft.revision.stateCommitment.fields.customerEmail);
+    expect(storedRevision.stateCommitment.fields.customerEmail).toEqual(
+      draft.revision.stateCommitment.fields.customerEmail,
+    );
+  });
+
+  test("links a parent + derived_from edge only when a parent revision is supplied", () => {
+    const entry = defineEntity<{ id: string; quantity: number }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: { quantity: { capture: "full" } },
+    });
+    const expectedParentRevisionRef: EvidenceRef = {
+      authority: "veritio",
+      kind: "revision",
+      type: "project_entry",
+      id: "rev_project_entry_42_0a1b2c3d4e5f",
+    };
+    const draft = createGovernedChangeDraft({
+      scope,
+      entity: entry,
+      before: { id: "42", quantity: 10 },
+      after: { id: "42", quantity: 11 },
+      changedPaths: ["/quantity"],
+      change: { id: "chg_supplied", type: "project.estimate.recalculation", initiatedBy },
+      activity: { id: "act_supplied", type: "computation.project_cost_estimate", performedBy: producer },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:supplied-parent",
+      expectedParentRevisionRef,
+    });
+
+    expect(draft.revision.parents).toEqual([expectedParentRevisionRef]);
+    expect(draft.outboxEntry.expectedParentRevisionRef).toEqual(expectedParentRevisionRef);
+    const derivedFrom = draft.edges.find((edge) => edge.relation === "derived_from");
+    expect(derivedFrom?.metadata?.toRef).toEqual(expectedParentRevisionRef);
+  });
+
+  test("a create (no before) has no parent and no derived_from edge", () => {
+    const entry = defineEntity<{ id: string; quantity: number }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: { quantity: { capture: "full" } },
+    });
+    const draft = createGovernedChangeDraft({
+      scope,
+      entity: entry,
+      after: { id: "42", quantity: 11 },
+      changedPaths: ["/quantity"],
+      change: { id: "chg_create", type: "project.estimate.created", initiatedBy },
+      activity: { id: "act_create", type: "computation.project_cost_estimate", performedBy: producer },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:create",
+    });
+
+    expect(draft.revision.parents).toEqual([]);
+    expect(draft.outboxEntry.expectedParentRevisionRef).toBeUndefined();
+    expect(draft.edges.some((edge) => edge.relation === "derived_from")).toBe(false);
   });
 
   test("rejects invalid governed-change timestamps", () => {

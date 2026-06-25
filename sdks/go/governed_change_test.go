@@ -114,8 +114,12 @@ func TestCreateGovernedChangeDraftDerivesMinimizedRevisionEvidence(t *testing.T)
 	if draft.OutboxEntry.MutationBinding != "not_transaction_bound" {
 		t.Fatalf("unexpected mutation binding: %s", draft.OutboxEntry.MutationBinding)
 	}
-	if draft.OutboxEntry.ExpectedParentRevisionRef == nil || *draft.OutboxEntry.ExpectedParentRevisionRef != draft.Revision.Parents[0] {
-		t.Fatalf("expected parent revision ref was not persisted in outbox: %#v", draft.OutboxEntry.ExpectedParentRevisionRef)
+	// An update with no caller-supplied parent leaves lineage open — no synthetic parent.
+	if draft.OutboxEntry.ExpectedParentRevisionRef != nil {
+		t.Fatalf("expected no synthetic parent, got: %#v", draft.OutboxEntry.ExpectedParentRevisionRef)
+	}
+	if len(draft.Revision.Parents) != 0 {
+		t.Fatalf("expected no parents, got: %#v", draft.Revision.Parents)
 	}
 	captureAssurance := draft.Events[0].Metadata["captureAssurance"].(map[string]any)
 	if captureAssurance["captureMethod"] != "transactional_outbox" || captureAssurance["mutationBinding"] != "not_transaction_bound" {
@@ -170,10 +174,92 @@ func TestCreateGovernedChangeDraftDerivesMinimizedRevisionEvidence(t *testing.T)
 	for _, edge := range draft.Edges {
 		relations = append(relations, edge.Relation)
 	}
-	expectedRelations := []string{"has_activity", "has_output", "performed_by", "generated", "derived_from"}
+	expectedRelations := []string{"has_activity", "has_output", "performed_by", "generated"}
+	if len(relations) != len(expectedRelations) {
+		t.Fatalf("expected %d relations, got %#v", len(expectedRelations), relations)
+	}
 	for index := range expectedRelations {
 		if relations[index] != expectedRelations[index] {
 			t.Fatalf("expected relations %#v, got %#v", expectedRelations, relations)
+		}
+	}
+}
+
+func minimalEntityDefinition(t *testing.T) GovernedEntityDefinition {
+	t.Helper()
+	entity, err := DefineEntity(GovernedEntityDefinition{
+		Authority:   "acme.billing",
+		Type:        "project_entry",
+		SchemaRef:   "acme.billing/project_entry@3",
+		FieldSetRef: "project-entry-governed-fields@2",
+		Identity:    func(row map[string]any) string { return row["id"].(string) },
+		Fields:      map[string]EntityFieldPolicy{"quantity": {Capture: "full"}},
+	})
+	if err != nil {
+		t.Fatalf("DefineEntity returned error: %v", err)
+	}
+	return entity
+}
+
+func TestCreateGovernedChangeDraftLinksParentOnlyWhenSupplied(t *testing.T) {
+	expectedParent := EvidenceRef{Authority: "veritio", Kind: "revision", Type: "project_entry", ID: "rev_project_entry_42_0a1b2c3d4e5f"}
+	draft, err := CreateGovernedChangeDraft(GovernedChangeDraftInput{
+		Scope:                     EvidenceScope{TenantID: "org_acme_123"},
+		Entity:                    minimalEntityDefinition(t),
+		Before:                    map[string]any{"id": "42", "quantity": 10},
+		After:                     map[string]any{"id": "42", "quantity": 11},
+		ChangedPaths:              []string{"/quantity"},
+		Change:                    GovernedChangeDeclaration{ID: "chg_supplied", Type: "project.estimate.recalculation", InitiatedBy: EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"}},
+		Activity:                  GovernedActivityDeclaration{ID: "act_supplied", Type: "computation.project_cost_estimate", PerformedBy: EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"}},
+		Producer:                  EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		OccurredAt:                "2026-06-23T10:18:00.000Z",
+		IdempotencyKeyHash:        "sha256:supplied-parent",
+		ExpectedParentRevisionRef: &expectedParent,
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedChangeDraft returned error: %v", err)
+	}
+	if len(draft.Revision.Parents) != 1 || draft.Revision.Parents[0] != expectedParent {
+		t.Fatalf("expected parents [%#v], got %#v", expectedParent, draft.Revision.Parents)
+	}
+	if draft.OutboxEntry.ExpectedParentRevisionRef == nil || *draft.OutboxEntry.ExpectedParentRevisionRef != expectedParent {
+		t.Fatalf("expected outbox parent %#v, got %#v", expectedParent, draft.OutboxEntry.ExpectedParentRevisionRef)
+	}
+	found := false
+	for _, edge := range draft.Edges {
+		if edge.Relation == "derived_from" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a derived_from edge when a parent revision is supplied")
+	}
+}
+
+func TestCreateGovernedChangeDraftCreateHasNoParent(t *testing.T) {
+	draft, err := CreateGovernedChangeDraft(GovernedChangeDraftInput{
+		Scope:              EvidenceScope{TenantID: "org_acme_123"},
+		Entity:             minimalEntityDefinition(t),
+		After:              map[string]any{"id": "42", "quantity": 11},
+		ChangedPaths:       []string{"/quantity"},
+		Change:             GovernedChangeDeclaration{ID: "chg_create", Type: "project.estimate.created", InitiatedBy: EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"}},
+		Activity:           GovernedActivityDeclaration{ID: "act_create", Type: "computation.project_cost_estimate", PerformedBy: EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"}},
+		Producer:           EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		OccurredAt:         "2026-06-23T10:18:00.000Z",
+		IdempotencyKeyHash: "sha256:create",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedChangeDraft returned error: %v", err)
+	}
+	if len(draft.Revision.Parents) != 0 {
+		t.Fatalf("expected no parents, got %#v", draft.Revision.Parents)
+	}
+	if draft.OutboxEntry.ExpectedParentRevisionRef != nil {
+		t.Fatalf("expected no outbox parent, got %#v", draft.OutboxEntry.ExpectedParentRevisionRef)
+	}
+	for _, edge := range draft.Edges {
+		if edge.Relation == "derived_from" {
+			t.Fatal("expected no derived_from edge for a create")
 		}
 	}
 }

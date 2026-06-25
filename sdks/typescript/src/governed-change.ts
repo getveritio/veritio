@@ -255,12 +255,12 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
   if (input.expectedParentRevisionRef) {
     assertRef(input.expectedParentRevisionRef);
   }
-  const previousRevisionRef: EvidenceRef = input.expectedParentRevisionRef ?? {
-    authority: "veritio",
-    kind: "revision",
-    type: input.entity.type,
-    id: `rev_${input.entity.type}_${entityRef.id}_previous`,
-  };
+  // Use ONLY a caller-supplied parent revision; never fabricate a placeholder
+  // `rev_..._previous`. A synthetic parent both asserts a false `derived_from`
+  // edge to a revision that never existed and feeds the host store an
+  // optimistic-concurrency token its real head can never match. When an update
+  // has no known parent, lineage is left open for the host store to resolve.
+  const parentRef: EvidenceRef | undefined = input.before ? input.expectedParentRevisionRef : undefined;
   const stateCommitment = createStateCommitment(input.entity, input.after, input.digestKeys);
   const revisionRef: EvidenceRef = {
     authority: "veritio",
@@ -271,7 +271,7 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
   const revision: RevisionDraft = {
     ref: revisionRef,
     entity: entityRef,
-    parents: input.before ? [previousRevisionRef] : [],
+    parents: parentRef ? [parentRef] : [],
     stateCommitment,
     changedPaths: [...input.changedPaths].sort(),
     generatedBy: activityRef,
@@ -354,8 +354,8 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
     draftEdge("performed_by", activityRef, input.activity.performedBy, occurredAt, input.scope),
     draftEdge("generated", activityRef, revisionRef, occurredAt, input.scope),
   ];
-  if (input.before) {
-    edges.push(draftEdge("derived_from", revisionRef, previousRevisionRef, occurredAt, input.scope));
+  if (parentRef) {
+    edges.push(draftEdge("derived_from", revisionRef, parentRef, occurredAt, input.scope));
   }
 
   const outboxEntry: GovernedChangeDraft["outboxEntry"] = {
@@ -364,8 +364,8 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
     records: events,
     edges,
   };
-  if (input.before) {
-    outboxEntry.expectedParentRevisionRef = previousRevisionRef;
+  if (parentRef) {
+    outboxEntry.expectedParentRevisionRef = parentRef;
   }
 
   return {

@@ -227,17 +227,18 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 	}
 	changeRef := EvidenceRef{Authority: "veritio", Kind: "change", Type: input.Change.Type, ID: input.Change.ID}
 	activityRef := EvidenceRef{Authority: "veritio", Kind: "activity", Type: input.Activity.Type, ID: input.Activity.ID}
-	previousRevisionRef := EvidenceRef{
-		Authority: "veritio",
-		Kind:      "revision",
-		Type:      input.Entity.Type,
-		ID:        fmt.Sprintf("rev_%s_%s_previous", input.Entity.Type, entityRef.ID),
-	}
+	// Use ONLY a caller-supplied parent revision; never fabricate a placeholder
+	// rev_..._previous (mirrors the TS/Python SDKs). A synthetic parent asserts a
+	// false derived_from edge to a revision that never existed and feeds the host
+	// store an optimistic-concurrency token its real head can never match.
 	if input.ExpectedParentRevisionRef != nil {
 		if err := assertEvidenceRef(*input.ExpectedParentRevisionRef); err != nil {
 			return GovernedChangeDraft{}, err
 		}
-		previousRevisionRef = *input.ExpectedParentRevisionRef
+	}
+	var parentRef *EvidenceRef
+	if input.Before != nil {
+		parentRef = input.ExpectedParentRevisionRef
 	}
 	stateCommitment, err := createStateCommitment(input.Entity, input.After, input.DigestKeys)
 	if err != nil {
@@ -259,8 +260,8 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 		ChangedPaths:    changedPaths,
 		GeneratedBy:     activityRef,
 	}
-	if input.Before != nil {
-		revision.Parents = []EvidenceRef{previousRevisionRef}
+	if parentRef != nil {
+		revision.Parents = []EvidenceRef{*parentRef}
 	}
 	if input.CapturePolicyRef != nil {
 		revision.CapturePolicyRef = input.CapturePolicyRef
@@ -353,14 +354,11 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 		draftEdge("performed_by", activityRef, input.Activity.PerformedBy, occurredAt, input.Scope),
 		draftEdge("generated", activityRef, revisionRef, occurredAt, input.Scope),
 	}
-	if input.Before != nil {
-		edges = append(edges, draftEdge("derived_from", revisionRef, previousRevisionRef, occurredAt, input.Scope))
+	if parentRef != nil {
+		edges = append(edges, draftEdge("derived_from", revisionRef, *parentRef, occurredAt, input.Scope))
 	}
 	events := []AuditEventInput{changeEvent, activityEvent, revisionEvent}
-	var expectedParentRevisionRef *EvidenceRef
-	if input.Before != nil {
-		expectedParentRevisionRef = &previousRevisionRef
-	}
+	expectedParentRevisionRef := parentRef
 	return GovernedChangeDraft{
 		ChangeRef:   changeRef,
 		ActivityRef: activityRef,

@@ -189,11 +189,15 @@ export function createHttpOutboxDispatcher(options: {
           );
           dispatched += 1;
         } catch (error) {
-          await options.adapter.markFailed(
-            entry.id,
-            error,
-            listOptions.now === undefined ? {} : { now: listOptions.now },
-          );
+          // Honor the typed verdict: a non-retryable rejection (4xx/409) is
+          // dead-lettered so it is never re-dispatched; a transient 5xx (or any
+          // unexpected non-typed throw) stays retryable rather than being
+          // silently parked.
+          const retryable = error instanceof IngestError ? error.retryable : true;
+          await options.adapter.markFailed(entry.id, error, {
+            ...(listOptions.now === undefined ? {} : { now: listOptions.now }),
+            retryable,
+          });
           failed += 1;
         }
       }
