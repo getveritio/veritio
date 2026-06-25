@@ -1,56 +1,62 @@
-# Next.js + Better Auth Governed CRUD Reference
+# Next.js + Better Auth Governed Change Reference
 
-Runnable Next.js App Router reference using Better Auth and Veritio evidence
-support. Run `bun run verify:examples` from the repo root to build and typecheck
-it with the rest of the examples.
+Runnable Next.js 16 App Router reference that turns a real UI action into a
+governed Veritio `Change` and dispatches it server-to-server to hosted Veritio
+Cloud. Run `bun run verify:examples` from the repo root to build and typecheck it
+with the rest of the examples.
 
-The example keeps tenant resolution, actor resolution, Better Auth hooks, and
-the Veritio recorder in server-only modules. Browser forms never submit
-`tenantId` or `actorUserId`.
+This example mirrors the flagship TanStack Start and React references: the same
+governed-change spine, the same shared `veritio-ui` design kit, and the same
+honest local-only / dispatched UX. Tenant identity, the actor, the HMAC capture
+material, and the ingest token all stay in server-only modules; the browser
+never sees them.
 
 ## What It Shows
 
-- `app/api/auth/[...all]/route.ts` mounts the Better Auth App Router handler.
-- Better Auth `databaseHooks.user.create.after` maps user creation into a
-  Veritio audit event through `src/veritio/auth-events.ts`.
-- `app/actions/run-governed-crud.ts` runs create, archive, and delete project
-  mutations from a server action.
-- `app/actions/run-governed-lifecycle.ts` runs a broader helper-driven scenario:
-  auth session with country/region context, organization bootstrap, membership,
-  consent, data-subject request, export bundle, retention policy, and processor
-  transfer graph evidence.
-- `app/actions/run-governed-change.ts` runs the change-centric provenance
-  scenario: project-entry quantity change, price recalculation, generated
-  revision, Explain, Diff, and rollback as a later revision.
-- `app/api/projects/route.ts` exposes the same CRUD mechanics through
-  `POST`, `PUT`, and `DELETE` route handlers.
-- `app/api/scenarios/governed-lifecycle/route.ts` exposes the lifecycle scenario
-  for local HTTP smoke tests.
-- `app/api/scenarios/governed-change/route.ts` exposes the change-centric
-  scenario for browser and curl smoke tests.
-- Each project mutation records a Veritio audit event and a graph edge using
-  shared protocol relations: `created`, `modified`, and `deleted`.
-- `app/api/evidence/route.ts` returns audit records, graph edges, local project
-  state, and verification results for both hash chains.
+- `app/page.tsx` is a server component. It reads the current governed snapshot
+  (entries, change feed, cloud status) directly from `src/server/governed-entries.ts`
+  — no client fetch, no API route.
+- `app/_components/entry-card.tsx` is the only client component. The edit-form
+  toggle and rollback-target selection are local UI state; every governed action
+  (edit, run cost agent, roll back) is sent to a server action.
+- `app/actions/governed.ts` is the `"use server"` boundary. It runs the SDK
+  capture, the transactional-outbox enqueue, and the server-to-server dispatch to
+  hosted ingest, then `revalidatePath("/")` so the new revision renders.
+- `src/server/governed-entries.ts` builds each governed `Change` with
+  `createGovernedChangeDraft`, applies the local mutation and enqueues the outbox
+  entry together, and bumps a monotonic `version` field so a rollback is a
+  genuinely new revision with a distinct state digest. `customerEmail` is captured
+  as a tenant-keyed HMAC digest, never raw.
+- `src/server/cloud-ingest.ts` reads `VERITIO_CLOUD_*` env at the process
+  boundary and uses the `@veritio/storage` HTTP dispatcher to drain the outbox to
+  Cloud. `dispatchBatchToCloud` posts the agent session's pure-evidence records
+  directly (one `postBatch`, outside the per-mutation outbox). The browser only
+  ever receives the token-free `cloudPublicConfig()`.
+- `src/server/governed-session.ts` is the agent-session capability. One call runs
+  a full governed AI workflow with `createProvenanceRecorder` — session → prompt →
+  tool read → proposal → file change → human approval — and drives the actual
+  governed re-estimations, every event stamped with one `sessionId` so the Cloud
+  groups them into a single session (Agent Sessions / Activity Graph / Code
+  Changes surfaces). Prompts and document contents are hashed, never raw.
+  `app/_components/agent-sessions.tsx` is the client trigger + recent-sessions list.
+- `app/api/auth/[...all]/route.ts` mounts Better Auth, and its
+  `databaseHooks.user.create.after` records a Veritio audit event through
+  `src/veritio/auth-events.ts` using a server-resolved tenant.
 
 ## Files
 
-- `app/page.tsx` renders the server-action form and recent audit/graph evidence.
-- `app/audit/page.tsx` renders the full tenant-scoped audit and graph trail.
-- `app/actions/record-profile-update.ts` keeps the smaller profile-update event example.
-- `app/actions/run-governed-crud.ts` runs the full CRUD sequence.
-- `app/actions/run-governed-lifecycle.ts` runs the broader helper-driven
-  lifecycle scenario.
-- `app/actions/run-governed-change.ts` runs the project-entry provenance
-  scenario.
-- `app/api/auth/[...all]/route.ts` mounts Better Auth.
-- `app/api/projects/route.ts` records governed project mutations through API routes.
-- `app/api/scenarios/governed-lifecycle/route.ts` records the broader lifecycle scenario.
-- `app/api/scenarios/governed-change/route.ts` records the governed-change scenario.
-- `app/api/evidence/route.ts` returns the composed evidence trail.
-- `src/veritio/server.ts` owns the recorder, in-memory stores, graph edge chain,
-  and reference session boundary.
-- `src/veritio/auth.ts` / `auth-events.ts` bridge Better Auth lifecycle hooks to Veritio.
+- `app/page.tsx` — governed-change dashboard (server component).
+- `app/_components/entry-card.tsx` — client card with the three governed actions.
+- `app/_components/agent-sessions.tsx` — client trigger + recent agent-sessions list.
+- `app/_components/dispatch-badge.tsx` — shared dispatch-status pill.
+- `app/actions/governed.ts` — server actions that record + dispatch (mutation + agent session).
+- `src/server/governed-entries.ts` — the governed-change engine and in-memory store.
+- `src/server/governed-session.ts` — the agent-session engine (provenance recorder).
+- `src/server/cloud-ingest.ts` — env-at-boundary cloud config + outbox/batch dispatchers.
+- `src/veritio/server.ts` — Better Auth recorder, store, and reference session.
+- `src/veritio/auth.ts` / `auth-events.ts` — Better Auth → Veritio bridge.
+- `app/api/auth/[...all]/route.ts` — mounts Better Auth.
+- `src/veritio-ui/` — the shared example design kit (copied from `examples/_shared`).
 
 ## Run
 
@@ -62,37 +68,35 @@ bun run build
 bun run dev
 ```
 
-Open `http://localhost:3000`, click **Run governed change**, then inspect the
-Changes, Entity timeline, Explain value, and Revision diff sections. The
-scenario uses the current audit and edge chains, so it reports known coverage
-and explicit `not captured` gaps instead of claiming EvidenceCommit atomicity.
+Open `http://localhost:3000`. Edit an entry, run the cost agent, or roll back to
+a prior revision; each records one governed `Change` and (when configured)
+dispatches it to Veritio Cloud. The change feed shows the honest dispatch status.
 
-API smoke:
+## Connect to Veritio Cloud
+
+By default the example runs **local-only** and skips network dispatch. To
+dispatch end to end, set these in `.env.local` (server-only — never `NEXT_PUBLIC_`):
 
 ```sh
-curl -X POST http://localhost:3000/api/projects \
-  -H 'content-type: application/json' \
-  -d '{"projectId":"project_demo","name":"Governed Project","requestId":"demo:create"}'
-curl -X PUT http://localhost:3000/api/projects \
-  -H 'content-type: application/json' \
-  -d '{"projectId":"project_demo","status":"archived","requestId":"demo:update"}'
-curl -X DELETE http://localhost:3000/api/projects \
-  -H 'content-type: application/json' \
-  -d '{"projectId":"project_demo","requestId":"demo:delete"}'
-curl -X POST http://localhost:3000/api/scenarios/governed-lifecycle
-curl -X POST http://localhost:3000/api/scenarios/governed-change
-curl http://localhost:3000/api/evidence
+VERITIO_CLOUD_BASE_URL=http://localhost:3010
+VERITIO_CLOUD_PROJECT_ID=<the Cloud project id (becomes scope.tenantId)>
+VERITIO_CLOUD_INGEST_TOKEN=vrt_...   # an "ingest"-authority scoped key
 ```
+
+Restart the dev server, then open the Cloud → Evidence → Changes surface to watch
+entries land. The hosted ingest rejects a batch unless `scope.tenantId` equals
+the key's project, so the project id IS the tenant.
 
 ## Why It Works
 
 Next route handlers and server actions are host boundaries. Veritio receives
-already-resolved tenant and actor identity from those server boundaries, then
-records deterministic, tenant-scoped audit and graph records. The sample is
-zero-config and in-memory, so it works without hosted Veritio, a database, or
-auth provider credentials.
+already-resolved tenant and actor identity from those boundaries, captures a
+deterministic governed change, stages it in a transactional outbox, and
+dispatches it server-to-server. The sample is zero-config and in-memory, so it
+works without hosted Veritio, a database, or auth provider credentials.
 
 Before production use, replace the reference session with a real Better Auth
-session plus tenant or organization membership lookup, and replace the in-memory
-stores with durable storage. The Better Auth `secret` and `baseURL` in
-`src/veritio/auth.ts` are local reference values only.
+session plus tenant or organization membership lookup, replace the in-memory
+stores with durable storage, and inject a rotated tenant-scoped HMAC secret. The
+Better Auth `secret` and `baseURL` in `src/veritio/auth.ts` are local reference
+values only.

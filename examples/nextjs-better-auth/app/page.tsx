@@ -1,246 +1,174 @@
-import Link from "next/link";
-import { runGovernedChange } from "./actions/run-governed-change";
-import { recordProfileUpdate } from "./actions/record-profile-update";
-import { runGovernedCrud } from "./actions/run-governed-crud";
-import { runGovernedLifecycle } from "./actions/run-governed-lifecycle";
-import { getReferenceEvidenceTrail, getReferenceGovernedProvenance } from "../src/veritio/server";
+import { Badge } from "../src/veritio-ui/react/badge";
+import { Button } from "../src/veritio-ui/react/button";
+import { Card, CardContent } from "../src/veritio-ui/react/card";
+import { cloudStatus, listChangeFeed, listEntries } from "../src/server/governed-entries";
+import { listAgentSessions } from "../src/server/governed-session";
+import type { CloudPublicConfig } from "../src/server/cloud-ingest";
+import type { ChangeFeedItem } from "../src/server/governed-entries";
+import { runAgentSessionAction, submitGovernedAction } from "./actions/governed";
+import { EntryCard } from "./_components/entry-card";
+import { AgentSessions } from "./_components/agent-sessions";
+import { DispatchBadge } from "./_components/dispatch-badge";
 
+// Always re-read the in-memory governed snapshot on each request; a server
+// action's revalidatePath('/') invalidates this so a recorded change shows up
+// immediately on the next render.
 export const dynamic = "force-dynamic";
 
+/**
+ * The flagship governed-change demo on the Next.js App Router. This is a server
+ * component: it reads the current governed snapshot (entries, change feed, cloud
+ * status) directly from the server-only engine — no fetch, no API route. A real
+ * UI action (edit an entry, run the cost agent, roll back) is sent through the
+ * `submitGovernedAction` server action, which captures it through the SDK, stages
+ * it in a transactional outbox, and dispatches server-to-server to hosted Veritio
+ * Cloud, then revalidates this route so the new revision renders. The browser
+ * never sees the ingest key or the tenant id.
+ */
 export default async function HomePage() {
-  const trail = await getReferenceEvidenceTrail(5);
-  const provenance = await getReferenceGovernedProvenance();
+  const entries = listEntries();
+  const feed = listChangeFeed();
+  const sessions = listAgentSessions();
+  const cloud = cloudStatus();
 
   return (
-    <main className="shell">
-      <section className="intro">
-        <p className="eyebrow">Next.js App Router + Better Auth</p>
-        <h1>Server-owned governed CRUD reference</h1>
-        <p>
-          Record Better Auth lifecycle and app-domain CRUD events while tenant
-          and actor identity stay behind the host boundary.
-        </p>
-      </section>
+    <div className="min-h-screen bg-dotgrid">
+      <Topbar cloud={cloud} />
+      <main className="mx-auto max-w-6xl space-y-8 px-6 py-8">
+        <Intro cloud={cloud} />
 
-      <section className="grid">
-        <form action={runGovernedCrud} className="panel form-panel">
-          <div>
-            <h2>Run governed CRUD</h2>
-            <p>Create, archive, and delete the demo project with event and graph evidence.</p>
+        <section className="space-y-3">
+          <SectionHeader title="Governed entities" hint="Each action below records one governed change." />
+          <div className="grid gap-4 md:grid-cols-2">
+            {entries.map((entry) => (
+              <EntryCard key={entry.id} entry={entry} cloud={cloud} action={submitGovernedAction} />
+            ))}
           </div>
-          <button type="submit">Run sequence</button>
-        </form>
+        </section>
 
-        <form action={runGovernedLifecycle} className="panel form-panel">
-          <div>
-            <h2>Run lifecycle graph</h2>
-            <p>Record auth, org, consent, subject request, export, retention, and processor evidence.</p>
-          </div>
-          <button type="submit">Run lifecycle</button>
-        </form>
+        <AgentSessions sessions={sessions} action={runAgentSessionAction} />
 
-        <form action={runGovernedChange} className="panel form-panel">
-          <div>
-            <h2>Run governed change</h2>
-            <p>Record a project-entry recalculation, entity revision, explain path, diff, and rollback revision.</p>
-          </div>
-          <button type="submit">Run change</button>
-        </form>
-
-        <form action={recordProfileUpdate} className="panel form-panel">
-          <div>
-            <h2>Record profile update</h2>
-            <p>Only the profile resource id is submitted by the form.</p>
-          </div>
-          <label htmlFor="profileId">Profile ID</label>
-          <input
-            id="profileId"
-            name="profileId"
-            defaultValue="profile_demo"
-            maxLength={80}
-            pattern="[A-Za-z0-9_.:-]+"
-            required
+        <section className="space-y-3">
+          <SectionHeader
+            title="Recent governed changes"
+            hint={
+              cloud.configured
+                ? "Dispatched server-to-server to Veritio Cloud."
+                : "Local only — configure the cloud to dispatch."
+            }
           />
-          <button type="submit">Record event</button>
-        </form>
-
-        <section className="panel">
-          <h2>Server boundary</h2>
-          <dl className="facts">
-            <div>
-              <dt>Tenant</dt>
-              <dd>{trail.session.tenantId}</dd>
-            </div>
-            <div>
-              <dt>Actor</dt>
-              <dd>{trail.session.actorUserId}</dd>
-            </div>
-            <div>
-              <dt>Chain</dt>
-              <dd>{trail.verification.ok ? "valid" : trail.verification.reason}</dd>
-            </div>
-            <div>
-              <dt>Graph</dt>
-              <dd>{trail.edgeVerification.ok ? "valid" : trail.edgeVerification.reason}</dd>
-            </div>
-          </dl>
+          <ChangeFeed feed={feed} />
         </section>
-      </section>
-
-      <section className="panel">
-        <div className="section-header">
-          <h2>Changes</h2>
-          <span className="badge">current protocol</span>
-        </div>
-        {provenance.changes.length === 0 ? (
-          <p className="empty">Run the governed change scenario to create Change views.</p>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Change</th>
-                  <th>Activity</th>
-                  <th>Output revision</th>
-                  <th>Evidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {provenance.changes.map((change) => (
-                  <tr key={change.id}>
-                    <td>
-                      <strong>{change.title}</strong>
-                      <br />
-                      <code>{change.id}</code>
-                    </td>
-                    <td>{change.activityIds.join(", ")}</td>
-                    <td>{change.outputRevisionIds.map((id, index) => <code key={`${id}-${index}`}>{id}</code>)}</td>
-                    <td>{change.supportingRecordIds.length} records</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      <section className="grid">
-        <section className="panel">
-          <h2>Entity timeline</h2>
-          {provenance.entityTimeline.revisions.length === 0 ? (
-            <p className="empty">No project-entry revisions captured yet.</p>
-          ) : (
-            <ol className="timeline">
-              {provenance.entityTimeline.revisions.map((revision) => (
-                <li key={revision.id}>
-                  <code>{revision.id}</code>
-                  <span>{revision.changedPaths.join(", ")}</span>
-                  <small>{revision.occurredAt}</small>
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-
-        <section className="panel">
-          <h2>Explain value</h2>
-          {provenance.explain ? (
-            <dl className="facts">
-              <div>
-                <dt>Change</dt>
-                <dd><code>{provenance.explain.changeId}</code></dd>
-              </div>
-              <div>
-                <dt>Known coverage</dt>
-                <dd>{provenance.explain.knownCoverage.join(", ")}</dd>
-              </div>
-              <div>
-                <dt>Not captured</dt>
-                <dd>{provenance.explain.notCaptured.join(", ")}</dd>
-              </div>
-            </dl>
-          ) : (
-            <p className="empty">No explainable change yet.</p>
-          )}
-        </section>
-      </section>
-
-      <section className="panel">
-        <h2>Revision diff</h2>
-        {provenance.diff ? (
-          <div className="diff-grid">
-            {Object.entries(provenance.diff.after).map(([key, value]) => (
-              <div key={key} className="diff-cell">
-                <span>{key}</span>
-                <code>{formatDiffValue(value)}</code>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="empty">No captured revision diff yet.</p>
-        )}
-      </section>
-
-      <section className="panel">
-        <div className="section-header">
-          <h2>Recent records</h2>
-          <Link href="/audit">View all</Link>
-        </div>
-        <RecordList records={trail.records} />
-      </section>
-
-      <section className="panel">
-        <h2>Recent graph edges</h2>
-        {trail.edgeRecords.length === 0 ? (
-          <p className="empty">No graph edges yet.</p>
-        ) : (
-          <ol className="records">
-            {trail.edgeRecords.map((record) => (
-              <li key={record.hash}>
-                <span className="sequence">#{record.sequence}</span>
-                <span>{record.edge.relation}</span>
-                <code>
-                  {record.edge.from.id} → {record.edge.to.resourceType}:{record.edge.to.id}
-                </code>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-    </main>
+      </main>
+    </div>
   );
 }
 
-/**
- * Formats captured governed-field values without exposing object internals as
- * `[object Object]`.
- */
-function formatDiffValue(value: unknown): string {
-  return typeof value === "object" && value !== null ? JSON.stringify(value) : String(value);
+/** Sticky topbar mirroring the Cloud's chrome: brand, cloud status, deep link. */
+function Topbar({ cloud }: Readonly<{ cloud: CloudPublicConfig }>) {
+  return (
+    <header className="sticky top-0 z-10 border-b border-border bg-card/85 backdrop-blur-md">
+      <div className="mx-auto flex h-16 max-w-6xl items-center gap-3 px-6">
+        <span className="size-2.5 rounded-full bg-success" aria-hidden />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold tracking-tight text-foreground">Veritio · Governed changes</p>
+          <p className="truncate text-[11px] text-muted-foreground">
+            Next.js App Router reference — edit → capture → outbox → hosted ingest
+          </p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {cloud.configured ? (
+            <Badge variant="success" className="font-mono text-[10px]">
+              Cloud · {cloud.projectId?.slice(0, 8)}…
+            </Badge>
+          ) : (
+            <Badge variant="muted" className="text-[10px]">
+              Local only
+            </Badge>
+          )}
+          {cloud.configured && cloud.changesUrl ? (
+            <Button asChild size="sm" variant="outline" className="h-8">
+              <a href={cloud.changesUrl} target="_blank" rel="noreferrer">
+                View in Veritio Cloud
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </header>
+  );
 }
 
-/**
- * Renders recent audit records without exposing raw record metadata in the
- * reference dashboard.
- */
-function RecordList({
-  records,
-}: Readonly<{
-  records: Awaited<ReturnType<typeof getReferenceEvidenceTrail>>["records"];
-}>) {
-  if (records.length === 0) {
-    return <p className="empty">No audit records yet.</p>;
-  }
-
+/** Explains the loop, and how to point the example at a hosted Cloud project. */
+function Intro({ cloud }: Readonly<{ cloud: CloudPublicConfig }>) {
   return (
-    <ol className="records">
-      {records.map((record) => (
-        <li key={record.hash}>
-          <span className="sequence">#{record.sequence}</span>
-          <span>{record.event.action}</span>
-          <code>{record.event.target.type}:{record.event.target.id}</code>
-        </li>
+    <Card className="bg-card/60">
+      <CardContent className="space-y-2 p-5 text-sm text-muted-foreground">
+        <p className="text-foreground">
+          A real UI action becomes a governed <span className="font-medium">Change</span>: captured by{" "}
+          <code className="font-mono text-xs">createGovernedChangeDraft</code>, staged in a transactional outbox, and
+          dispatched to the hosted Cloud ingest — all inside an App Router server action. Tenant and the ingest key stay
+          on the server; the browser never sees them.
+        </p>
+        {cloud.configured ? (
+          <p>
+            Dispatching to <span className="font-mono text-xs text-foreground">{cloud.baseUrl}</span> · project{" "}
+            <span className="font-mono text-xs text-foreground">{cloud.projectId}</span>. Open the Cloud → Evidence →
+            Changes to watch entries land.
+          </p>
+        ) : (
+          <p>
+            Running <span className="font-medium text-foreground">local-only</span>. Set{" "}
+            <code className="font-mono text-xs">VERITIO_CLOUD_BASE_URL</code>,{" "}
+            <code className="font-mono text-xs">VERITIO_CLOUD_PROJECT_ID</code>, and{" "}
+            <code className="font-mono text-xs">VERITIO_CLOUD_INGEST_TOKEN</code> (an <em>ingest</em> scoped key from
+            the Cloud console) in <code className="font-mono text-xs">.env.local</code> and restart to dispatch
+            end-to-end.
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function SectionHeader({ title, hint }: Readonly<{ title: string; hint: string }>) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 border-b border-border pb-2">
+      <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
+      <p className="text-[11px] text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+/** The recent governed-change feed with per-change dispatch status. */
+function ChangeFeed({ feed }: Readonly<{ feed: ChangeFeedItem[] }>) {
+  if (feed.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          No governed changes yet — edit an entry, run the cost agent, or roll back to record the first one.
+        </CardContent>
+      </Card>
+    );
+  }
+  return (
+    <Card className="overflow-hidden">
+      {feed.map((item) => (
+        <div
+          key={item.changeId}
+          className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0"
+        >
+          <div className="min-w-0">
+            <p className="truncate text-sm text-foreground">{item.changeType}</p>
+            <p className="truncate font-mono text-[11px] text-muted-foreground">{item.changeId}</p>
+          </div>
+          <div className="min-w-0 text-xs text-muted-foreground">
+            <p className="truncate">{item.entryName}</p>
+            <p className="truncate">{item.actorLabel}</p>
+          </div>
+          <DispatchBadge dispatch={item.dispatch} />
+        </div>
       ))}
-    </ol>
+    </Card>
   );
 }

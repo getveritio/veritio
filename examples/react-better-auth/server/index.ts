@@ -1,16 +1,15 @@
 import express from "express";
-import type { Request } from "express";
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth";
 import {
-  auditRecorder,
-  getReferenceEvidenceTrail,
-  listAuditTrailForTenant,
-  recordProjectMutation,
-  resolveReferenceSession,
-  runGovernedLifecycleScenario,
-  type ProjectMutationKind,
-} from "./veritio";
+  cloudStatus,
+  listChangeFeed,
+  listEntries,
+  runGovernedAction,
+  type GovernedActionInput,
+  type GovernedActionKind,
+} from "./governed-entries";
+import { listAgentSessions, runAgentSession } from "./governed-session";
 
 const app = express();
 
@@ -22,103 +21,92 @@ app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
 /**
- * Returns the reference tenant audit records for examples that only need the
- * event chain.
+ * Returns the governed-change snapshot the SPA renders: current entities, the
+ * recent change feed, recent agent sessions, and the browser-safe cloud config
+ * (NEVER the ingest token). This is the read half of the governed-change flow;
+ * identity, tenant, and the ingest key all stay on this server boundary.
  */
-app.get("/api/audit", async (request, response) => {
-  const session = await resolveReferenceSession(request);
-
+app.get("/api/governed/snapshot", (_request, response) => {
   response.json({
-    records: await listAuditTrailForTenant({ tenantId: session.tenantId, limit: 100 }),
+    entries: listEntries(),
+    feed: listChangeFeed(),
+    sessions: listAgentSessions(),
+    cloud: cloudStatus(),
   });
 });
 
 /**
- * Returns the complete local evidence snapshot: audit records, activity graph
- * edges, verification results, and current in-memory project state.
+ * Runs one governed agent session: a multi-step, `sessionId`-grouped workflow
+ * (session → prompt → tool read → proposal → file change → governed recalcs →
+ * human approval) that populates the Cloud's Agent Sessions / Activity Graph /
+ * Code Changes / Changes surfaces from one click. Identity, tenant, and the
+ * ingest key are all server-owned; the browser only triggers the run.
  */
-app.get("/api/evidence", async (request, response) => {
-  const session = await resolveReferenceSession(request);
-  response.json(await getReferenceEvidenceTrail({ tenantId: session.tenantId, limit: 100 }));
+app.post("/api/governed/session", async (_request, response) => {
+  try {
+    response.json(await runAgentSession());
+  } catch (error) {
+    response.status(500).json({ error: error instanceof Error ? error.message : "agent session failed" });
+  }
 });
 
 /**
- * Creates a demo project and emits both an audit event and graph edge through
- * the server-owned Veritio boundary.
+ * Runs one governed action (create / update / agent recalc / rollback). The body
+ * is validated and fails closed before it can affect an entry id, actor id, or
+ * the rollback target; the governed engine then builds the change draft, stages
+ * the outbox, and dispatches server-to-server to hosted ingest.
  */
-app.post("/api/projects", async (request, response) => {
-  response.status(201).json(await recordProjectRouteMutation(request, "create"));
+app.post("/api/governed/action", async (request, response) => {
+  let input: GovernedActionInput;
+  try {
+    input = readGovernedActionInput(request.body);
+  } catch (error) {
+    response.status(400).json({ error: error instanceof Error ? error.message : "invalid action input" });
+    return;
+  }
+  try {
+    response.json(await runGovernedAction(input));
+  } catch (error) {
+    response.status(409).json({ error: error instanceof Error ? error.message : "governed action failed" });
+  }
 });
 
 /**
- * Updates a demo project and records the governed mutation without trusting
- * tenant or actor identity from the browser.
+ * Validates and narrows the governed-action request body before it reaches the
+ * server-owned engine. Identifiers feed change ids and idempotency-key material,
+ * so they fail closed; tenant and the ingest key are never accepted from the
+ * browser (the engine owns them).
  */
-app.put("/api/projects", async (request, response) => {
-  response.json(await recordProjectRouteMutation(request, "update"));
-});
+function readGovernedActionInput(body: unknown): GovernedActionInput {
+  if (typeof body !== "object" || body === null) {
+    throw new TypeError("request body must be a JSON object");
+  }
+  const raw = body as Record<string, unknown>;
+  const kinds: GovernedActionKind[] = ["create", "update", "agent_recalc", "rollback"];
+  if (typeof raw.kind !== "string" || !kinds.includes(raw.kind as GovernedActionKind)) {
+    throw new TypeError("kind must be one of create, update, agent_recalc, rollback");
+  }
+  if (typeof raw.entryId !== "string") {
+    throw new TypeError("entryId is required");
+  }
+  const input: GovernedActionInput = { kind: raw.kind as GovernedActionKind, entryId: readIdentifier(raw.entryId) };
+  if (typeof raw.name === "string") input.name = raw.name;
+  if (typeof raw.customerEmail === "string") input.customerEmail = raw.customerEmail;
+  if (raw.quantity !== undefined) input.quantity = readNumber(raw.quantity, "quantity");
+  if (raw.monthlyPrice !== undefined) input.monthlyPrice = readNumber(raw.monthlyPrice, "monthlyPrice");
+  if (raw.status === "active" || raw.status === "archived") input.status = raw.status;
+  if (typeof raw.rollbackToRevisionId === "string")
+    input.rollbackToRevisionId = readIdentifier(raw.rollbackToRevisionId);
+  if (typeof raw.actorId === "string") input.actorId = readIdentifier(raw.actorId);
+  return input;
+}
 
-/**
- * Deletes a demo project in the local store and appends a delete edge to the
- * tenant-scoped activity graph.
- */
-app.delete("/api/projects", async (request, response) => {
-  response.json(await recordProjectRouteMutation(request, "delete"));
-});
-
-/**
- * Runs the larger helper-driven lifecycle scenario so readers can inspect auth,
- * organization, consent, subject-request, export, retention, and processor graph
- * evidence from one endpoint.
- */
-app.post("/api/scenarios/governed-lifecycle", async (request, response) => {
-  const session = await resolveReferenceSession(request);
-  response.json(await runGovernedLifecycleScenario(session));
-});
-
-/**
- * Records the original profile-update event used by the first Better Auth
- * example iteration.
- */
-app.post("/api/profile-updates", async (request, response) => {
-  const session = await resolveReferenceSession(request);
-  const { profileId, requestId } = request.body as Record<string, string>;
-  const record = await auditRecorder.record(
-    {
-      actor: { type: "user", id: session.actorUserId },
-      action: "profile.updated",
-      target: { type: "profile", id: profileId },
-      scope: { tenantId: session.tenantId, environment: "reference" },
-      requestId,
-      purpose: "account_management",
-      lawfulBasis: "contract",
-      retention: "security_1y",
-      metadata: {},
-    },
-    { idempotencyKey: `profile-updated:${session.tenantId}:${profileId}:${requestId ?? "manual"}` },
-  );
-
-  response.status(201).json({ record });
-});
-
-/**
- * Parses and validates the project API body before it can affect resource ids or
- * idempotency-key material.
- */
-async function recordProjectRouteMutation(request: Request, kind: ProjectMutationKind) {
-  const session = await resolveReferenceSession(request);
-  const body = request.body as Record<string, string | undefined>;
-  const projectId = readIdentifier(body.projectId ?? "project_demo");
-  const requestId = readIdentifier(body.requestId ?? `ref_${Date.now()}`);
-  return recordProjectMutation({
-    kind,
-    session,
-    projectId,
-    name: body.name,
-    status: body.status === "archived" ? "archived" : "active",
-    requestId,
-    source: "react_express_api",
-  });
+/** Accepts a finite numeric field and fails closed on anything else. */
+function readNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new TypeError(`${field} must be a finite number`);
+  }
+  return value;
 }
 
 /**
