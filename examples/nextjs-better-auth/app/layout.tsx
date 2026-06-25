@@ -1,28 +1,31 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Veritio Next.js Better Auth Reference",
-  description: "Server-side Veritio audit trail reference for Next.js App Router and Better Auth.",
+  title: "Veritio · Governed changes (Next.js)",
+  description:
+    "Server-owned governed-change reference: a Next.js App Router action captures a change through the Veritio SDK and dispatches it to hosted Veritio Cloud.",
 };
 
+/**
+ * Root layout. It loads Geist / Geist Mono from Google Fonts (the kit's
+ * styles.css only wires the font *names* into the token stack, so the consuming
+ * app must supply the font itself) and renders the page bare — the home page
+ * owns its own dot-grid shell and topbar, matching the flagship example.
+ */
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en">
-      <body>
-        <header className="topbar">
-          <Link className="brand" href="/">
-            Veritio
-          </Link>
-          <nav aria-label="Primary">
-            <Link href="/">Record</Link>
-            <Link href="/audit">Audit trail</Link>
-          </nav>
-        </header>
-        {children}
-      </body>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500&family=Geist:wght@400;500;600;700&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body>{children}</body>
     </html>
   );
 }

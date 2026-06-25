@@ -9,25 +9,31 @@
   },
   "workspaces": [
     "../../sdks/typescript",
-    "../../adapters/better-auth",
-    "../../adapters/tanstack-start"
+    "../../storage",
+    "../../adapters/better-auth"
   ],
   "dependencies": {
+    "@radix-ui/react-slot": "^1.2.5",
     "@tanstack/react-router": "^1.170.15",
     "@tanstack/react-start": "^1.168.25",
     "@veritio/better-auth": "workspace:*",
     "@veritio/core": "workspace:*",
-    "@veritio/tanstack-start": "workspace:*",
+    "@veritio/storage": "file:../../storage",
     "better-auth": "^1.6.18",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260613.1",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^25.9.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.16"
   },

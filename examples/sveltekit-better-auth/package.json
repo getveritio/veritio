@@ -5,10 +5,12 @@
   "scripts": {
     "dev": "vite --host localhost",
     "build": "vite build",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "workspaces": [
     "../../sdks/typescript",
+    "../../storage",
     "../../adapters/better-auth"
   ],
   "dependencies": {
@@ -17,14 +19,17 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@veritio/better-auth": "workspace:*",
     "@veritio/core": "workspace:*",
+    "@veritio/storage": "file:../../storage",
     "better-auth": "^1.6.18",
     "svelte": "^5.56.3",
     "vite": "^8.0.16"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260613.1",
+    "@tailwindcss/vite": "^4.3.1",
     "@types/node": "^25.9.3",
     "svelte-check": "^4.6.0",
+    "tailwindcss": "^4.3.1",
     "typescript": "^6.0.3"
   },
   "overrides": {
