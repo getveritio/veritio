@@ -1,5 +1,5 @@
 import { describe, test } from "bun:test";
-import { MongoClient, type Collection } from "mongodb";
+import type { Collection } from "mongodb";
 import mysql, { type Pool as MySqlPool } from "mysql2/promise";
 import pg, { type Pool as PgPool } from "pg";
 import { type AuditRecord } from "@veritio/core";
@@ -51,21 +51,14 @@ if (mongoUrl) {
 /**
  * Registers live SQL conformance tests against one ephemeral tenant-chain table.
  */
-function defineSqlLiveSuite(
-  label: string,
-  dialect: SqlDialect,
-  url: string,
-  createStore: SqlStoreFactory,
-): void {
+function defineSqlLiveSuite(label: string, dialect: SqlDialect, url: string, createStore: SqlStoreFactory): void {
   describe(`${label} live AuditStore conformance`, () => {
     for (const conformanceTest of createAuditStoreConformanceTests({
       name: `${label} live`,
       async createTarget() {
         const tableName = uniqueIdentifier(`veritio_${label}_audit_records`);
         const target =
-          dialect === "postgres"
-            ? await createPostgresTarget(url, tableName)
-            : await createMySqlTarget(url, tableName);
+          dialect === "postgres" ? await createPostgresTarget(url, tableName) : await createMySqlTarget(url, tableName);
         return {
           store: createStore({ client: target.executor, tableName }),
           /**
@@ -221,6 +214,12 @@ function defineMongoLiveSuite(url: string): void {
     for (const conformanceTest of createAuditStoreConformanceTests({
       name: "mongodb live",
       async createTarget() {
+        // Import the driver lazily so this suite (and the whole file) does not
+        // load `mongodb`/`bson` unless a live Mongo URL is configured. Some
+        // bson builds call `node:v8` APIs that are unimplemented under Bun, so
+        // an eager top-level import would crash the file on Bun even when the
+        // Mongo conformance suite is not selected.
+        const { MongoClient } = await import("mongodb");
         const collectionName = uniqueIdentifier("veritio_mongo_audit_records");
         const client = new MongoClient(url);
         await client.connect();

@@ -30,6 +30,8 @@ class FastAPIGovernedCrudTests(unittest.TestCase):
         )
         self.assertEqual(evidence["auditVerification"], {"ok": True})
         self.assertEqual(evidence["edgeVerification"], {"ok": True})
+        self.assertEqual(evidence["commitVerification"], {"ok": True})
+        self.assertEqual([commit["recordCount"] for commit in evidence["commitRecords"]], [2, 2, 2])
         self.assertEqual(evidence["auditRecords"][0]["event"]["scope"]["tenantId"], "tenant_demo")
         self.assertEqual(evidence["auditRecords"][0]["event"]["actor"]["id"], "user_demo")
         self.assertEqual(evidence["auditRecords"][0]["event"]["metadata"]["projectNameHash"].startswith("sha256:"), True)
@@ -41,6 +43,8 @@ class FastAPIGovernedCrudTests(unittest.TestCase):
         scenario = client.post("/scenarios/governed-lifecycle").json()
         self.assertGreaterEqual(scenario["eventCount"], 8)
         self.assertGreaterEqual(scenario["edgeCount"], 10)
+        self.assertEqual(scenario["commitRecordCount"], scenario["eventCount"] + scenario["edgeCount"])
+        self.assertEqual(scenario["commitVerification"], {"ok": True})
         self.assertTrue(scenario["canonicalPlanHash"].startswith("sha256:"))
 
         evidence = client.get("/evidence").json()
@@ -62,6 +66,8 @@ class FastAPIGovernedCrudTests(unittest.TestCase):
 
         self.assertEqual(evidence["auditVerification"], {"ok": True})
         self.assertEqual(evidence["edgeVerification"], {"ok": True})
+        self.assertEqual(evidence["commitVerification"], {"ok": True})
+        self.assertEqual(evidence["commitRecords"][0]["commitId"], "cmt_governed_lifecycle_demo")
 
 
 if __name__ == "__main__":

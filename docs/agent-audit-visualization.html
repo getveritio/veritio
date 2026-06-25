@@ -332,7 +332,7 @@ footer b{color:var(--ink-dim)}
         <div class="tag"><b>1</b> AGENT<br>RUNTIME</div>
         <div class="card">
           <h4>OpenCode CLI &nbsp;<span class="st impl">IMPLEMENTED</span> &nbsp; → &nbsp; Anthropic Agent SDK · OpenAI SDK &nbsp;<span class="st plan">FUTURE</span></h4>
-          <p>Claude runs in an isolated sandbox container. Worker-side orchestration lives in <span style="color:var(--verify);font-family:var(--mono);font-size:13px">apps/workers/src/opencode/*</span> — event-stream · session · message · family-proxy · ai-usage-capture.</p>
+          <p>Claude runs in an isolated sandbox container. Hosted worker orchestration is outside this OSS repo; this repo owns the portable evidence vocabulary, SDK recorder, Workbench, and verifier.</p>
         </div>
       </div>
       <div class="flowdown">▼ raw agent activity</div>
@@ -630,7 +630,7 @@ footer b{color:var(--ink-dim)}
       <tbody>
         <tr><td>Event + edge schemas, hash chain, verifier</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>spec/*.json</code> · <code>sdks/typescript/src/index.ts</code></td></tr>
         <tr><td>Evidence-graph store, Workbench, MCP, change-provenance scenario</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>server/node/src/index.ts</code> · tests pass</td></tr>
-        <tr><td>OpenCode stream normalization, turn capture, R2 writes, token/cost</td><td><span class="st impl">IMPLEMENTED</span></td><td><code>apps/workers/src/opencode/{event-stream,message,ai-usage-capture}.ts</code></td></tr>
+        <tr><td>Hosted OpenCode stream normalization, R2 writes, token/cost</td><td><span class="st plan">HOSTED OWNER</span></td><td>Owned by <code>veritio-cloud</code>; OSS records portable evidence payloads only</td></tr>
         <tr><td>Provider-agnostic seam (OpenCode / Anthropic / OpenAI)</td><td><span class="st plan">DESIGNED</span></td><td>provider is metadata; <code>family-proxy.ts</code> / <code>llm-proxy.ts</code> abstract providers</td></tr>
         <tr><td>High-level agent recorder (startSession / recordToolCall / recordFileChange)</td><td><span class="st plan">DESIGNED</span></td><td>spec §“SDK Surface”; SDK ships only the primitives</td></tr>
         <tr><td>Python / Go edge + graph parity</td><td><span class="st gap">GAP</span></td><td>TS has edges; <code>sdks/python</code> &amp; <code>sdks/go</code> ship <code>event</code> only</td></tr>

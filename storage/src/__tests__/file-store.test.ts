@@ -58,6 +58,47 @@ describe("createFileEvidenceStore", () => {
     expect(report.ok).toBe(true);
   });
 
+  test("batch appends events, edges, and an EvidenceCommit manifest", async () => {
+    const store = createFileEvidenceStore(dir);
+    const batch = await store.recordBatch({
+      commitId: "cmt_local_batch_01",
+      streamId: "str_local_tenant",
+      events: [eventInput("evt_batch_1")],
+      edges: [edgeInput("edge_batch_1")],
+      committedAt: "2026-06-23T10:15:31.000Z",
+    });
+
+    expect(batch.events).toHaveLength(1);
+    expect(batch.edges).toHaveLength(1);
+    expect(batch.commit.recordCount).toBe(2);
+    expect(batch.commit.sequence).toBe(1);
+    expect(batch.commit.previousCommitHash).toBeNull();
+    expect(batch.commit.members.map((member) => member.recordType)).toEqual(["audit.record", "evidence.edge.record"]);
+
+    const second = await store.recordBatch({
+      commitId: "cmt_local_batch_02",
+      streamId: "str_local_tenant",
+      events: [eventInput("evt_batch_2")],
+      edges: [],
+      committedAt: "2026-06-23T10:16:31.000Z",
+    });
+
+    expect(second.commit.sequence).toBe(2);
+    expect(second.commit.previousCommitHash).toBe(batch.commit.hash);
+
+    const replay = await store.recordBatch({
+      commitId: "cmt_local_batch_01",
+      streamId: "str_local_tenant",
+      events: [eventInput("evt_batch_1")],
+      edges: [edgeInput("edge_batch_1")],
+      committedAt: "2026-06-23T10:15:31.000Z",
+    });
+    expect(replay.commit).toEqual(batch.commit);
+
+    expect((await store.verify()).commits).toEqual({ ok: true });
+    expect(await store.listCommits()).toHaveLength(2);
+  });
+
   test("replays idempotently and rejects a conflicting payload on the same id", async () => {
     const store = createFileEvidenceStore(dir);
     const first = await store.recordEvent(eventInput("evt_1"));

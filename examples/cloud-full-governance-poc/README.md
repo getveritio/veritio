@@ -1,8 +1,12 @@
-# Veritio Cloud Full Governance POC
+# Veritio Cloud Payload POC
 
-Runnable SDK coverage harness for Veritio Cloud ingest/read. It covers every
-current SDK audit template outside the excluded agent-session and code-change
-families.
+Runnable SDK coverage harness for hosted-compatible ingest/read payloads. It
+covers every current SDK audit template outside the excluded agent-session and
+code-change families.
+
+This example does not prove Cloudflare deployment readiness. The OSS repo owns
+the portable evidence payloads and optional HTTP smoke client; Worker, Pages,
+R2, D1, key routing, and deployment configuration belong in `veritio-cloud`.
 
 ## What It Covers
 
@@ -29,11 +33,11 @@ Data lifecycle:
 - `export.bundle.created`
 - `retention.policy.applied`
 
-Hosted Cloud control plane and machine-use actions:
+Hosted-compatible control plane and machine-use action payloads:
 
 - `project.created`
 - `project.updated`
-- `scoped.key.created` for machine-ingested SDK evidence, with hosted Cloud's
+- `scoped.key.created` for machine-ingested SDK evidence, with hosted service's
   `scoped_key.created` table action preserved in metadata.
 - `evidence.ingest.accepted`
 - `evidence.read.events`
@@ -72,8 +76,8 @@ plus surface `api`, `app`, `worker`, `cli`, and `webhook`.
 
 The framework examples show how to wire Veritio into app servers. This example
 is the broader coverage harness: it builds the complete non-agent/non-code SDK
-template surface, the hosted Cloud management/read/ingest surface, and can post
-that same payload to deployed Veritio Cloud.
+template surface, the hosted-compatible management/read/ingest payload surface,
+and can post that same payload to a deployed hosted Veritio endpoint.
 
 The payload avoids raw personal data, raw tokens, code paths, file contents,
 prompts, diffs, and agent-session records.
@@ -87,9 +91,9 @@ bun run typecheck
 bun test
 ```
 
-## Post To Deployed Veritio Cloud
+## Post To A Deployed Hosted Endpoint
 
-Create an ingest-scoped key for the project in Veritio Cloud, then run:
+Create an ingest-scoped key for the hosted project, then run:
 
 ```sh
 cd examples/cloud-full-governance-poc

@@ -1,0 +1,89 @@
+{
+  "name": "evidence-commit-v1",
+  "cases": [
+    {
+      "name": "binds ordered audit event and relation members",
+      "input": {
+        "commitId": "cmt_fixture_01",
+        "streamId": "str_fixture_production",
+        "sequence": 2,
+        "previousCommitHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "committedAt": "2026-06-23T10:15:31Z",
+        "members": [
+          {
+            "index": 1,
+            "recordType": "evidence.edge.record",
+            "recordId": "edge_fixture_change_output_revision_01",
+            "recordHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "index": 0,
+            "recordType": "audit.record",
+            "recordId": "evt_fixture_create_01",
+            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "expected": {
+        "recordType": "evidence.commit",
+        "schemaVersion": "2026-06-23",
+        "commitId": "cmt_fixture_01",
+        "streamId": "str_fixture_production",
+        "sequence": 2,
+        "previousCommitHash": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "members": [
+          {
+            "index": 0,
+            "recordType": "audit.record",
+            "recordId": "evt_fixture_create_01",
+            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "index": 1,
+            "recordType": "evidence.edge.record",
+            "recordId": "edge_fixture_change_output_revision_01",
+            "recordHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "recordCount": 2,
+        "recordsRoot": "sha256:4040a5c8636b866d16162c018402152a224a22f081884dcb0571226480eef3b4",
+        "canonicalization": "veritio-json-v1",
+        "hashAlgorithm": "sha256",
+        "treeAlgorithm": "veritio-merkle-v1",
+        "committedAt": "2026-06-23T10:15:31.000Z",
+        "hash": "sha256:9b9b466ef25443505eed06c0c56158e24808e945144fedd03b834916391d3316"
+      }
+    },
+    {
+      "name": "duplicates odd leaf at the last Merkle level",
+      "input": {
+        "commitId": "cmt_fixture_odd",
+        "streamId": "str_fixture_production",
+        "sequence": 3,
+        "previousCommitHash": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "committedAt": "2026-06-23T10:16:00.000Z",
+        "members": [
+          {
+            "index": 0,
+            "recordType": "audit.record",
+            "recordId": "evt_fixture_a",
+            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "index": 1,
+            "recordType": "evidence.edge.record",
+            "recordId": "edge_fixture_b",
+            "recordHash": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "index": 2,
+            "recordType": "entity.revision.record",
+            "recordId": "rev_fixture_c",
+            "recordHash": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+          }
+        ]
+      },
+      "expectedRecordsRoot": "sha256:ac195c160b8aaaf84f873ddb6cf379aa7a06f58c13ea5315979f1f4fa1a1cde8"
+    }
+  ]
+}

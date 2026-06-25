@@ -39,6 +39,14 @@ interface EdgeRecordHashingFixture {
   }>;
 }
 
+interface RedactionFixture {
+  cases: Array<{
+    name: string;
+    metadata: Record<string, unknown>;
+    expectedMetadata: Record<string, unknown>;
+  }>;
+}
+
 async function loadConformanceFixture<T>(fileName: string): Promise<T> {
   return (await Bun.file(join(CONFORMANCE_DIR, fileName)).json()) as T;
 }
@@ -158,6 +166,39 @@ describe("createEvidenceEdge", () => {
         metadata: {},
       }),
     ).toThrow("from.id is required");
+  });
+
+  test("accepts change-centric provenance entities and relations", () => {
+    const edge = createEvidenceEdge({
+      id: "edge_change_has_output_revision",
+      occurredAt: "2026-06-23T10:18:04.000Z",
+      scope: { tenantId: "org_acme_123", environment: "test" },
+      from: { type: "change", id: "chg_project_estimate_91", resourceType: "project.estimate.recalculation" },
+      relation: "has_output",
+      to: { type: "revision", id: "rev_project_estimate_19", resourceType: "project_estimate" },
+      metadata: {},
+    });
+
+    expect(edge.from.type).toBe("change");
+    expect(edge.relation).toBe("has_output");
+    expect(edge.to.type).toBe("revision");
+  });
+
+  test("matches redaction conformance fixtures for edge metadata", async () => {
+    const fixture = await loadConformanceFixture<RedactionFixture>("redaction.json");
+
+    for (const conformanceCase of fixture.cases) {
+      const edge = createEvidenceEdge({
+        id: "edge_redaction_fixture",
+        occurredAt: "2026-06-23T10:18:04.000Z",
+        from: { type: "change", id: "chg_redaction_fixture" },
+        relation: "has_output",
+        to: { type: "revision", id: "rev_redaction_fixture" },
+        metadata: conformanceCase.metadata,
+      });
+
+      expect(edge.metadata).toEqual(conformanceCase.expectedMetadata);
+    }
   });
 });
 

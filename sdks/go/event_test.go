@@ -64,6 +64,20 @@ func TestRedactionMatchesConformanceFixtures(t *testing.T) {
 			if !reflect.DeepEqual(event.Metadata, expected) {
 				t.Fatalf("expected %#v, got %#v", expected, event.Metadata)
 			}
+			edge, err := CreateEvidenceEdge(EvidenceEdgeInput{
+				ID:         "edge_redaction_fixture",
+				OccurredAt: "2026-06-23T10:18:04.000Z",
+				From:       EvidenceEntity{Type: "change", ID: "chg_redaction_fixture"},
+				Relation:   "has_output",
+				To:         EvidenceEntity{Type: "revision", ID: "rev_redaction_fixture"},
+				Metadata:   mapValue(t, conformanceCase["metadata"]),
+			})
+			if err != nil {
+				t.Fatalf("CreateEvidenceEdge returned error: %v", err)
+			}
+			if !reflect.DeepEqual(edge.Metadata, expected) {
+				t.Fatalf("expected edge metadata %#v, got %#v", expected, edge.Metadata)
+			}
 		})
 	}
 }
@@ -230,6 +244,169 @@ func TestEdgeRecordHashingMatchesConformanceFixtures(t *testing.T) {
 				t.Fatalf("expected %s, got %s", expected, actual)
 			}
 		})
+	}
+}
+
+func TestEvidenceCommitMatchesConformanceFixtures(t *testing.T) {
+	cases := fixtureCases(t, "evidence-commit.json")
+	orderedCase := cases[0]
+	oddCase := cases[1]
+
+	commit, err := CreateEvidenceCommit(decodeValue[EvidenceCommitInput](t, orderedCase["input"]))
+	if err != nil {
+		t.Fatalf("CreateEvidenceCommit returned error: %v", err)
+	}
+	actual := toJSONMap(t, commit)
+	expected := mapValue(t, orderedCase["expected"])
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("expected %#v, got %#v", expected, actual)
+	}
+	hash, err := HashEvidenceCommit(commit)
+	if err != nil {
+		t.Fatalf("HashEvidenceCommit returned error: %v", err)
+	}
+	if hash != commit.Hash {
+		t.Fatalf("expected hash %s, got %s", commit.Hash, hash)
+	}
+	result := VerifyEvidenceCommits([]EvidenceCommit{commit})
+	if result.OK || result.Index != 0 || result.Reason != "previous_hash_mismatch" {
+		t.Fatalf("unexpected verification result: %#v", result)
+	}
+
+	oddCommit, err := CreateEvidenceCommit(decodeValue[EvidenceCommitInput](t, oddCase["input"]))
+	if err != nil {
+		t.Fatalf("CreateEvidenceCommit returned error: %v", err)
+	}
+	if oddCommit.RecordsRoot != stringValue(t, oddCase["expectedRecordsRoot"]) {
+		t.Fatalf("expected odd root %s, got %s", stringValue(t, oddCase["expectedRecordsRoot"]), oddCommit.RecordsRoot)
+	}
+}
+
+func TestEvidenceCommitRejectsEmptyAndDuplicateMembers(t *testing.T) {
+	baseInput := EvidenceCommitInput{
+		CommitID:           "cmt_empty",
+		StreamID:           "str_fixture",
+		Sequence:           1,
+		PreviousCommitHash: nil,
+		CommittedAt:        "2026-06-23T10:15:31.000Z",
+		Members:            []EvidenceCommitMember{},
+	}
+
+	_, err := CreateEvidenceCommit(baseInput)
+	if err == nil || err.Error() != "members must not be empty" {
+		t.Fatalf("expected empty commit error, got %v", err)
+	}
+	_, err = CreateEvidenceCommit(EvidenceCommitInput{
+		CommitID:           "cmt_duplicate",
+		StreamID:           "str_fixture",
+		Sequence:           1,
+		PreviousCommitHash: nil,
+		CommittedAt:        "2026-06-23T10:15:31.000Z",
+		Members: []EvidenceCommitMember{
+			{
+				Index:      0,
+				RecordType: "audit.record",
+				RecordID:   "evt_01",
+				RecordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+			{
+				Index:      1,
+				RecordType: "audit.record",
+				RecordID:   "evt_01",
+				RecordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		},
+	})
+	if err == nil || err.Error() != "duplicate commit member" {
+		t.Fatalf("expected duplicate member error, got %v", err)
+	}
+	_, err = CreateEvidenceCommit(EvidenceCommitInput{
+		CommitID:           "cmt_bad_time",
+		StreamID:           "str_fixture",
+		Sequence:           1,
+		PreviousCommitHash: nil,
+		CommittedAt:        "not-a-date",
+		Members: []EvidenceCommitMember{
+			{
+				Index:      0,
+				RecordType: "audit.record",
+				RecordID:   "evt_01",
+				RecordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		},
+	})
+	if err == nil || err.Error() != "committedAt must be a valid date" {
+		t.Fatalf("expected invalid committedAt error, got %v", err)
+	}
+}
+
+func TestEvidenceCommitVerifierDetectsChainAndHashTampering(t *testing.T) {
+	first, err := CreateEvidenceCommit(EvidenceCommitInput{
+		CommitID:           "cmt_01",
+		StreamID:           "str_fixture",
+		Sequence:           1,
+		PreviousCommitHash: nil,
+		CommittedAt:        "2026-06-23T10:15:31.000Z",
+		Members: []EvidenceCommitMember{
+			{
+				Index:      0,
+				RecordType: "audit.record",
+				RecordID:   "evt_01",
+				RecordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvidenceCommit returned error: %v", err)
+	}
+	second, err := CreateEvidenceCommit(EvidenceCommitInput{
+		CommitID:           "cmt_02",
+		StreamID:           "str_fixture",
+		Sequence:           2,
+		PreviousCommitHash: &first.Hash,
+		CommittedAt:        "2026-06-23T10:16:31.000Z",
+		Members: []EvidenceCommitMember{
+			{
+				Index:      0,
+				RecordType: "evidence.edge.record",
+				RecordID:   "edge_01",
+				RecordHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvidenceCommit returned error: %v", err)
+	}
+
+	result := VerifyEvidenceCommits([]EvidenceCommit{first, second})
+	if !result.OK {
+		t.Fatalf("expected ok verification, got %#v", result)
+	}
+	encodedOK, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal ok verifier result: %v", err)
+	}
+	if string(encodedOK) != `{"ok":true}` {
+		t.Fatalf("expected ok verifier JSON to match TS/Python shape, got %s", encodedOK)
+	}
+	tamperedPrevious := second
+	tamperedPrevious.PreviousCommitHash = nil
+	result = VerifyEvidenceCommits([]EvidenceCommit{tamperedPrevious})
+	if result.OK || result.Index != 0 || result.Reason != "sequence_mismatch" {
+		t.Fatalf("unexpected previous hash result: %#v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal verifier result: %v", err)
+	}
+	if !strings.Contains(string(encoded), `"index":0`) {
+		t.Fatalf("expected failed verifier JSON to include index 0, got %s", encoded)
+	}
+	tamperedCount := second
+	tamperedCount.RecordCount = 2
+	result = VerifyEvidenceCommits([]EvidenceCommit{first, tamperedCount})
+	if result.OK || result.Index != 1 || result.Reason != "record_count_mismatch" {
+		t.Fatalf("unexpected tamper result: %#v", result)
 	}
 }
 

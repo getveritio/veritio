@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import type { AuditEvent, AuditEventInput, JsonObject } from "../index";
+import type { AuditEvent, AuditEventInput, EvidenceCommit, EvidenceCommitInput, JsonObject } from "../index";
 import {
   auditLogClassificationMetadata,
   auditLogSurfaceValues,
@@ -9,13 +9,16 @@ import {
   auditTemplates,
   canonicalJson,
   createAuditEvent,
+  createEvidenceCommit,
   createAuditRecorder,
   detectAuditLogClassifiers,
   HASH_ALGORITHM,
   hashAuditEvent,
   hashAuditRecord,
+  hashEvidenceCommit,
   hashIdempotencyKey,
   MemoryAuditStore,
+  verifyEvidenceCommits,
   verifyAuditRecords,
 } from "../index";
 
@@ -62,6 +65,15 @@ interface AuditRecordHashingFixture {
     expectedIdempotencyKeyHash: string;
     recordWithoutHash: Parameters<typeof hashAuditRecord>[0];
     expectedHash: string;
+  }>;
+}
+
+interface EvidenceCommitFixture {
+  cases: Array<{
+    name: string;
+    input: EvidenceCommitInput;
+    expected?: EvidenceCommit;
+    expectedRecordsRoot?: string;
   }>;
 }
 
@@ -137,6 +149,43 @@ describe("audit record schema", () => {
     expect(schema.properties.event.allOf[1].properties.scope.required).toContain("tenantId");
     expect(schema.properties.event.allOf[1].properties.scope.properties.tenantId.minLength).toBe(1);
     expect(schema.$defs.sha256Hex.pattern).toBe("^[a-f0-9]{64}$");
+  });
+});
+
+describe("evidence commit schema", () => {
+  test("requires ordered members and algorithm-qualified commit hashes", async () => {
+    const schema = (await Bun.file("spec/evidence-commit.schema.json").json()) as {
+      required: string[];
+      properties: {
+        members: {
+          minItems: number;
+          items: {
+            required: string[];
+            properties: {
+              index: { minimum: number };
+              recordType: { enum: string[] };
+              recordHash: { pattern: string };
+            };
+          };
+        };
+        previousCommitHash: { anyOf: Array<{ type?: string; pattern?: string }> };
+        recordsRoot: { pattern: string };
+        hash: { pattern: string };
+        treeAlgorithm: { const: string };
+      };
+    };
+
+    expect(schema.required).toContain("members");
+    expect(schema.properties.members.minItems).toBe(1);
+    expect(schema.properties.members.items.required).toEqual(["index", "recordType", "recordId", "recordHash"]);
+    expect(schema.properties.members.items.properties.index.minimum).toBe(0);
+    expect(schema.properties.members.items.properties.recordType.enum).toContain("audit.record");
+    expect(schema.properties.members.items.properties.recordType.enum).toContain("evidence.edge.record");
+    expect(schema.properties.members.items.properties.recordHash.pattern).toBe("^sha256:[a-f0-9]{64}$");
+    expect(schema.properties.previousCommitHash.anyOf.some((variant) => variant.type === "null")).toBe(true);
+    expect(schema.properties.recordsRoot.pattern).toBe("^sha256:[a-f0-9]{64}$");
+    expect(schema.properties.hash.pattern).toBe("^sha256:[a-f0-9]{64}$");
+    expect(schema.properties.treeAlgorithm.const).toBe("veritio-merkle-v1");
   });
 });
 
@@ -278,6 +327,103 @@ describe("MemoryAuditStore", () => {
       );
       expect(hashAuditRecord(conformanceCase.recordWithoutHash)).toBe(conformanceCase.expectedHash);
     }
+  });
+});
+
+describe("EvidenceCommit", () => {
+  test("matches commit conformance fixtures and sorts members by index", async () => {
+    const fixture = await loadConformanceFixture<EvidenceCommitFixture>("evidence-commit.json");
+    const [orderedCase, oddCase] = fixture.cases;
+
+    const commit = createEvidenceCommit(orderedCase!.input);
+    expect(commit).toEqual(orderedCase!.expected);
+    expect(hashEvidenceCommit(commit)).toBe(commit.hash);
+    expect(verifyEvidenceCommits([commit])).toEqual({
+      ok: false,
+      index: 0,
+      reason: "previous_hash_mismatch",
+    });
+
+    const oddCommit = createEvidenceCommit(oddCase!.input);
+    expect(oddCommit.recordsRoot).toBe(oddCase!.expectedRecordsRoot);
+  });
+
+  test("rejects empty commits and duplicate members", () => {
+    const baseInput: EvidenceCommitInput = {
+      commitId: "cmt_empty",
+      streamId: "str_fixture",
+      sequence: 1,
+      previousCommitHash: null,
+      committedAt: "2026-06-23T10:15:31.000Z",
+      members: [],
+    };
+
+    expect(() => createEvidenceCommit(baseInput)).toThrow("members must not be empty");
+    expect(() =>
+      createEvidenceCommit({
+        ...baseInput,
+        commitId: "cmt_duplicate",
+        members: [
+          {
+            index: 0,
+            recordType: "audit.record",
+            recordId: "evt_01",
+            recordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+          {
+            index: 1,
+            recordType: "audit.record",
+            recordId: "evt_01",
+            recordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          },
+        ],
+      }),
+    ).toThrow("duplicate commit member");
+  });
+
+  test("verifies commit sequence, previous hash chain, and tampering", () => {
+    const first = createEvidenceCommit({
+      commitId: "cmt_01",
+      streamId: "str_fixture",
+      sequence: 1,
+      previousCommitHash: null,
+      committedAt: "2026-06-23T10:15:31.000Z",
+      members: [
+        {
+          index: 0,
+          recordType: "audit.record",
+          recordId: "evt_01",
+          recordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+    });
+    const second = createEvidenceCommit({
+      commitId: "cmt_02",
+      streamId: "str_fixture",
+      sequence: 2,
+      previousCommitHash: first.hash,
+      committedAt: "2026-06-23T10:16:31.000Z",
+      members: [
+        {
+          index: 0,
+          recordType: "evidence.edge.record",
+          recordId: "edge_01",
+          recordHash: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        },
+      ],
+    });
+
+    expect(verifyEvidenceCommits([first, second])).toEqual({ ok: true });
+    expect(verifyEvidenceCommits([{ ...second, previousCommitHash: null }])).toEqual({
+      ok: false,
+      index: 0,
+      reason: "sequence_mismatch",
+    });
+    expect(verifyEvidenceCommits([first, { ...second, recordCount: 2 }])).toEqual({
+      ok: false,
+      index: 1,
+      reason: "record_count_mismatch",
+    });
   });
 });
 

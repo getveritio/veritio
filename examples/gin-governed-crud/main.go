@@ -20,6 +20,7 @@ type demoState struct {
 	nextProjectID int
 	auditRecords  []veritio.AuditRecord
 	edgeRecords   []veritio.EvidenceEdgeRecord
+	commitRecords []veritio.EvidenceCommit
 }
 
 type project struct {
@@ -166,10 +167,12 @@ func (state *demoState) readEvidence(context *gin.Context) {
 	defer state.mutex.Unlock()
 
 	context.JSON(http.StatusOK, gin.H{
-		"auditRecords":      state.auditRecords,
-		"edgeRecords":       state.edgeRecords,
-		"auditVerification": verifyAuditRecords(state.auditRecords),
-		"edgeVerification":  verifyEdgeRecords(state.edgeRecords),
+		"auditRecords":       state.auditRecords,
+		"edgeRecords":        state.edgeRecords,
+		"commitRecords":      state.commitRecords,
+		"auditVerification":  verifyAuditRecords(state.auditRecords),
+		"edgeVerification":   verifyEdgeRecords(state.edgeRecords),
+		"commitVerification": veritio.VerifyEvidenceCommits(state.commitRecords),
 	})
 }
 

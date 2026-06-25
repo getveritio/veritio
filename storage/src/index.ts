@@ -736,3 +736,4 @@ function cloneRecord(record: AuditRecord): AuditRecord {
 }
 
 export * from "./file-store";
+export * from "./outbox";

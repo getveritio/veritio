@@ -97,7 +97,9 @@ export interface FullGovernanceScenario {
 
 /**
  * Builds the canonical non-agent/non-code governance scenario used for local
- * SDK coverage and deployed Veritio Cloud ingest smoke tests.
+ * SDK coverage and deployed hosted-ingest smoke tests. Cloudflare deployment
+ * configuration remains owned by veritio-cloud, not this portable payload
+ * harness.
  */
 export function buildFullGovernanceScenario(input: FullGovernanceScenarioInput): FullGovernanceScenario {
   const runId = input.runId ?? randomUUID();
@@ -271,7 +273,7 @@ export function buildFullGovernanceScenario(input: FullGovernanceScenarioInput):
 }
 
 /**
- * Builds hosted Cloud control-plane and machine-use events as ordinary SDK
+ * Builds hosted-compatible control-plane and machine-use events as ordinary SDK
  * audit inputs. These are host-defined action names, not new protocol template
  * semantics, and they cover project, key authority, ingest, read, audit-log,
  * export/billing/MCP authority, and retention-sweep surfaces.
@@ -414,7 +416,8 @@ function hostedCloudEvents(input: {
 
 /**
  * Builds a relation-wide graph without using code-change or agent-session
- * entities, so hosted Cloud can ingest it as ordinary governed app evidence.
+ * entities, so hosted deployments can ingest it as ordinary governed app
+ * evidence.
  */
 function fullGovernanceEdges(
   scope: EvidenceScope,
@@ -462,7 +465,7 @@ function fullGovernanceEdges(
 
 /**
  * Validates each edge through the core SDK before the scenario can be posted to
- * hosted Cloud, preserving protocol-owned entity/relation semantics.
+ * hosted deployments, preserving protocol-owned entity/relation semantics.
  */
 function edge(
   scope: EvidenceScope,

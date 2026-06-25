@@ -56,6 +56,78 @@
           "reason": "ai_agent"
         }
       }
+    },
+    {
+      "name": "normalizes change-centric provenance references",
+      "input": {
+        "id": "edge_fixture_change_output_revision_01",
+        "occurredAt": "2026-06-23T10:18:04Z",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "test"
+        },
+        "from": {
+          "type": "change",
+          "id": "chg_project_estimate_91",
+          "resourceType": "project.estimate.recalculation"
+        },
+        "relation": "has_output",
+        "to": {
+          "type": "revision",
+          "id": "rev_project_estimate_19",
+          "resourceType": "project_estimate"
+        },
+        "metadata": {
+          "fromRef": {
+            "authority": "veritio",
+            "kind": "change",
+            "type": "project.estimate.recalculation",
+            "id": "chg_project_estimate_91"
+          },
+          "toRef": {
+            "authority": "veritio",
+            "kind": "revision",
+            "type": "project_estimate",
+            "id": "rev_project_estimate_19"
+          }
+        }
+      },
+      "expected": {
+        "id": "edge_fixture_change_output_revision_01",
+        "schemaVersion": "2026-06-13",
+        "occurredAt": "2026-06-23T10:18:04.000Z",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "test"
+        },
+        "from": {
+          "type": "change",
+          "id": "chg_project_estimate_91",
+          "resourceType": "project.estimate.recalculation"
+        },
+        "relation": "has_output",
+        "to": {
+          "type": "revision",
+          "id": "rev_project_estimate_19",
+          "resourceType": "project_estimate"
+        },
+        "metadata": {
+          "fromRef": {
+            "authority": "veritio",
+            "id": "chg_project_estimate_91",
+            "kind": "change",
+            "type": "project.estimate.recalculation"
+          },
+          "toRef": {
+            "authority": "veritio",
+            "id": "rev_project_estimate_19",
+            "kind": "revision",
+            "type": "project_estimate"
+          }
+        }
+      }
     }
   ]
 }

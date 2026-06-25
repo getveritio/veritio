@@ -35,6 +35,42 @@
           "invite"
         ]
       }
+    },
+    {
+      "name": "sanitizes digest envelopes without preserving sibling raw values",
+      "metadata": {
+        "customerEmail": {
+          "algorithm": "hmac-sha256",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "keyVersion": "tenant-key-7",
+          "raw": "buyer@example.com",
+          "hmacKey": "test-hmac-secret"
+        },
+        "contactEmailInvalidDigest": {
+          "algorithm": "hmac-sha256",
+          "digest": "sha256:not-a-digest",
+          "keyVersion": "tenant-key-7",
+          "raw": "buyer@example.com"
+        },
+        "safeDigestEnvelope": {
+          "captureMode": "content_digest",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "raw": "buyer@example.com",
+          "key": "test-hmac-secret"
+        }
+      },
+      "expectedMetadata": {
+        "customerEmail": {
+          "algorithm": "hmac-sha256",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "keyVersion": "tenant-key-7"
+        },
+        "contactEmailInvalidDigest": "[redacted]",
+        "safeDigestEnvelope": {
+          "captureMode": "content_digest",
+          "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        }
+      }
     }
   ]
 }

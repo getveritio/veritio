@@ -15,8 +15,8 @@ hosted Veritio account.
   auth session with country/region context, organization bootstrap, membership,
   consent, data-subject request, export bundle, retention policy, and processor
   transfer graph evidence.
-- `GET /evidence` returns the local audit and edge chains plus verification
-  status for both chains.
+- `GET /evidence` returns the local audit, edge, and EvidenceCommit chains plus
+  verification status for all three.
 
 Project names are represented in metadata as `projectNameHash`, not raw display
 text. This keeps the example focused on stable ids, hashes, statuses, and tenant
@@ -27,9 +27,10 @@ scope.
 FastAPI validates request bodies, but the application owns tenant and actor
 resolution. Each mutation calls `append_project_evidence`, which creates a
 Veritio audit event, appends a hash-chained audit-record envelope, creates an
-evidence edge, then appends a separate edge-record envelope. `GET /evidence`
-verifies both chains so readers can inspect the audit trail and the activity
-graph together.
+evidence edge, appends a separate edge-record envelope, then binds both records
+in an EvidenceCommit. `GET /evidence` verifies the audit, edge, and commit
+chains so readers can inspect the audit trail, activity graph, and commit
+membership together.
 
 ## Run Locally
 
@@ -61,9 +62,10 @@ PYTHONPATH=../../sdks/python/src:. python3 -m unittest discover -s tests
 ```
 
 The test suite covers both the CRUD path and the broader lifecycle path,
-including `securityContext.location.country`, canonical JSON plan hashing,
-consent/DSAR/export/retention helper events, and graph relations such as
-`processed_for`, `retained_under`, `exports`, `sent_to`, and `attests_to`.
+including EvidenceCommit membership, `securityContext.location.country`,
+canonical JSON plan hashing, consent/DSAR/export/retention helper events, and
+graph relations such as `processed_for`, `retained_under`, `exports`, `sent_to`,
+and `attests_to`.
 
 ## Docker
 

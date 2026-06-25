@@ -32,6 +32,8 @@ func TestProjectCRUDRecordsAuditEventsAndGraphEdges(t *testing.T) {
 	assertEdgeRelations(t, edgeRecords, []string{"created", "modified", "deleted"})
 	assertVerificationOK(t, evidence["auditVerification"])
 	assertVerificationOK(t, evidence["edgeVerification"])
+	assertVerificationOK(t, evidence["commitVerification"])
+	assertCommitCounts(t, evidence["commitRecords"].([]any), []float64{2, 2, 2})
 }
 
 func TestGovernedLifecycleScenarioRecordsBroadHelperDrivenGraph(t *testing.T) {
@@ -44,6 +46,10 @@ func TestGovernedLifecycleScenarioRecordsBroadHelperDrivenGraph(t *testing.T) {
 	if scenario["edgeCount"].(float64) < 10 {
 		t.Fatalf("expected at least 10 scenario edges, got %#v", scenario["edgeCount"])
 	}
+	if scenario["commitRecordCount"] != scenario["eventCount"].(float64)+scenario["edgeCount"].(float64) {
+		t.Fatalf("expected commit to bind all scenario records, got %#v", scenario["commitRecordCount"])
+	}
+	assertVerificationOK(t, scenario["commitVerification"])
 	if hash, ok := scenario["canonicalPlanHash"].(string); !ok || len(hash) < len("sha256:") || hash[:7] != "sha256:" {
 		t.Fatalf("expected canonical plan hash, got %#v", scenario["canonicalPlanHash"])
 	}
@@ -71,6 +77,11 @@ func TestGovernedLifecycleScenarioRecordsBroadHelperDrivenGraph(t *testing.T) {
 	})
 	assertVerificationOK(t, evidence["auditVerification"])
 	assertVerificationOK(t, evidence["edgeVerification"])
+	assertVerificationOK(t, evidence["commitVerification"])
+	commitRecords := evidence["commitRecords"].([]any)
+	if commitRecords[0].(map[string]any)["commitId"] != "cmt_governed_lifecycle_demo" {
+		t.Fatalf("expected governed lifecycle commit first, got %#v", commitRecords[0])
+	}
 }
 
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body string, expectedStatus int) map[string]any {
@@ -176,5 +187,18 @@ func assertVerificationOK(t *testing.T, value any) {
 	verification := value.(map[string]any)
 	if verification["ok"] != true {
 		t.Fatalf("expected ok verification, got %#v", verification)
+	}
+}
+
+func assertCommitCounts(t *testing.T, records []any, expected []float64) {
+	t.Helper()
+	if len(records) != len(expected) {
+		t.Fatalf("expected %d commit records, got %d", len(expected), len(records))
+	}
+	for index, expectedCount := range expected {
+		record := records[index].(map[string]any)
+		if record["recordCount"] != expectedCount {
+			t.Fatalf("commit %d expected recordCount %v, got %#v", index, expectedCount, record["recordCount"])
+		}
 	}
 }

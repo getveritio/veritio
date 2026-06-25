@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getReferenceEvidenceTrail } from "../../../src/veritio/server";
+import { getReferenceEvidenceTrail, getReferenceGovernedProvenance } from "../../../src/veritio/server";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   const trail = await getReferenceEvidenceTrail(100);
+  const governedProvenance = await getReferenceGovernedProvenance();
 
   return NextResponse.json({
     tenantId: trail.session.tenantId,
@@ -17,5 +18,6 @@ export async function GET() {
     records: trail.records,
     edgeRecords: trail.edgeRecords,
     projects: trail.projects,
+    governedProvenance,
   });
 }
