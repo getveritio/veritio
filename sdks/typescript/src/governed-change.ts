@@ -10,7 +10,15 @@ import type {
 } from "./index";
 import { canonicalJson } from "./index";
 
-export type EvidenceRefKind = "principal" | "entity" | "activity" | "change" | "revision" | "assertion" | "record" | "commit";
+export type EvidenceRefKind =
+  | "principal"
+  | "entity"
+  | "activity"
+  | "change"
+  | "revision"
+  | "assertion"
+  | "record"
+  | "commit";
 
 export interface EvidenceRef {
   authority: string;
@@ -247,13 +255,12 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
   if (input.expectedParentRevisionRef) {
     assertRef(input.expectedParentRevisionRef);
   }
-  const previousRevisionRef: EvidenceRef =
-    input.expectedParentRevisionRef ?? {
-      authority: "veritio",
-      kind: "revision",
-      type: input.entity.type,
-      id: `rev_${input.entity.type}_${entityRef.id}_previous`,
-    };
+  const previousRevisionRef: EvidenceRef = input.expectedParentRevisionRef ?? {
+    authority: "veritio",
+    kind: "revision",
+    type: input.entity.type,
+    id: `rev_${input.entity.type}_${entityRef.id}_previous`,
+  };
   const stateCommitment = createStateCommitment(input.entity, input.after, input.digestKeys);
   const revisionRef: EvidenceRef = {
     authority: "veritio",
@@ -412,7 +419,9 @@ function createStateCommitment<Row extends Record<string, unknown>>(
         digest: prefixedSha256(canonicalJson(toJsonValue(value))),
       };
     } else {
-      throw new TypeError(`capture mode ${policy.capture} is not supported by the current governed-change draft helper`);
+      throw new TypeError(
+        `capture mode ${policy.capture} is not supported by the current governed-change draft helper`,
+      );
     }
   }
 
@@ -528,9 +537,20 @@ function toJsonValue(value: unknown): JsonValue {
 
 /**
  * Normalizes dates to the millisecond ISO representation used by audit events.
+ * A timezone-naive ISO string is interpreted as UTC (never host-local) so the
+ * hashed `occurredAt` byte is deterministic and identical to the Python and Go
+ * SDKs for the same input; a string carrying an explicit `Z` or numeric offset
+ * is honored as written.
  */
 function normalizeDate(value: string | Date): string {
-  const date = value instanceof Date ? value : new Date(value);
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) {
+      throw new TypeError("occurredAt must be a valid date");
+    }
+    return value.toISOString();
+  }
+  const hasZone = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(value);
+  const date = new Date(hasZone ? value : `${value}Z`);
   if (Number.isNaN(date.getTime())) {
     throw new TypeError("occurredAt must be a valid date");
   }

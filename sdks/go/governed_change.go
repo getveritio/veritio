@@ -212,7 +212,13 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 	}
 	parsedOccurredAt, err := time.Parse(time.RFC3339Nano, input.OccurredAt)
 	if err != nil {
-		return GovernedChangeDraft{}, errors.New("occurredAt must be a valid date")
+		// A timezone-naive timestamp is interpreted as UTC (never rejected and
+		// never host-local) so the hashed occurredAt byte is deterministic and
+		// identical to the TypeScript and Python SDKs for the same input.
+		parsedOccurredAt, err = time.Parse("2006-01-02T15:04:05.999999999", input.OccurredAt)
+		if err != nil {
+			return GovernedChangeDraft{}, errors.New("occurredAt must be a valid date")
+		}
 	}
 	occurredAt := parsedOccurredAt.UTC().Format("2006-01-02T15:04:05.000Z")
 	entityRef, err := entityRefFromRow(input.Entity, input.After)

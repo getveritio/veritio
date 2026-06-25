@@ -84,7 +84,13 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
     _assert_ref(change["initiatedBy"])
     _assert_ref(activity["performedBy"])
     _assert_ref(producer)
-    occurred_at = _normalize_datetime(input_change["occurredAt"])
+    try:
+        occurred_at = _normalize_datetime(input_change["occurredAt"])
+    except (ValueError, TypeError):
+        # Raise the same typed message as the TS/Go SDKs instead of leaking the
+        # stdlib parser's text (which echoes the raw input); occurredAt is hashed
+        # evidence, so the cross-language error contract must match.
+        raise ValueError("occurredAt must be a valid date") from None
 
     change_ref = {"authority": "veritio", "kind": "change", "type": change["type"], "id": change["id"]}
     activity_ref = {"authority": "veritio", "kind": "activity", "type": activity["type"], "id": activity["id"]}

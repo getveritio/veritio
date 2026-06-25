@@ -155,7 +155,7 @@ class GovernedChangeTests(unittest.TestCase):
             fields={},
         )
 
-        with self.assertRaisesRegex(ValueError, "Invalid isoformat string"):
+        with self.assertRaisesRegex(ValueError, "occurredAt must be a valid date"):
             create_governed_change_draft(
                 {
                     "scope": SCOPE,
