@@ -10,7 +10,6 @@ import {
   IngestClientError,
   IngestConflictError,
   IngestRetryableError,
-  MAX_INGEST_RECORDS,
 } from "../ingest-target";
 
 const BASE_URL = "https://console.example.test";
@@ -84,13 +83,18 @@ describe("http ingest target", () => {
     expect(result.appended).toEqual({ events: 0, edges: 0 });
   });
 
-  test("a batch over the record cap fails closed before any POST", async () => {
-    const { impl, calls } = fetchReturning({ status: 200, body: {} });
+  test("the record cap is the server's: an oversized batch surfaces as the 413 client error", async () => {
+    const { impl, calls } = fetchReturning({
+      status: 413,
+      body: { error: "too many records in one request (max 1000)" },
+    });
     const target = createHttpIngestTarget({ baseUrl: BASE_URL, key: KEY, fetchImpl: impl });
-    await expect(target.dispatchEntry(payloadOf(MAX_INGEST_RECORDS + 1, 0))).rejects.toThrow(
-      /exceeds the 1000-record limit/,
-    );
-    expect(calls).toHaveLength(0);
+    const error = await target.dispatchEntry(payloadOf(1001, 0)).catch((e) => e);
+    expect(error).toBeInstanceOf(IngestClientError);
+    expect((error as IngestClientError).status).toBe(413);
+    expect((error as IngestClientError).retryable).toBe(false);
+    // The client no longer pre-caps; the server is the single authority.
+    expect(calls).toHaveLength(1);
   });
 
   test("a 409 maps to a non-retryable conflict carrying partial appended counts", async () => {

@@ -16,9 +16,6 @@ import type { OutboxAdapter, OutboxDispatcher, OutboxListOptions, OutboxPayload 
  * row pending so the next dispatch retries safely.
  */
 
-/** Combined event+edge cap enforced by the hosted ingest handler. */
-export const MAX_INGEST_RECORDS = 1000;
-
 const DEFAULT_INGEST_PATH = "/api/ingest";
 
 export interface IngestBatch {
@@ -106,8 +103,11 @@ export interface HttpIngestTargetOptions {
 
 /**
  * Builds an HTTP ingest target. A single governed-change draft is ~3 events plus
- * a handful of edges, far under the 1000-record cap, so one entry is always one
- * safe POST; the cap only guards an oversized custom batch.
+ * a handful of edges, so one outbox entry is always one POST. The ingest
+ * endpoint owns the per-request record cap and rejects an oversized batch with a
+ * typed `413` (mapped to `IngestClientError`); the client deliberately does not
+ * duplicate that hosted operational limit, so the server stays the single
+ * authority and the two can never silently drift.
  */
 export function createHttpIngestTarget(options: HttpIngestTargetOptions): HttpIngestTarget {
   const baseUrl = requireNonEmpty(options.baseUrl, "baseUrl").replace(/\/+$/, "");
@@ -125,12 +125,8 @@ export function createHttpIngestTarget(options: HttpIngestTargetOptions): HttpIn
    * batch so dispatching an edge-only or empty entry is cheap.
    */
   async function postBatch(batch: IngestBatch): Promise<IngestResult> {
-    const total = batch.events.length + batch.edges.length;
-    if (total === 0) {
+    if (batch.events.length === 0 && batch.edges.length === 0) {
       return EMPTY_RESULT;
-    }
-    if (total > MAX_INGEST_RECORDS) {
-      throw new TypeError(`ingest batch of ${total} records exceeds the ${MAX_INGEST_RECORDS}-record limit`);
     }
 
     const response = await fetchImpl(url, {
