@@ -113,7 +113,10 @@ class GovernedChangeTests(unittest.TestCase):
         )
 
         self.assertEqual(draft["outboxEntry"]["mutationBinding"], "not_transaction_bound")
-        self.assertEqual(draft["outboxEntry"]["expectedParentRevisionRef"], draft["revision"]["parents"][0])
+        # An update with no caller-supplied parent leaves lineage open — no
+        # synthetic rev_..._previous parent is fabricated.
+        self.assertNotIn("expectedParentRevisionRef", draft["outboxEntry"])
+        self.assertEqual(draft["revision"]["parents"], [])
         self.assertEqual(draft["events"][0]["metadata"]["captureAssurance"], {
             "captureMethod": "transactional_outbox",
             "mutationBinding": "not_transaction_bound",
@@ -137,13 +140,73 @@ class GovernedChangeTests(unittest.TestCase):
             "has_output",
             "performed_by",
             "generated",
-            "derived_from",
         ])
         revision_event = create_audit_event(draft["events"][2])
         self.assertEqual(
             revision_event["metadata"]["veritio"]["revision"]["stateCommitment"]["fields"]["customerEmail"],
             fields["customerEmail"],
         )
+
+    def test_create_governed_change_draft_links_parent_only_when_supplied(self):
+        entry = define_entity(
+            authority="acme.billing",
+            entity_type="project_entry",
+            schema_ref="acme.billing/project_entry@3",
+            field_set_ref="project-entry-governed-fields@2",
+            identity=lambda row: row["id"],
+            fields={"quantity": {"capture": "full"}},
+        )
+        expected_parent = {
+            "authority": "veritio",
+            "kind": "revision",
+            "type": "project_entry",
+            "id": "rev_project_entry_42_0a1b2c3d4e5f",
+        }
+        draft = create_governed_change_draft(
+            {
+                "scope": SCOPE,
+                "entity": entry,
+                "before": {"id": "42", "quantity": 10},
+                "after": {"id": "42", "quantity": 11},
+                "changedPaths": ["/quantity"],
+                "change": {"id": "chg_supplied", "type": "project.estimate.recalculation", "initiatedBy": INITIATED_BY},
+                "activity": {"id": "act_supplied", "type": "computation.project_cost_estimate", "performedBy": PRODUCER},
+                "producer": PRODUCER,
+                "occurredAt": "2026-06-23T10:18:00.000Z",
+                "idempotencyKeyHash": "sha256:supplied-parent",
+                "expectedParentRevisionRef": expected_parent,
+            }
+        )
+        self.assertEqual(draft["revision"]["parents"], [expected_parent])
+        self.assertEqual(draft["outboxEntry"]["expectedParentRevisionRef"], expected_parent)
+        derived = next(edge for edge in draft["edges"] if edge["relation"] == "derived_from")
+        self.assertEqual(derived["metadata"]["toRef"], expected_parent)
+
+    def test_create_governed_change_draft_create_has_no_parent(self):
+        entry = define_entity(
+            authority="acme.billing",
+            entity_type="project_entry",
+            schema_ref="acme.billing/project_entry@3",
+            field_set_ref="project-entry-governed-fields@2",
+            identity=lambda row: row["id"],
+            fields={"quantity": {"capture": "full"}},
+        )
+        draft = create_governed_change_draft(
+            {
+                "scope": SCOPE,
+                "entity": entry,
+                "after": {"id": "42", "quantity": 11},
+                "changedPaths": ["/quantity"],
+                "change": {"id": "chg_create", "type": "project.estimate.created", "initiatedBy": INITIATED_BY},
+                "activity": {"id": "act_create", "type": "computation.project_cost_estimate", "performedBy": PRODUCER},
+                "producer": PRODUCER,
+                "occurredAt": "2026-06-23T10:18:00.000Z",
+                "idempotencyKeyHash": "sha256:create",
+            }
+        )
+        self.assertEqual(draft["revision"]["parents"], [])
+        self.assertNotIn("expectedParentRevisionRef", draft["outboxEntry"])
+        self.assertFalse(any(edge["relation"] == "derived_from" for edge in draft["edges"]))
 
     def test_create_governed_change_draft_rejects_invalid_timestamp(self):
         project_entry = define_entity(

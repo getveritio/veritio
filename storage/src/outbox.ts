@@ -10,7 +10,13 @@ import type {
 import { canonicalJson } from "@veritio/core";
 
 export type OutboxPayload = GovernedChangeDraft["outboxEntry"];
-export type OutboxStatus = "pending" | "dispatched";
+/**
+ * Outbox row lifecycle. `dead` is a terminal non-retryable state: a row that
+ * failed with a non-retryable verdict (e.g. a 4xx/409 from the ingest endpoint)
+ * is parked here so `listDispatchable` never re-selects it, instead of looping
+ * forever as a poison-pill ahead of newer rows.
+ */
+export type OutboxStatus = "pending" | "dispatched" | "dead";
 
 export interface OutboxEnqueueInput {
   id: string;
@@ -44,7 +50,11 @@ export interface OutboxAdapter {
   list(options?: OutboxListOptions): Promise<OutboxStoredEntry[]>;
   listDispatchable(options?: OutboxListOptions): Promise<OutboxStoredEntry[]>;
   markDispatched(id: string, options?: { dispatchedAt?: string | Date }): Promise<OutboxStoredEntry>;
-  markFailed(id: string, error: unknown, options?: { now?: string | Date; availableAt?: string | Date }): Promise<OutboxStoredEntry>;
+  markFailed(
+    id: string,
+    error: unknown,
+    options?: { now?: string | Date; availableAt?: string | Date; retryable?: boolean },
+  ): Promise<OutboxStoredEntry>;
 }
 
 export interface OutboxEvidenceTarget {
@@ -200,7 +210,16 @@ export function createOutboxDispatcher(options: {
           );
           dispatched += 1;
         } catch (error) {
-          await options.adapter.markFailed(entry.id, error, listOptions.now === undefined ? {} : { now: listOptions.now });
+          // The local-sink dispatcher leaves every failure retryable by design:
+          // dispatchOutboxEntry only throws on transient/idempotency conditions,
+          // never on a terminal client rejection. Dead-lettering on a
+          // non-retryable verdict is the HTTP dispatcher's concern (it has the
+          // typed `IngestError.retryable` flag).
+          await options.adapter.markFailed(
+            entry.id,
+            error,
+            listOptions.now === undefined ? {} : { now: listOptions.now },
+          );
           failed += 1;
         }
       }
@@ -317,17 +336,22 @@ class SqlOutboxAdapter implements OutboxAdapter {
   async markFailed(
     id: string,
     error: unknown,
-    options: { now?: string | Date; availableAt?: string | Date } = {},
+    options: { now?: string | Date; availableAt?: string | Date; retryable?: boolean } = {},
   ): Promise<OutboxStoredEntry> {
     assertNonEmpty(id, "id");
     return this.#client.transaction(async (session) => {
       const entry = await this.#loadEntry(session, id);
       const now = normalizeDate(options.now ?? new Date());
-      entry.status = "pending";
       entry.attempts += 1;
       entry.updatedAt = now;
-      entry.availableAt = normalizeDate(options.availableAt ?? now);
       entry.lastError = errorMessage(error);
+      if (options.retryable === false) {
+        // Terminal non-retryable failure: park the row so it is never re-selected.
+        entry.status = "dead";
+      } else {
+        entry.status = "pending";
+        entry.availableAt = normalizeDate(options.availableAt ?? now);
+      }
       await this.#updateEntry(session, entry);
       return cloneEntry(entry);
     });
@@ -352,22 +376,19 @@ class SqlOutboxAdapter implements OutboxAdapter {
       return cloneEntry(existingEntry);
     }
 
-    await session.execute(
-      this.#insertSql(),
-      [
-        entry.id,
-        entry.tenantId,
-        payloadCanonical,
-        JSON.stringify(entry),
-        entry.status,
-        entry.attempts,
-        entry.availableAt,
-        entry.createdAt,
-        entry.updatedAt,
-        entry.dispatchedAt ?? null,
-        entry.lastError ?? null,
-      ],
-    );
+    await session.execute(this.#insertSql(), [
+      entry.id,
+      entry.tenantId,
+      payloadCanonical,
+      JSON.stringify(entry),
+      entry.status,
+      entry.attempts,
+      entry.availableAt,
+      entry.createdAt,
+      entry.updatedAt,
+      entry.dispatchedAt ?? null,
+      entry.lastError ?? null,
+    ]);
     return cloneEntry(entry);
   }
 
@@ -409,7 +430,8 @@ class SqlOutboxAdapter implements OutboxAdapter {
    * Selects rows in stable dispatcher order, optionally limited by tenant.
    */
   #selectEntriesSql(limitValue: number | undefined): string {
-    const limit = limitValue === undefined ? "" : ` LIMIT ${this.#dialect === "mysql" ? limitValue : this.#placeholder(2)}`;
+    const limit =
+      limitValue === undefined ? "" : ` LIMIT ${this.#dialect === "mysql" ? limitValue : this.#placeholder(2)}`;
     return `SELECT entry_json FROM ${this.#table} WHERE (${this.#placeholder(1)} IS NULL OR tenant_id = ${this.#placeholder(1)}) ORDER BY created_at ASC, id ASC${limit}`;
   }
 
@@ -417,7 +439,8 @@ class SqlOutboxAdapter implements OutboxAdapter {
    * Selects due pending rows in stable dispatcher order.
    */
   #selectDispatchableSql(limitValue: number | undefined): string {
-    const limit = limitValue === undefined ? "" : ` LIMIT ${this.#dialect === "mysql" ? limitValue : this.#placeholder(4)}`;
+    const limit =
+      limitValue === undefined ? "" : ` LIMIT ${this.#dialect === "mysql" ? limitValue : this.#placeholder(4)}`;
     return `SELECT entry_json FROM ${this.#table} WHERE status = ${this.#placeholder(1)} AND available_at <= ${this.#placeholder(2)} AND (${this.#placeholder(3)} IS NULL OR tenant_id = ${this.#placeholder(3)}) ORDER BY created_at ASC, id ASC${limit}`;
   }
 
@@ -562,18 +585,23 @@ class FileOutboxAdapter implements OutboxAdapter {
   async markFailed(
     id: string,
     error: unknown,
-    options: { now?: string | Date; availableAt?: string | Date } = {},
+    options: { now?: string | Date; availableAt?: string | Date; retryable?: boolean } = {},
   ): Promise<OutboxStoredEntry> {
     assertNonEmpty(id, "id");
     return withLock(this.#dir, async () => {
       const entries = await readEntries(this.#path);
       const entry = findEntry(entries, id);
       const now = normalizeDate(options.now ?? new Date());
-      entry.status = "pending";
       entry.attempts += 1;
       entry.updatedAt = now;
-      entry.availableAt = normalizeDate(options.availableAt ?? now);
       entry.lastError = errorMessage(error);
+      if (options.retryable === false) {
+        // Terminal non-retryable failure: park the row so it is never re-selected.
+        entry.status = "dead";
+      } else {
+        entry.status = "pending";
+        entry.availableAt = normalizeDate(options.availableAt ?? now);
+      }
       await writeEntries(this.#dir, this.#path, entries);
       return cloneEntry(entry);
     });
@@ -762,7 +790,7 @@ function validateStoredEntry(entry: unknown): void {
   assertNonEmpty(entry.id, "id");
   assertNonEmpty(entry.tenantId, "tenantId");
   validatePayload(entry.payload as OutboxPayload, String(entry.tenantId));
-  if (entry.status !== "pending" && entry.status !== "dispatched") {
+  if (entry.status !== "pending" && entry.status !== "dispatched" && entry.status !== "dead") {
     throw new TypeError("stored outbox status is invalid");
   }
   const attempts = entry.attempts;
@@ -850,15 +878,23 @@ function normalizeDate(value: string | Date | unknown): string {
   return date.toISOString();
 }
 
+/** Cap for the durably-persisted `lastError` summary. */
+const MAX_LAST_ERROR_LENGTH = 256;
+
 /**
- * Extracts a stable failure message without persisting stack traces or arbitrary
- * thrown objects into the outbox metadata.
+ * Builds a stable, bounded failure summary for the durable `lastError` column.
+ * Never persists stack traces or arbitrary thrown objects, collapses whitespace,
+ * and caps the length so an unbounded/untrusted `error.message` (which may carry
+ * secrets or PII) cannot be written verbatim into storage (rule 09).
  */
 function errorMessage(error: unknown): string {
-  if (error instanceof Error && error.message.trim().length > 0) {
-    return error.message;
+  if (!(error instanceof Error)) {
+    return "outbox dispatch failed";
   }
-  return "outbox dispatch failed";
+  const message = error.message.replace(/\s+/g, " ").trim();
+  const name = error.name && error.name.trim().length > 0 ? error.name : "Error";
+  const summary = message.length > 0 ? `${name}: ${message}` : name;
+  return summary.length > MAX_LAST_ERROR_LENGTH ? `${summary.slice(0, MAX_LAST_ERROR_LENGTH - 1)}…` : summary;
 }
 
 /**

@@ -119,20 +119,53 @@ describe("transactional evidence outbox", () => {
     ).rejects.toThrow("outbox payload tenant mismatch");
   });
 
+  test("markFailed dead-letters a non-retryable failure, bounds lastError, and survives reload", async () => {
+    const path = join(dir, "outbox");
+    const adapter = createFileOutboxAdapter(path);
+    await adapter.transaction(async (tx) => {
+      await tx.enqueue({ id: "outbox_dead", tenantId: TENANT, payload: makeDraft(TENANT).outboxEntry });
+    });
+    const [before] = await adapter.list({ tenantId: TENANT });
+
+    const longError = new Error(`boom ${"x".repeat(400)}\n\twith   verbose   detail`);
+    const dead = await adapter.markFailed("outbox_dead", longError, { retryable: false });
+
+    expect(dead.status).toBe("dead");
+    expect(dead.attempts).toBe(1);
+    expect(dead.availableAt).toBe(before!.availableAt); // non-retryable does NOT re-arm availableAt
+    expect(dead.lastError!.length).toBeLessThanOrEqual(256); // F: bounded
+    expect(dead.lastError).toContain("Error:"); // name-prefixed summary
+    expect(dead.lastError).not.toContain("\n"); // whitespace collapsed, no raw multi-line text
+    expect(await adapter.listDispatchable({ tenantId: TENANT })).toHaveLength(0); // dead is not dispatchable
+
+    // The dead row round-trips through a reload (validateStoredEntry accepts it).
+    const reopened = createFileOutboxAdapter(path);
+    expect((await reopened.list({ tenantId: TENANT }))[0]).toMatchObject({ status: "dead", attempts: 1 });
+
+    // A retryable failure (default/explicit) still lands on pending and re-arms.
+    await adapter.transaction(async (tx) => {
+      await tx.enqueue({ id: "outbox_retry", tenantId: TENANT, payload: makeDraft(TENANT).outboxEntry });
+    });
+    const pending = await adapter.markFailed("outbox_retry", new Error("transient"), { retryable: true });
+    expect(pending.status).toBe("pending");
+  });
+
   test("SQL outbox adapter commits, rolls back, and dispatches through host transactions", async () => {
     const client = createSqlOutboxClient();
     const adapter = createPostgresOutboxAdapter({ client });
     const evidence = createFileEvidenceStore(join(dir, "evidence"));
     const draft = makeDraft("sql");
 
-    await adapter.transaction(async (tx) => {
-      await tx.enqueue({
-        id: "outbox_sql_rollback",
-        tenantId: TENANT,
-        payload: draft.outboxEntry,
-      });
-      throw new Error("rollback sql outbox");
-    }).catch(() => {});
+    await adapter
+      .transaction(async (tx) => {
+        await tx.enqueue({
+          id: "outbox_sql_rollback",
+          tenantId: TENANT,
+          payload: draft.outboxEntry,
+        });
+        throw new Error("rollback sql outbox");
+      })
+      .catch(() => {});
 
     expect(await adapter.list({ tenantId: TENANT })).toEqual([]);
 
@@ -251,8 +284,19 @@ function createSqlOutboxClient(): SqlOutboxExecutor & { rows: SqlOutboxRow[] } {
         return client.rows.filter((row) => row.id === id);
       }
       if (sql.startsWith("insert into")) {
-        const [id, tenantId, payloadCanonical, entryJson, status, attempts, availableAt, createdAt, updatedAt, dispatchedAt, lastError] =
-          params;
+        const [
+          id,
+          tenantId,
+          payloadCanonical,
+          entryJson,
+          status,
+          attempts,
+          availableAt,
+          createdAt,
+          updatedAt,
+          dispatchedAt,
+          lastError,
+        ] = params;
         if (client.rows.some((row) => row.id === id)) {
           throw new TypeError("duplicate outbox id");
         }
@@ -317,6 +361,8 @@ function createSqlOutboxClient(): SqlOutboxExecutor & { rows: SqlOutboxRow[] } {
  * Sorts and limits SQL mock rows in the same order the real outbox queries use.
  */
 function limitRows(rows: SqlOutboxRow[], limit: unknown): SqlOutboxRow[] {
-  const sorted = rows.sort((left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id));
+  const sorted = rows.sort(
+    (left, right) => left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id),
+  );
   return limit === null || limit === undefined ? sorted : sorted.slice(0, Number(limit));
 }

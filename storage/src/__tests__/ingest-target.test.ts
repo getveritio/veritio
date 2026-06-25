@@ -169,4 +169,45 @@ describe("http outbox dispatcher", () => {
     // A second dispatch is a no-op: the entry is already dispatched.
     expect(await retry.dispatchBatch()).toEqual({ dispatched: 0, failed: 0 });
   });
+
+  test("a non-retryable 4xx dead-letters the row and is never re-dispatched", async () => {
+    const adapter = createFileOutboxAdapter(join(dir, "outbox"));
+    await adapter.transaction(async (tx) => {
+      await tx.enqueue({ id: "entry_dead", tenantId: "proj_1", payload: payloadOf(1, 0) });
+    });
+
+    const rejecting = fetchReturning({ status: 403, body: { error: "scope mismatch" } });
+    const firstPass = createHttpOutboxDispatcher({
+      adapter,
+      target: createHttpIngestTarget({ baseUrl: BASE_URL, key: KEY, fetchImpl: rejecting.impl }),
+    });
+    expect(await firstPass.dispatchBatch()).toEqual({ dispatched: 0, failed: 1 });
+    expect((await adapter.list({ tenantId: "proj_1" }))[0]).toMatchObject({ status: "dead", attempts: 1 });
+    // A dead row drops out of the dispatchable set.
+    expect(await adapter.listDispatchable({ tenantId: "proj_1" })).toHaveLength(0);
+
+    // A second pass with a would-succeed fetch never touches the dead row.
+    const ok = fetchReturning({ status: 200, body: { appended: { events: 1, edges: 0 } } });
+    const retry = createHttpOutboxDispatcher({
+      adapter,
+      target: createHttpIngestTarget({ baseUrl: BASE_URL, key: KEY, fetchImpl: ok.impl }),
+    });
+    expect(await retry.dispatchBatch()).toEqual({ dispatched: 0, failed: 0 });
+    expect(ok.calls).toHaveLength(0); // proves no forever-retry
+  });
+
+  test("a 409 conflict dead-letters the row", async () => {
+    const adapter = createFileOutboxAdapter(join(dir, "outbox"));
+    await adapter.transaction(async (tx) => {
+      await tx.enqueue({ id: "entry_conflict", tenantId: "proj_1", payload: payloadOf(2, 0) });
+    });
+    const conflict = fetchReturning({ status: 409, body: { error: "append conflict" } });
+    const pass = createHttpOutboxDispatcher({
+      adapter,
+      target: createHttpIngestTarget({ baseUrl: BASE_URL, key: KEY, fetchImpl: conflict.impl }),
+    });
+    expect(await pass.dispatchBatch()).toEqual({ dispatched: 0, failed: 1 });
+    expect((await adapter.list({ tenantId: "proj_1" }))[0]).toMatchObject({ status: "dead" });
+    expect(await adapter.listDispatchable({ tenantId: "proj_1" })).toHaveLength(0);
+  });
 });
