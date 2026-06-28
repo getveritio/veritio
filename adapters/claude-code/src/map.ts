@@ -11,6 +11,15 @@ function sanitize(value: string): string {
 }
 
 /**
+ * Derives the stable activity-episode id that groups one Claude Code session's
+ * events. Deterministic from the session id so every separate hook process
+ * resolves the same episode without shared memory.
+ */
+export function episodeIdOf(sessionId: string): string {
+  return `ep_${sanitize(sessionId)}`;
+}
+
+/**
  * Builds the StartSessionInput captured at SessionStart. `now` and git facts are
  * passed in (the hook does the I/O) so this stays pure and deterministic; the
  * result is persisted and replayed verbatim on later events.
@@ -18,7 +27,7 @@ function sanitize(value: string): string {
 export function buildSessionContext(
   payload: HookPayload,
   config: AdapterConfig,
-  opts: { now: string; branch?: string; repository?: { provider: string; id: string } },
+  opts: { now: string; activityEpisodeId: string; branch?: string; repository?: { provider: string; id: string } },
 ): SessionContext {
   const context: SessionContext = {
     scope: {
@@ -34,6 +43,7 @@ export function buildSessionContext(
     occurredAt: opts.now,
     purpose: "agent_provenance",
   };
+  context.activityEpisodeId = opts.activityEpisodeId;
   if (opts.branch) {
     context.branch = opts.branch;
   }

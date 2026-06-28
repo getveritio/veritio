@@ -15,6 +15,8 @@ export interface SessionState {
   preImages: Record<string, string>;
   /** Monotonic per-turn counter for Bash file-change ids. */
   turn: number;
+  /** Stable activity-episode id grouping this session's events; null until SessionStart. */
+  activityEpisodeId: string | null;
 }
 
 function statePath(dir: string, sessionId: string): string {
@@ -30,9 +32,10 @@ export function loadState(dir: string, sessionId: string): SessionState {
       toolSeq: parsed.toolSeq ?? 0,
       preImages: parsed.preImages ?? {},
       turn: parsed.turn ?? 0,
+      activityEpisodeId: parsed.activityEpisodeId ?? null,
     };
   } catch {
-    return { context: null, toolSeq: 0, preImages: {}, turn: 0 };
+    return { context: null, toolSeq: 0, preImages: {}, turn: 0, activityEpisodeId: null };
   }
 }
 

@@ -47,6 +47,7 @@ function sha256(value: string): string {
 
 export interface AgentSessionView {
   sessionId: string;
+  activityEpisodeId: string;
   occurredAt: string;
   agentLabel: string;
   modelLabel: string;
@@ -126,6 +127,7 @@ export interface AgentSessionResult {
 export async function runAgentSession(): Promise<AgentSessionResult> {
   const tenantId = cloudTenantId();
   const sessionId = `agt_sess_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const activityEpisodeId = `ae_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
   const occurredAt = new Date().toISOString();
   const scope = { tenantId, environment: "reference" };
 
@@ -146,6 +148,7 @@ export async function runAgentSession(): Promise<AgentSessionResult> {
   const { session } = await recorder.startSession({
     scope,
     sessionId,
+    activityEpisodeId,
     occurredAt,
     initiatedBy: PRICING_LEAD,
     agentActor: COST_AGENT_PRINCIPAL,
@@ -204,6 +207,7 @@ export async function runAgentSession(): Promise<AgentSessionResult> {
   const dispatch = mergeDispatch(preDispatch, postDispatch);
   const view: AgentSessionView = {
     sessionId,
+    activityEpisodeId,
     occurredAt,
     agentLabel: `${SESSION_AGENT.name} (${COST_AGENT_PRINCIPAL.id})`,
     modelLabel: `${SESSION_MODEL.provider}/${SESSION_MODEL.name}`,

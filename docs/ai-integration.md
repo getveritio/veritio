@@ -78,6 +78,13 @@ evidence edges.
 Recorder conventions:
 
 - Every session-related event gets `metadata.sessionId`.
+- Every session-related event also gets `metadata.activityEpisodeId`, the stable
+  activity-episode id that groups one session's events. It is stamped after
+  caller metadata (so a caller cannot shadow it), the same mechanism as
+  `metadata.sessionId`.
+- Structured risk signals ride on `metadata.riskSignals` (via `withRiskSignals`)
+  and are scored deterministically by the SDK risk module, never by
+  `createAuditEvent`. See [risk-scoring.md](./risk-scoring.md).
 - Event IDs are deterministic from stable caller IDs unless overridden.
 - Edges derive from stable entity references.
 - The enforcing human is linked through a `caused_by` edge rather than a new
@@ -88,6 +95,18 @@ Recorder conventions:
 Python and Go do not yet expose the same high-level recorder. They should keep
 event and edge semantics aligned so a later recorder can emit equivalent
 payloads.
+
+## Risk Assertions
+
+A `security.risk` assertion records a precomputed risk conclusion as append-only
+evidence. It uses `recordType: assertion.recorded` (not the audit-event shape),
+carries `producer.authority: veritio.detectors`, and links to its subject through
+a `based_on` edge — never an inline `evidence[]` array. Detectors (in Veritio
+Cloud) append a `security.risk.assessed` event and the assertion record on
+band-crossing; the OSS SDK ships only the builders (`buildSecurityRiskAssessedEvent`,
+`createSecurityRiskAssertion`, `hashAssertionRecord`). The local server stores
+assertions verbatim and never recomputes the score. See
+[risk-scoring.md](./risk-scoring.md).
 
 ## Claude Code Capture
 

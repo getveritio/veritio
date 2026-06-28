@@ -7,7 +7,14 @@ import { createFileEvidenceStore } from "@veritio/storage";
 
 import { resolveConfig } from "./config";
 import { postToIngest } from "./ingest";
-import { type ChangedFile, buildBashFileChange, buildSessionContext, buildToolCall, promptHashOf } from "./map";
+import {
+  type ChangedFile,
+  buildBashFileChange,
+  buildSessionContext,
+  buildToolCall,
+  episodeIdOf,
+  promptHashOf,
+} from "./map";
 import { sha256 } from "./redact";
 import { clearState, loadState, saveState } from "./state";
 import type { HookPayload } from "./types";
@@ -47,7 +54,9 @@ async function main(): Promise<void> {
 
   switch (payload.hook_event_name) {
     case "SessionStart": {
-      state.context = buildSessionContext(payload, config, { now, ...readGit(payload.cwd) });
+      const activityEpisodeId = state.activityEpisodeId ?? episodeIdOf(payload.session_id);
+      state.activityEpisodeId = activityEpisodeId;
+      state.context = buildSessionContext(payload, config, { now, activityEpisodeId, ...readGit(payload.cwd) });
       const { result } = await recorder.startSession(state.context);
       collect(result);
       break;

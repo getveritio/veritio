@@ -153,7 +153,7 @@ schemas in `spec/` yet.
 
 | Package or path | Status | Role |
 | --- | --- | --- |
-| `@veritio/core` | Public | TypeScript SDK, core event/edge helpers, memory audit store, templates, TS provenance recorder. |
+| `@veritio/core` | Public | TypeScript SDK, core event/edge helpers, memory audit store, templates, TS provenance recorder, deterministic risk-signal scoring, and `security.risk` assertion builders. |
 | `veritio` Python package | Public | Python SDK for event/edge helpers, hashing, redaction, and templates. |
 | `github.com/getveritio/veritio/sdks/go` | Public | Go SDK for event/edge helpers, hashing, redaction, and templates. |
 | `@veritio/storage` | Public | Host-injected SQL, MongoDB, Redis tip cache, conformance helpers, and local file-backed evidence store. |
@@ -162,7 +162,7 @@ schemas in `spec/` yet.
 | `@veritio/tanstack-start` | Public | TanStack Start server function and route adapter. |
 | `@veritio/sveltekit` | Public | SvelteKit server action and endpoint adapter. |
 | `@veritio/react`, `@veritio/vue`, `@veritio/svelte` | Public | Browser-safe UI intent helpers; they do not record audit events client-side. |
-| `@veritio/claude-code` | Public | Claude Code hook capture with local redacted file sink, optional ingest POST, and read-only MCP query/export. |
+| `@veritio/claude-code` | Public | Claude Code hook capture with local redacted file sink, optional ingest POST, and read-only MCP query/export. Threads a stable `activityEpisodeId` per session. |
 | `veritio` CLI | Public | Local Workbench and MCP CLI. |
 | `@veritio/server` | Private workspace package | Local/self-hosted Node server module for Workbench, MCP, graph query, verification, and export preview. |
 | `@veritio/express`, `@veritio/hono`, `@veritio/trpc` | Private package shells | In-repo adapter surfaces that are not public packages yet. |
@@ -180,6 +180,9 @@ TypeScript, Python, and Go share the same protocol semantics for:
 - UTC millisecond timestamp normalization
 - optional-field omission
 - auth, organization, data, agent, and code audit templates
+- deterministic `riskSignals` scoring (`DEFAULT_RISK_POLICY`,
+  `veritio.reference.v1`) and `security.risk` assertion builders — see
+  [docs/risk-scoring.md](docs/risk-scoring.md)
 
 The TypeScript SDK currently has extra runtime helpers: `MemoryAuditStore`,
 audit/edge chain verification helpers, and the TS-only `createProvenanceRecorder`

@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from veritio import (
+    activity_episode_started_template,
     agent_prompt_recorded_template,
     agent_session_started_template,
     agent_tool_called_template,
@@ -464,6 +465,208 @@ class EventTests(unittest.TestCase):
             with self.subTest(index=index):
                 with self.assertRaisesRegex(TypeError, "not allowed|looks like raw content"):
                     unsafe_case()
+
+
+class TemplateRiskAndEpisodeTests(unittest.TestCase):
+    def test_security_context_no_longer_emits_risk_score(self):
+        event = create_audit_event(
+            auth_session_created_template(
+                event_id="evt_signin",
+                occurred_at="2026-06-20T00:00:00.000Z",
+                user_id="usr_123",
+                session_id="sess_123",
+                scope={"tenantId": "org_123"},
+                security_context={"ip_address_hash": "sha256:client-ip", "riskScore": 0.9},
+            )
+        )
+        self.assertNotIn("riskScore", event["metadata"]["securityContext"])
+        self.assertEqual(event["metadata"]["securityContext"], {"ipAddressHash": "sha256:client-ip"})
+
+    def test_activity_episode_id_threads_through_template_builder(self):
+        event = create_audit_event(
+            files_changed_template(
+                event_id="evt_files_changed",
+                occurred_at="2026-06-20T00:03:00.000Z",
+                source_tree_id="tree_123",
+                actor={"type": "ai_agent", "id": "agent_codex"},
+                scope={"tenantId": "org_123"},
+                session_id="agt_sess_123",
+                file_count=1,
+                metadata={"activityEpisodeId": "caller_shadow"},
+                activity_episode_id="ep_42",
+            )
+        )
+        self.assertEqual(event["metadata"]["activityEpisodeId"], "ep_42")
+
+    def test_risk_signals_are_stamped_normalized_on_templates(self):
+        event = create_audit_event(
+            agent_session_started_template(
+                event_id="evt_agent_started",
+                occurred_at="2026-06-20T00:02:00.000Z",
+                session_id="agt_sess_123",
+                agent_actor={"type": "ai_agent", "id": "agent_codex"},
+                scope={"tenantId": "org_123"},
+                risk_signals={"operationType": "delete", "dataVolume": 100},
+            )
+        )
+        self.assertEqual(
+            event["metadata"]["riskSignals"],
+            {
+                "operationType": "delete",
+                "reversibility": "recoverable",
+                "envCriticality": "production",
+                "dataVolume": 100,
+                "fanOut": 0,
+                "referenceCount": 0,
+            },
+        )
+
+    def test_review_helper_path_threads_activity_episode_id(self):
+        waiver = create_audit_event(
+            review_waiver_recorded_template(
+                event_id="evt_review_waiver",
+                occurred_at="2026-06-20T00:04:00.000Z",
+                pull_request_id="pr_123",
+                reviewer={"type": "user", "id": "usr_reviewer"},
+                scope={"tenantId": "org_123"},
+                waiver_count=1,
+                activity_episode_id="ep_7",
+            )
+        )
+        self.assertEqual(waiver["metadata"]["activityEpisodeId"], "ep_7")
+
+    def test_activity_episode_started_template_shape(self):
+        event = create_audit_event(
+            activity_episode_started_template(
+                event_id="evt_episode_started",
+                occurred_at="2026-06-20T00:05:00.000Z",
+                activity_episode_id="ep_99",
+                actor={"type": "ai_agent", "id": "agent_codex"},
+                scope={"tenantId": "org_123"},
+                auth_session_id="auth_sess_1",
+                domain="code",
+                start_reason="agent_run",
+                metadata={"activityEpisodeId": "caller_shadow", "extra": "ok"},
+            )
+        )
+        self.assertEqual(event["action"], "activity.episode.started")
+        self.assertEqual(event["target"], {"type": "activity_episode", "id": "ep_99"})
+        self.assertEqual(event["metadata"]["activityEpisodeId"], "ep_99")
+        self.assertEqual(event["metadata"]["authSessionId"], "auth_sess_1")
+        self.assertEqual(event["metadata"]["domain"], "code")
+        self.assertEqual(event["metadata"]["startReason"], "agent_run")
+        self.assertEqual(event["metadata"]["extra"], "ok")
+        self.assertNotIn("authContextId", event["metadata"])
+
+    def test_activity_episode_is_a_supported_evidence_entity_type(self):
+        edge = create_evidence_edge(
+            {
+                "id": "edge_episode_part_of",
+                "occurredAt": "2026-06-20T00:05:01.000Z",
+                "from": {"type": "activity", "id": "act_1"},
+                "relation": "part_of",
+                "to": {"type": "activity_episode", "id": "ep_99"},
+                "metadata": {},
+            }
+        )
+        self.assertEqual(edge["to"], {"type": "activity_episode", "id": "ep_99"})
+
+
+class RiskSignalsRedactionTests(unittest.TestCase):
+    def test_risk_signals_metadata_is_not_redacted(self):
+        event = create_audit_event(
+            {
+                "id": "evt_risk_signals",
+                "occurredAt": "2026-06-10T00:00:00.000Z",
+                "actor": {"type": "user", "id": "usr_123"},
+                "action": "change.files.changed",
+                "target": {"type": "source_tree", "id": "tree_1"},
+                "metadata": {
+                    "riskSignals": {
+                        "operationType": "delete",
+                        "reversibility": "irreversible",
+                        "envCriticality": "production",
+                        "dataVolume": 100,
+                        "fanOut": 0,
+                        "referenceCount": 0,
+                    }
+                },
+            }
+        )
+        self.assertEqual(
+            event["metadata"]["riskSignals"],
+            {
+                "operationType": "delete",
+                "reversibility": "irreversible",
+                "envCriticality": "production",
+                "dataVolume": 100,
+                "fanOut": 0,
+                "referenceCount": 0,
+            },
+        )
+
+    def test_evidence_commit_supports_assertion_record_member(self):
+        fixture = load_fixture("evidence-commit.json")
+        assertion_cases = [
+            case
+            for case in fixture["cases"]
+            if any(member.get("recordType") == "assertion.record" for member in case["input"]["members"])
+        ]
+        self.assertTrue(assertion_cases, "expected an assertion.record member case in evidence-commit.json")
+        for case in assertion_cases:
+            with self.subTest(case["name"]):
+                commit = create_evidence_commit(case["input"])
+                if "expected" in case:
+                    self.assertEqual(commit, case["expected"])
+                self.assertEqual(hash_evidence_commit(commit), commit["hash"])
+
+
+class CanonicalJsonFloatParityTests(unittest.TestCase):
+    def test_whole_valued_floats_render_as_int(self):
+        # TS JSON.stringify and Go encoding/json emit "1"/"0" for whole floats;
+        # Python must coerce so cross-language hashes stay byte-identical.
+        self.assertEqual(canonical_json({"a": 1.0, "b": 0.0, "c": 0.5, "d": 2}), '{"a":1,"b":0,"c":0.5,"d":2}')
+
+    def test_booleans_are_not_coerced_to_numbers(self):
+        self.assertEqual(canonical_json({"a": True, "b": False}), '{"a":true,"b":false}')
+
+    def test_non_finite_floats_fail_closed(self):
+        with self.assertRaises(ValueError):
+            canonical_json({"x": float("nan")})
+        with self.assertRaises(ValueError):
+            canonical_json(float("inf"))
+        with self.assertRaises(ValueError):
+            canonical_json(float("-inf"))
+
+
+class ScopeEmptyStringParityTests(unittest.TestCase):
+    def test_empty_optional_scope_fields_are_dropped(self):
+        # TS cleanScope uses truthy checks and Go uses omitempty; an empty-string
+        # environment/workspaceId must be dropped in Python too or the record hash diverges.
+        event = create_audit_event(
+            {
+                "id": "evt_scope_empty",
+                "occurredAt": "2026-06-10T00:00:00.000Z",
+                "actor": {"type": "user", "id": "usr_1"},
+                "action": "org.member.invited",
+                "target": {"type": "organization", "id": "org_1"},
+                "scope": {"tenantId": "org_1", "workspaceId": "", "environment": ""},
+            }
+        )
+        self.assertEqual(event["scope"], {"tenantId": "org_1"})
+
+    def test_present_scope_fields_are_preserved(self):
+        event = create_audit_event(
+            {
+                "id": "evt_scope_full",
+                "occurredAt": "2026-06-10T00:00:00.000Z",
+                "actor": {"type": "user", "id": "usr_1"},
+                "action": "org.member.invited",
+                "target": {"type": "organization", "id": "org_1"},
+                "scope": {"tenantId": "org_1", "environment": "production"},
+            }
+        )
+        self.assertEqual(event["scope"], {"tenantId": "org_1", "environment": "production"})
 
 
 if __name__ == "__main__":

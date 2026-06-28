@@ -19,6 +19,7 @@ import {
   organizationMemberRemovedTemplate,
   organizationMemberRoleChangedTemplate,
   retentionPolicyAppliedTemplate,
+  withRiskSignals,
   type AuditEventInput,
   type EvidenceEdge,
   type EvidenceEdgeRelation,
@@ -57,10 +58,7 @@ export const hostedCloudActions = [
 
 export const hostedCloudAuthorities = ["ingest", "read", "export", "admin", "billing", "mcp"] as const;
 
-export const fullGovernanceActions = [
-  ...sdkGovernanceTemplateActions,
-  ...hostedCloudActions,
-] as const;
+export const fullGovernanceActions = [...sdkGovernanceTemplateActions, ...hostedCloudActions] as const;
 
 export const fullGovernanceRelations = [
   "caused_by",
@@ -130,7 +128,6 @@ export function buildFullGovernanceScenario(input: FullGovernanceScenarioInput):
     location: { country: "US", region: "CA" },
     method: "password",
     provider: "better-auth",
-    riskScore: 0.18,
   };
 
   const sdkEvents: AuditEventInput[] = [
@@ -148,7 +145,10 @@ export function buildFullGovernanceScenario(input: FullGovernanceScenarioInput):
       scope,
       requestId: `full-governance:${runId}:session-created`,
       securityContext,
-      metadata: { ...externalApi, canonicalPlanHash, fullGovernanceRunId: runId },
+      metadata: withRiskSignals(
+        { ...externalApi, canonicalPlanHash, fullGovernanceRunId: runId },
+        { operationType: "create", reversibility: "recoverable", envCriticality: "production" },
+      ),
     }),
     authSessionRevokedTemplate({
       userId: actor.id,
@@ -297,24 +297,26 @@ function hostedCloudEvents(input: {
     canonicalPlanHash: input.canonicalPlanHash,
     fullGovernanceRunId: input.runId,
   };
-  const keyEvents = hostedCloudAuthorities.map((authority): AuditEventInput => ({
-    actor: input.actor,
-    action: "scoped.key.created",
-    target: { type: "tenant_scoped_key", id: `key_${authority}_${input.runId}` },
-    scope: input.scope,
-    requestId: `full-governance:${input.runId}:scoped-key:${authority}`,
-    purpose: "access_management",
-    lawfulBasis: "contract",
-    retention: "security_1y",
-    metadata: {
-      ...input.classifiers.internalApp,
-      ...cloudMetadata,
-      authority,
-      hostedAuditAction: "scoped_key.created",
-      projectId: input.tenantId,
-      keyPrefix: `vrt_${authority.slice(0, 3)}_demo`,
-    },
-  }));
+  const keyEvents = hostedCloudAuthorities.map(
+    (authority): AuditEventInput => ({
+      actor: input.actor,
+      action: "scoped.key.created",
+      target: { type: "tenant_scoped_key", id: `key_${authority}_${input.runId}` },
+      scope: input.scope,
+      requestId: `full-governance:${input.runId}:scoped-key:${authority}`,
+      purpose: "access_management",
+      lawfulBasis: "contract",
+      retention: "security_1y",
+      metadata: {
+        ...input.classifiers.internalApp,
+        ...cloudMetadata,
+        authority,
+        hostedAuditAction: "scoped_key.created",
+        projectId: input.tenantId,
+        keyPrefix: `vrt_${authority.slice(0, 3)}_demo`,
+      },
+    }),
+  );
 
   return [
     {

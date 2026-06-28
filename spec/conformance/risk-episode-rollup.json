@@ -1,0 +1,94 @@
+{
+  "name": "risk-episode-rollup-v1",
+  "policyVersion": "veritio.reference.v1",
+  "cases": [
+    {
+      "name": "escalating burst rolls up to critical via peak",
+      "steps": [
+        { "occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.2 },
+        { "occurredAt": "2026-06-23T00:00:30.000Z", "score": 0.36 },
+        { "occurredAt": "2026-06-23T00:01:00.000Z", "score": 0.6 },
+        { "occurredAt": "2026-06-23T00:03:00.000Z", "score": 1 }
+      ],
+      "momentumTrace": [
+        { "score": 0.2, "deltaSeconds": 0, "windows": 0, "decay": 1, "momentum": 0.2 },
+        { "score": 0.36, "deltaSeconds": 30, "windows": 0, "decay": 1, "momentum": 0.56 },
+        { "score": 0.6, "deltaSeconds": 30, "windows": 0, "decay": 1, "momentum": 1.16 },
+        { "score": 1, "deltaSeconds": 120, "windows": 2, "decay": 0.25, "momentum": 1.29 }
+      ],
+      "expected": {
+        "score": 1,
+        "level": "critical",
+        "peak": 1,
+        "velocityScore": 0.43,
+        "stepCount": 4,
+        "policyVersion": "veritio.reference.v1"
+      }
+    },
+    {
+      "name": "single step rolls up to its own banded score",
+      "steps": [ { "occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.202 } ],
+      "momentumTrace": [
+        { "score": 0.202, "deltaSeconds": 0, "windows": 0, "decay": 1, "momentum": 0.202 }
+      ],
+      "expected": {
+        "score": 0.202,
+        "level": "low",
+        "peak": 0.202,
+        "velocityScore": 0.0673,
+        "stepCount": 1,
+        "policyVersion": "veritio.reference.v1"
+      }
+    },
+    {
+      "name": "sorts unsorted steps and decays one full window",
+      "steps": [
+        { "occurredAt": "2026-06-23T00:01:00.000Z", "score": 0.5 },
+        { "occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.3 }
+      ],
+      "momentumTrace": [
+        { "score": 0.3, "deltaSeconds": 0, "windows": 0, "decay": 1, "momentum": 0.3 },
+        { "score": 0.5, "deltaSeconds": 60, "windows": 1, "decay": 0.5, "momentum": 0.65 }
+      ],
+      "expected": {
+        "score": 0.5,
+        "level": "high",
+        "peak": 0.5,
+        "velocityScore": 0.2167,
+        "stepCount": 2,
+        "policyVersion": "veritio.reference.v1"
+      }
+    },
+    {
+      "name": "zero-gap steps carry full momentum (no decay)",
+      "steps": [
+        { "occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.2 },
+        { "occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.2 }
+      ],
+      "momentumTrace": [
+        { "score": 0.2, "deltaSeconds": 0, "windows": 0, "decay": 1, "momentum": 0.2 },
+        { "score": 0.2, "deltaSeconds": 0, "windows": 0, "decay": 1, "momentum": 0.4 }
+      ],
+      "expected": {
+        "score": 0.2,
+        "level": "low",
+        "peak": 0.2,
+        "velocityScore": 0.1333,
+        "stepCount": 2,
+        "policyVersion": "veritio.reference.v1"
+      }
+    },
+    {
+      "name": "empty episode rolls up to none",
+      "steps": [],
+      "expected": {
+        "score": 0,
+        "level": "none",
+        "peak": 0,
+        "velocityScore": 0,
+        "stepCount": 0,
+        "policyVersion": "veritio.reference.v1"
+      }
+    }
+  ]
+}

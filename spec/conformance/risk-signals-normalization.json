@@ -1,0 +1,44 @@
+{
+  "name": "risk-signals-normalization-v1",
+  "policyVersion": "veritio.reference.v1",
+  "cases": [
+    {
+      "name": "applies conservative defaults for a minimal create signal",
+      "input": { "operationType": "create" },
+      "normalized": {
+        "operationType": "create",
+        "reversibility": "recoverable",
+        "envCriticality": "production",
+        "dataVolume": 0,
+        "fanOut": 0,
+        "referenceCount": 0
+      }
+    },
+    {
+      "name": "preserves explicitly provided enums and magnitudes",
+      "input": {
+        "operationType": "destructive",
+        "reversibility": "irreversible",
+        "envCriticality": "staging",
+        "dataVolume": 12000,
+        "fanOut": 12,
+        "referenceCount": 12
+      },
+      "normalized": {
+        "operationType": "destructive",
+        "reversibility": "irreversible",
+        "envCriticality": "staging",
+        "dataVolume": 12000,
+        "fanOut": 12,
+        "referenceCount": 12
+      }
+    },
+    { "name": "rejects an unknown operationType", "input": { "operationType": "frobnicate" }, "expectError": true },
+    { "name": "rejects a missing operationType", "input": {}, "expectError": true },
+    { "name": "rejects an unknown reversibility", "input": { "operationType": "create", "reversibility": "permanent" }, "expectError": true },
+    { "name": "rejects an unknown envCriticality", "input": { "operationType": "create", "envCriticality": "prod" }, "expectError": true },
+    { "name": "rejects a negative dataVolume", "input": { "operationType": "create", "dataVolume": -1 }, "expectError": true },
+    { "name": "rejects a fractional fanOut", "input": { "operationType": "create", "fanOut": 1.5 }, "expectError": true },
+    { "name": "rejects a fractional referenceCount", "input": { "operationType": "create", "referenceCount": 2.7 }, "expectError": true }
+  ]
+}

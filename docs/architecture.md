@@ -26,6 +26,11 @@ regulation or framework.
      implemented.
    - Core SDKs do not read process environment variables, framework globals, or
      storage credentials.
+   - All three SDKs expose a deterministic, language-neutral risk-signal scoring
+     module (`risk.ts` / `risk.py` / `risk.go`) that turns structured
+     `riskSignals` into the same byte-identical score and band, plus
+     `security.risk` assertion builders. See
+     [risk-scoring.md](./risk-scoring.md).
    - TypeScript currently has higher-level runtime helpers such as
      `MemoryAuditStore`, chain verification helpers, audit templates, and the
      TS-only provenance recorder.
@@ -58,6 +63,11 @@ regulation or framework.
    - Read MCP tools are enabled by default. Write tools are hidden unless the
      host starts the server with `allowWriteTools` or the CLI flag
      `--allow-write-tools`.
+   - The local store records `activity.episode.started` lifecycle events and
+     stores precomputed `security.risk` assertions (`recordAssertion`/
+     `listAssertions`), linking each assertion to its subject by a `based_on`
+     edge. The server is a sink: it preserves the supplied conclusion verbatim
+     and never scores.
 
 6. **Examples**
    - Examples are runnable integration skeletons, not the canonical protocol
@@ -149,6 +159,23 @@ Agent and code-change templates reject raw prompt, diff, file-path,
 stdout/stderr, tool-argument, and bearer-token-like metadata. The Claude Code
 adapter records prompt hashes, content hashes, stable tool names, status, and
 session IDs rather than raw tool inputs or file contents.
+
+## Risk And Activity Episodes
+
+Risk is a structured, deterministic concern. Hosts attach `riskSignals` to event
+metadata; the SDK risk module scores them into a `0..1` score and band using the
+`veritio.reference.v1` policy, producing identical bytes across TypeScript,
+Python, and Go. Scoring lives only in the SDK — `createAuditEvent`, the framework
+adapters, and the local server never compute a score.
+
+One agent session is grouped by a stable **activity episode** (entity type
+`activity_episode`). The recorder stamps `metadata.activityEpisodeId` on every
+event a session emits, the same way it stamps `metadata.sessionId`, so per-step
+scores can be rolled up per episode. Detectors (in Veritio Cloud) append a
+`security.risk.assessed` event and a `security.risk` assertion record on
+band-crossing; the OSS SDK ships the builders and the local server stores the
+result as evidence linked by `based_on` edges. See
+[risk-scoring.md](./risk-scoring.md).
 
 ## Local Workbench Loop
 

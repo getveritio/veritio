@@ -44,7 +44,7 @@ export function AgentSessions({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold tracking-tight text-foreground">Agent sessions</h2>
           <p className="text-[11px] text-muted-foreground">
-            prompt → tool read → proposal → governed recalcs → human approval, grouped by one session id.
+            prompt → tool read → proposal → governed recalcs → human approval, grouped by one activity episode.
           </p>
         </div>
         <Button size="sm" disabled={pending} onClick={runSession}>
@@ -63,11 +63,12 @@ export function AgentSessions({
         <Card className="overflow-hidden">
           {sessions.map((session) => (
             <div
-              key={session.sessionId}
+              key={session.activityEpisodeId}
               className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0"
             >
               <div className="min-w-0">
-                <p className="truncate font-mono text-[11px] text-muted-foreground">{session.sessionId}</p>
+                <p className="truncate font-mono text-[11px] text-foreground">{session.activityEpisodeId}</p>
+                <p className="truncate font-mono text-[10px] text-muted-foreground">{session.sessionId}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {session.agentLabel} · {session.modelLabel}
                 </p>

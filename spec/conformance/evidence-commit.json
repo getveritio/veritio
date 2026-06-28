@@ -84,6 +84,31 @@
         ]
       },
       "expectedRecordsRoot": "sha256:ac195c160b8aaaf84f873ddb6cf379aa7a06f58c13ea5315979f1f4fa1a1cde8"
+    },
+    {
+      "name": "binds an assertion.record member",
+      "input": {
+        "commitId": "cmt_fixture_assertion",
+        "streamId": "str_fixture_production",
+        "sequence": 4,
+        "previousCommitHash": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "committedAt": "2026-06-23T10:17:00.000Z",
+        "members": [
+          {
+            "index": 0,
+            "recordType": "audit.record",
+            "recordId": "evt_fixture_assessed_01",
+            "recordHash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          },
+          {
+            "index": 1,
+            "recordType": "assertion.record",
+            "recordId": "asr_fixture_risk_01",
+            "recordHash": "sha256:fd6ee589489fda840e46bc80a999f5c2c95ffb95fafa073070796cd655ec5573"
+          }
+        ]
+      },
+      "expectedRecordsRoot": "sha256:b7acf5a5cf31fb23e3006fae63584eb90d8156759c18ab7c3978c8638834d19d"
     }
   ]
 }

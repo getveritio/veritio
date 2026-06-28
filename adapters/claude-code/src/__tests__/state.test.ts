@@ -16,7 +16,18 @@ describe("state", () => {
 
   test("returns a fresh empty state when none exists", () => {
     const state = loadState(dir, "sess_x");
-    expect(state).toEqual({ context: null, toolSeq: 0, preImages: {}, turn: 0 });
+    expect(state).toEqual({ context: null, toolSeq: 0, preImages: {}, turn: 0, activityEpisodeId: null });
+  });
+
+  test("round-trips the activity episode id across simulated process invocations", () => {
+    const first = loadState(dir, "sess_1");
+    first.activityEpisodeId = "ep_sess_1";
+    first.toolSeq = 3;
+    saveState(dir, "sess_1", first);
+
+    const reopened = loadState(dir, "sess_1");
+    expect(reopened.activityEpisodeId).toBe("ep_sess_1");
+    expect(reopened.toolSeq).toBe(3);
   });
 
   test("round-trips across simulated process invocations", () => {
@@ -35,7 +46,7 @@ describe("state", () => {
   });
 
   test("clearState removes the session file", () => {
-    saveState(dir, "sess_2", { context: null, toolSeq: 1, preImages: {}, turn: 0 });
+    saveState(dir, "sess_2", { context: null, toolSeq: 1, preImages: {}, turn: 0, activityEpisodeId: null });
     clearState(dir, "sess_2");
     expect(loadState(dir, "sess_2").toolSeq).toBe(0);
   });

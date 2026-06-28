@@ -113,6 +113,36 @@ describe("createProvenanceRecorder.startSession", () => {
       resourceType: "change_request",
     });
   });
+
+  test("stamps activityEpisodeId un-shadowably on the session event and every downstream event", async () => {
+    const sinks = makeSinks();
+    const recorder = createProvenanceRecorder(sinks);
+
+    const { session, result } = await recorder.startSession({
+      scope: SCOPE,
+      sessionId: "agt_sess_ep",
+      occurredAt: "2026-06-18T00:00:00.000Z",
+      initiatedBy: { type: "user", id: "usr_builder" },
+      agentActor: { type: "ai_agent", id: "agent_opencode" },
+      agent: { name: "opencode", version: "1.17" },
+      model: { provider: "anthropic", name: "claude-opus-4-8" },
+      activityEpisodeId: "ep_2026_0618_usr_builder",
+      metadata: { activityEpisodeId: "caller_shadow" },
+    });
+
+    expect(result.event.event.metadata.activityEpisodeId).toBe("ep_2026_0618_usr_builder");
+
+    const tool = await session.recordToolCall({
+      toolCallId: "tool_ep_1",
+      tool: "Edit",
+      status: "ok",
+      occurredAt: "2026-06-18T00:01:00.000Z",
+      metadata: { activityEpisodeId: "caller_shadow_again" },
+    });
+
+    expect(tool.event.event.metadata.activityEpisodeId).toBe("ep_2026_0618_usr_builder");
+    expect(tool.event.event.metadata.sessionId).toBe("agt_sess_ep");
+  });
 });
 
 describe("provenance session change recording", () => {
@@ -150,6 +180,23 @@ describe("provenance session change recording", () => {
     const rels = edges.map((e) => `${e.edge.from.type}:${e.edge.relation}:${e.edge.to.type}`);
     expect(rels).toContain("tool_call:modified:file");
     expect(rels).toContain("diff_hunk:part_of:file");
+  });
+
+  test("stamps normalized riskSignals onto a record event's metadata", async () => {
+    const { session } = await startBasicSession(createProvenanceRecorder(makeSinks()));
+
+    const result = await session.recordFileChange({
+      sourceTreeId: "tree_1",
+      occurredAt: "2026-06-18T00:02:00.000Z",
+      files: [{ id: "f1", pathHash: "sha256:p", afterHash: "sha256:a" }],
+      riskSignals: { operationType: "destructive", envCriticality: "production" },
+    });
+
+    expect(result.event.event.metadata.riskSignals).toMatchObject({
+      operationType: "destructive",
+      envCriticality: "production",
+      reversibility: "recoverable",
+    });
   });
 });
 

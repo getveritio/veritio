@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createAuditRecorder, MemoryAuditStore } from "@veritio/core";
 import {
+  type BetterAuthSessionSecurityContext,
   buildBetterAuthOrganizationCreatedAuditEventInput,
   buildBetterAuthSessionCreatedAuditEventInput,
   buildBetterAuthSessionRevokedAuditEventInput,
@@ -177,6 +178,34 @@ describe("createBetterAuthVeritioAdapter", () => {
         location: { country: "US", region: "CA" },
         userAgentHash: "sha256:user-agent",
       },
+    });
+  });
+
+  test("drops a stale riskScore from session security context and never records it", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordSessionCreated({
+      user: { id: "usr_123" },
+      session: { id: "ses_123" },
+      tenantId: "org_123",
+      securityContext: {
+        ipAddressHash: "sha256:client-ip",
+        // riskScore is no longer part of the adapter contract; a stale host value
+        // must never reach event metadata. Cast keeps the test honest after removal.
+        riskScore: 0.42,
+      } as BetterAuthSessionSecurityContext,
+    });
+
+    const [record] = store.records();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.metadata).toEqual({
+      securityContext: { ipAddressHash: "sha256:client-ip" },
     });
   });
 

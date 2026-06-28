@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   LocalEvidenceStore,
+  type SecurityRiskAssertion,
   createWorkbenchApp,
   handleMcpRequest,
   runGovernedChangeScenario,
@@ -216,10 +217,185 @@ describe("LocalEvidenceStore", () => {
     expect(result.explain.changeId).toBe("chg_project_entry_price_01");
     expect(result.explain.evidenceAssurance).toEqual(["current-protocol relation links present"]);
     expect(result.explain.knownCoverage).toEqual(["change", "activity", "revision", "relations", "audit_records"]);
-    expect(result.explain.notCaptured).toEqual(["raw full row", "business transaction proof", "independent state verification"]);
+    expect(result.explain.notCaptured).toEqual([
+      "raw full row",
+      "business transaction proof",
+      "independent state verification",
+    ]);
     expect(result.diff.changedPaths).toEqual(["/monthlyPrice", "/quantity"]);
     expect(result.diff.after.monthlyPrice).toBe(148220);
     expect(JSON.stringify(result.entityTimeline)).not.toContain("buyer@example.com");
+  });
+
+  test("records an activity.episode.started event, threads activityEpisodeId, and never scores", async () => {
+    const store = new LocalEvidenceStore();
+    const activityEpisodeId = "ae_sess_demo_01";
+
+    const record = await store.recordEvent(
+      {
+        id: "evt_episode_started_01",
+        occurredAt: "2026-06-23T10:00:00.000Z",
+        actor: { type: "ai_agent", id: "agent_cc" },
+        action: "activity.episode.started",
+        target: { type: "activity_episode", id: activityEpisodeId },
+        scope: { tenantId, environment: "test" },
+        purpose: "agent_provenance",
+        retention: "security_1y",
+        metadata: { activityEpisodeId, domain: "code", startReason: "session_start" },
+      },
+      { idempotencyKey: `episode:${activityEpisodeId}` },
+    );
+
+    expect(record.event.action).toBe("activity.episode.started");
+    expect(record.event.target).toEqual({ type: "activity_episode", id: activityEpisodeId });
+    expect(record.event.metadata).toMatchObject({ activityEpisodeId, domain: "code", startReason: "session_start" });
+    // The local server is a sink, not a detector: no score is added.
+    expect(record.event.metadata).not.toHaveProperty("score");
+    expect(record.event.metadata).not.toHaveProperty("level");
+
+    const listed = await store.listEvents({ tenantId });
+    expect(listed.map((entry) => entry.event.id)).toContain("evt_episode_started_01");
+    expect(await store.verify({ tenantId })).toMatchObject({ ok: true });
+  });
+
+  test("stores a precomputed security.risk assertion verbatim, links it by based_on, and never scores", async () => {
+    const store = new LocalEvidenceStore();
+    const assertion: SecurityRiskAssertion = {
+      recordType: "assertion.recorded",
+      schemaVersion: "2026-06-23",
+      recordAuthority: "veritio",
+      id: "risk_01jz_concurrent_activity",
+      type: "security.risk",
+      scope: { tenantId, environment: "test" },
+      occurredAt: "2026-06-23T10:15:32.000Z",
+      producer: {
+        authority: "veritio.detectors",
+        kind: "principal",
+        type: "service",
+        id: "concurrent-activity-detector",
+      },
+      idempotencyKeyHash: `sha256:${"0".repeat(64)}`,
+      subject: { authority: "veritio", kind: "activity", type: "activity_episode", id: "ae_sess_demo_01" },
+      conclusion: { score: 0.86, level: "high", policyVersion: "veritio.reference.v1", assessment: "episode_rollup" },
+      factors: [{ key: "velocityScore", value: 0.4, kind: "additive", weight: 1, contribution: 0.4 }],
+    };
+
+    const result = await store.recordAssertion(assertion);
+    // Sink, not detector: the conclusion is preserved byte-for-byte.
+    expect(result.assertion.conclusion.score).toBe(0.86);
+    expect(result.assertion).toEqual(assertion);
+    expect(result.hash.startsWith("sha256:")).toBe(true);
+
+    expect(result.edge.edge.relation).toBe("based_on");
+    expect(result.edge.edge.from).toMatchObject({ type: "assertion", id: assertion.id });
+    expect(result.edge.edge.to).toMatchObject({ type: "activity", id: "ae_sess_demo_01" });
+
+    expect(await store.listAssertions({ tenantId })).toEqual([assertion]);
+
+    // Idempotent replay returns the same linkage and does not duplicate the edge.
+    const replay = await store.recordAssertion(assertion);
+    expect(replay.edge.edge.id).toBe(result.edge.edge.id);
+    expect(await store.listAssertions({ tenantId })).toEqual([assertion]);
+    expect(await store.verify({ tenantId })).toMatchObject({ ok: true });
+  });
+
+  test("fails closed when a same-tenant same-id assertion arrives with a changed conclusion.score", async () => {
+    const store = new LocalEvidenceStore();
+    const assertion: SecurityRiskAssertion = {
+      recordType: "assertion.recorded",
+      schemaVersion: "2026-06-23",
+      recordAuthority: "veritio",
+      id: "risk_01jz_conflict",
+      type: "security.risk",
+      scope: { tenantId, environment: "test" },
+      occurredAt: "2026-06-23T10:15:32.000Z",
+      producer: {
+        authority: "veritio.detectors",
+        kind: "principal",
+        type: "service",
+        id: "concurrent-activity-detector",
+      },
+      idempotencyKeyHash: `sha256:${"0".repeat(64)}`,
+      subject: { authority: "veritio", kind: "activity", type: "activity_episode", id: "ae_sess_demo_01" },
+      conclusion: { score: 0.86, level: "high", policyVersion: "veritio.reference.v1", assessment: "episode_rollup" },
+      factors: [{ key: "velocityScore", value: 0.4, kind: "additive", weight: 1, contribution: 0.4 }],
+    };
+
+    await store.recordAssertion(assertion);
+    const mutated: SecurityRiskAssertion = {
+      ...assertion,
+      conclusion: { ...assertion.conclusion, score: 0.42 },
+    };
+    expect(store.recordAssertion(mutated)).rejects.toThrow("assertion id conflict");
+    // Fail-closed: the rejected body adds no assertion, edge, or chain state.
+    expect(await store.listAssertions({ tenantId })).toEqual([assertion]);
+    expect((await store.listEdges({ tenantId })).length).toBe(1);
+    expect(await store.verify({ tenantId })).toMatchObject({ ok: true });
+  });
+
+  test("accepts the same assertion id under a different tenant (dedup is tenant-scoped)", async () => {
+    const store = new LocalEvidenceStore();
+    const otherTenant = "org_other_999";
+    const assertion: SecurityRiskAssertion = {
+      recordType: "assertion.recorded",
+      schemaVersion: "2026-06-23",
+      recordAuthority: "veritio",
+      id: "risk_shared_id",
+      type: "security.risk",
+      scope: { tenantId, environment: "test" },
+      occurredAt: "2026-06-23T10:15:32.000Z",
+      producer: {
+        authority: "veritio.detectors",
+        kind: "principal",
+        type: "service",
+        id: "concurrent-activity-detector",
+      },
+      idempotencyKeyHash: `sha256:${"0".repeat(64)}`,
+      subject: { authority: "veritio", kind: "activity", type: "activity_episode", id: "ae_sess_demo_01" },
+      conclusion: { score: 0.86, level: "high", policyVersion: "veritio.reference.v1", assessment: "episode_rollup" },
+      factors: [{ key: "velocityScore", value: 0.4, kind: "additive", weight: 1, contribution: 0.4 }],
+    };
+    const otherTenantAssertion: SecurityRiskAssertion = {
+      ...assertion,
+      scope: { tenantId: otherTenant, environment: "test" },
+    };
+
+    const first = await store.recordAssertion(assertion);
+    const second = await store.recordAssertion(otherTenantAssertion);
+
+    // Same id, different tenant => not a conflict; each tenant sees only its own.
+    expect(await store.listAssertions({ tenantId })).toEqual([assertion]);
+    expect(await store.listAssertions({ tenantId: otherTenant })).toEqual([otherTenantAssertion]);
+    expect(first.edge.edge.scope.tenantId).toBe(tenantId);
+    expect(second.edge.edge.scope.tenantId).toBe(otherTenant);
+    expect(await store.verify({ tenantId })).toMatchObject({ ok: true });
+    expect(await store.verify({ tenantId: otherTenant })).toMatchObject({ ok: true });
+  });
+
+  test("fails closed when an assertion scope is missing tenantId", async () => {
+    const store = new LocalEvidenceStore();
+    const assertion = {
+      recordType: "assertion.recorded",
+      schemaVersion: "2026-06-23",
+      recordAuthority: "veritio",
+      id: "risk_missing_tenant",
+      type: "security.risk",
+      scope: { environment: "test" },
+      occurredAt: "2026-06-23T10:15:32.000Z",
+      producer: {
+        authority: "veritio.detectors",
+        kind: "principal",
+        type: "service",
+        id: "concurrent-activity-detector",
+      },
+      idempotencyKeyHash: `sha256:${"0".repeat(64)}`,
+      subject: { authority: "veritio", kind: "activity", type: "activity_episode", id: "ae_sess_demo_01" },
+      conclusion: { score: 0.86, level: "high", policyVersion: "veritio.reference.v1", assessment: "episode_rollup" },
+      factors: [{ key: "velocityScore", value: 0.4, kind: "additive", weight: 1, contribution: 0.4 }],
+    } as unknown as SecurityRiskAssertion;
+
+    expect(store.recordAssertion(assertion)).rejects.toThrow("assertion.scope.tenantId is required");
+    expect(await store.listAssertions({ tenantId })).toEqual([]);
   });
 });
 
@@ -290,7 +466,9 @@ describe("Workbench HTTP app", () => {
       exportPreview: { manifest: { recordCounts: { commits: 2 } } },
       changes: [{ id: "chg_project_entry_revert_01" }, { id: "chg_project_entry_price_01" }],
     });
-    const changesResponse = await app.fetch(new Request("http://veritio.local/v1/changes?tenantId=tenant_governed_http"));
+    const changesResponse = await app.fetch(
+      new Request("http://veritio.local/v1/changes?tenantId=tenant_governed_http"),
+    );
     expect((await json(changesResponse)).records).toHaveLength(2);
     const commitsResponse = await app.fetch(new Request("http://veritio.local/v1/commits"));
     expect((await json(commitsResponse)).records).toHaveLength(2);

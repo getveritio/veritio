@@ -9,6 +9,7 @@ import {
   createGovernedChangeDraft,
   createProvenanceRecorder,
   defineEntity,
+  hashAssertionRecord,
   hashAuditRecord,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
@@ -30,8 +31,13 @@ import {
   type EvidenceScope,
   type GovernedChangeDraft,
   type JsonObject,
+  type SecurityRiskAssertion,
   type VerificationResult,
 } from "@veritio/core";
+
+// Re-exported so consumers of recordAssertion/listAssertions can name the
+// stored security-risk assertion type from this server package directly.
+export type { SecurityRiskAssertion } from "@veritio/core";
 
 export interface LocalEvidenceStoreListOptions {
   afterSequence?: number;
@@ -242,6 +248,7 @@ export class LocalEvidenceStore {
   #auditTips = new Map<string, AuditRecord>();
   #edgeTips = new Map<string, EvidenceEdgeRecord>();
   #commitTips = new Map<string, EvidenceCommit>();
+  #assertions: { assertion: SecurityRiskAssertion; hash: string }[] = [];
 
   /**
    * Records an audit event or normalized event input into the tenant audit
@@ -328,6 +335,55 @@ export class LocalEvidenceStore {
   }
 
   /**
+   * Stores a precomputed security-risk assertion (recordType 'assertion.recorded')
+   * and links it to its subject through a `based_on` edge. The local server is a
+   * SINK, not a detector: it persists the conclusion verbatim and MUST NOT
+   * recompute the score (risk scoring lives in the SDK risk module / Cloud
+   * detectors). Idempotent on assertion id; conflicting bodies fail closed.
+   * Evidence linkage is by edge, never an inline evidence[] field.
+   */
+  async recordAssertion(
+    assertion: SecurityRiskAssertion,
+  ): Promise<{ assertion: SecurityRiskAssertion; hash: string; edge: EvidenceEdgeRecord }> {
+    requireTenantId(assertion.scope, "assertion.scope.tenantId");
+    const hash = `sha256:${hashAssertionRecord(assertion)}`;
+    // Dedup is tenant-scoped (mirrors the based_on edge idempotency key and the
+    // listAssertions tenant filter): the same assertion id under two different
+    // tenants must not collide into a false fail-closed conflict.
+    const existing = this.#assertions.find(
+      (entry) => entry.assertion.scope.tenantId === assertion.scope.tenantId && entry.assertion.id === assertion.id,
+    );
+    if (existing && canonicalJson(existing.assertion) !== canonicalJson(assertion)) {
+      throw new TypeError("assertion id conflict");
+    }
+    if (!existing) {
+      this.#assertions.push({ assertion: clone(assertion), hash });
+    }
+    const subject: EvidenceRef = assertion.subject;
+    const edge = await this.recordEdge(
+      {
+        id: `edge_based_on_${assertion.id}`,
+        occurredAt: assertion.occurredAt,
+        scope: assertion.scope,
+        from: { type: "assertion", id: assertion.id },
+        relation: "based_on",
+        to: { type: subject.kind as EvidenceEntity["type"], id: subject.id },
+        metadata: { assertionType: assertion.type, level: assertion.conclusion.level },
+      },
+      { idempotencyKey: `based_on:${assertion.scope.tenantId}:${assertion.id}` },
+    );
+    return { assertion: clone(assertion), hash, edge };
+  }
+
+  /** Lists stored security-risk assertions for one tenant (read-model order). */
+  async listAssertions(scope: EvidenceScope & { tenantId: string }): Promise<SecurityRiskAssertion[]> {
+    const tenantId = requireTenantId(scope, "scope.tenantId");
+    return this.#assertions
+      .filter((entry) => entry.assertion.scope.tenantId === tenantId)
+      .map((entry) => clone(entry.assertion));
+  }
+
+  /**
    * Records one local batch of audit events and graph edges, then appends an
    * EvidenceCommit manifest that binds the resulting record hashes in order.
    * The commit stream is separate from tenant chains and models ordered
@@ -338,7 +394,9 @@ export class LocalEvidenceStore {
       throw new TypeError("batch must include at least one event or edge");
     }
 
-    const existingCommit = this.#commits.find((commit) => commit.streamId === input.streamId && commit.commitId === input.commitId);
+    const existingCommit = this.#commits.find(
+      (commit) => commit.streamId === input.streamId && commit.commitId === input.commitId,
+    );
     if (existingCommit) {
       const auditRecords = input.events.map((eventInput) => {
         const event = createAuditEvent(eventInput);
@@ -538,11 +596,7 @@ export class LocalEvidenceStore {
    * Rebuilds one entity revision timeline from revision compatibility events.
    * Payloads show minimized governed fields only, never raw omitted fields.
    */
-  async getEntityTimeline(query: {
-    tenantId: string;
-    entityType: string;
-    entityId: string;
-  }): Promise<EntityTimeline> {
+  async getEntityTimeline(query: { tenantId: string; entityType: string; entityId: string }): Promise<EntityTimeline> {
     const tenantId = requireTenantId({ tenantId: query.tenantId }, "tenantId");
     const events = await this.listEvents({ tenantId });
     const revisions = events
@@ -567,7 +621,9 @@ export class LocalEvidenceStore {
     const tenantId = requireTenantId(scope, "scope.tenantId");
     const events = await this.listEvents({ tenantId });
     const edges = await this.listEdges({ tenantId });
-    const changeRecord = events.find((record) => record.event.action === "change.declared" && record.event.target.id === changeId);
+    const changeRecord = events.find(
+      (record) => record.event.action === "change.declared" && record.event.target.id === changeId,
+    );
     if (!changeRecord) {
       throw new TypeError("change not found");
     }
@@ -575,8 +631,12 @@ export class LocalEvidenceStore {
     return {
       changeId,
       actor: changeRecord.event.actor.id,
-      activityIds: outgoing.filter((record) => record.edge.relation === "has_activity").map((record) => record.edge.to.id),
-      outputRevisionIds: outgoing.filter((record) => record.edge.relation === "has_output").map((record) => record.edge.to.id),
+      activityIds: outgoing
+        .filter((record) => record.edge.relation === "has_activity")
+        .map((record) => record.edge.to.id),
+      outputRevisionIds: outgoing
+        .filter((record) => record.edge.relation === "has_output")
+        .map((record) => record.edge.to.id),
       supportingRecordIds: [changeRecord.event.id, ...outgoing.map((record) => record.edge.id)],
       evidenceAssurance: ["current-protocol relation links present"],
       knownCoverage: ["change", "activity", "revision", "relations", "audit_records"],
@@ -1270,7 +1330,11 @@ export async function runGovernedChangeScenario(
     producer,
     occurredAt: "2026-06-23T10:18:00.000Z",
     idempotencyKeyHash: "sha256:price-change",
-    context: { changeId: "chg_project_entry_price_01", traceId: "trc_project_entry_price", collectionSource: "governed-change-scenario" },
+    context: {
+      changeId: "chg_project_entry_price_01",
+      traceId: "trc_project_entry_price",
+      collectionSource: "governed-change-scenario",
+    },
     capturePolicyRef: { id: "cap_project_changes", version: "3" },
     digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "scenario-hmac-secret" } },
   });
@@ -1285,15 +1349,31 @@ export async function runGovernedChangeScenario(
   const rollbackDraft = createGovernedChangeDraft({
     scope,
     entity: projectEntry,
-    before: { id: "42", quantity: 11, monthlyPrice: 148220, customerEmail: "buyer@example.com", temporaryCache: "warm" },
-    after: { id: "42", quantity: 10, monthlyPrice: 142800, customerEmail: "buyer@example.com", temporaryCache: "restored" },
+    before: {
+      id: "42",
+      quantity: 11,
+      monthlyPrice: 148220,
+      customerEmail: "buyer@example.com",
+      temporaryCache: "warm",
+    },
+    after: {
+      id: "42",
+      quantity: 10,
+      monthlyPrice: 142800,
+      customerEmail: "buyer@example.com",
+      temporaryCache: "restored",
+    },
     changedPaths: ["/quantity", "/monthlyPrice"],
     change: { id: "chg_project_entry_revert_01", type: "project.entry.rollback", initiatedBy: user },
     activity: { id: "act_project_entry_revert_01", type: "project.entry.rollback", performedBy: user },
     producer,
     occurredAt: "2026-06-23T10:24:00.000Z",
     idempotencyKeyHash: "sha256:rollback-change",
-    context: { changeId: "chg_project_entry_revert_01", traceId: "trc_project_entry_revert", collectionSource: "governed-change-scenario" },
+    context: {
+      changeId: "chg_project_entry_revert_01",
+      traceId: "trc_project_entry_revert",
+      collectionSource: "governed-change-scenario",
+    },
     capturePolicyRef: { id: "cap_project_changes", version: "3" },
     digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "scenario-hmac-secret" } },
   });
@@ -2032,8 +2112,12 @@ function changeViewFromRecord(record: AuditRecord, edgeRecords: EvidenceEdgeReco
     title: stringFromJson(metadata.changeType) ?? record.event.action,
     status: "declared",
     occurredAt: record.event.occurredAt,
-    activityIds: relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_activity").map((edgeRecord) => edgeRecord.edge.to.id),
-    outputRevisionIds: relatedEdges.filter((edgeRecord) => edgeRecord.edge.relation === "has_output").map((edgeRecord) => edgeRecord.edge.to.id),
+    activityIds: relatedEdges
+      .filter((edgeRecord) => edgeRecord.edge.relation === "has_activity")
+      .map((edgeRecord) => edgeRecord.edge.to.id),
+    outputRevisionIds: relatedEdges
+      .filter((edgeRecord) => edgeRecord.edge.relation === "has_output")
+      .map((edgeRecord) => edgeRecord.edge.to.id),
     supportingRecordIds: [record.event.id, ...relatedEdges.map((edgeRecord) => edgeRecord.edge.id)],
     assurance: ["current-protocol relation links present"],
   };

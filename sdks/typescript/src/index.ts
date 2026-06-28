@@ -33,6 +33,7 @@ export const EVIDENCE_ENTITY_TYPES = [
   "file",
   "diff_hunk",
   "agent_session",
+  "activity_episode",
   "tool_call",
   "ci_run",
   "artifact",
@@ -1131,3 +1132,4 @@ function prefixedSha256(value: string): string {
 export * from "./provenance";
 export * from "./governed-change";
 export * from "./templates";
+export * from "./risk";

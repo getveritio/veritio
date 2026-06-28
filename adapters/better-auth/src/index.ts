@@ -25,7 +25,6 @@ export interface BetterAuthSessionSecurityContext {
   };
   method?: string;
   provider?: string;
-  riskScore?: number;
 }
 
 export interface BetterAuthOrganizationRef {
@@ -366,7 +365,6 @@ function compactSessionSecurityContext(input: BetterAuthSessionSecurityContext |
       : undefined,
     method: input.method,
     provider: input.provider,
-    riskScore: input.riskScore,
   });
 }
 
