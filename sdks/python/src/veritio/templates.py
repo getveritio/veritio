@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .risk import with_risk_signals
+
 audit_template_sets = {
     "auth": [
         "auth.user.created",
@@ -128,10 +130,12 @@ def auth_user_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an account creation audit input without requiring the caller to know the auth action string."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor or _principal("user", user_id, user_display),
             "action": "auth.user.created",
@@ -159,10 +163,12 @@ def auth_session_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a sign-in/session-created audit input with optional host-chosen security context metadata."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor or _principal("user", user_id, user_display),
             "action": "auth.session.created",
@@ -191,10 +197,12 @@ def auth_session_revoked_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a logout/session-revocation audit input that targets the stable session id."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor or _principal("user", user_id, user_display),
             "action": "auth.session.revoked",
@@ -222,10 +230,12 @@ def auth_password_reset_requested_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a password reset request audit input without encouraging storage of reset tokens."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor or _principal("user", user_id, user_display),
             "action": "auth.password.reset.requested",
@@ -251,6 +261,8 @@ def organization_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an organization-created audit input and default tenant scope to the new organization id."""
     return _build_template(
@@ -264,6 +276,8 @@ def organization_created_template(
             data_categories,
             retention,
             metadata,
+            activity_episode_id,
+            risk_signals,
         ),
         {
             "actor": actor,
@@ -291,6 +305,8 @@ def organization_member_invited_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an organization invitation audit input that keeps invitee email outside default metadata."""
     return _build_template(
@@ -304,6 +320,8 @@ def organization_member_invited_template(
             data_categories,
             retention,
             metadata,
+            activity_episode_id,
+            risk_signals,
         ),
         {
             "actor": inviter,
@@ -332,6 +350,8 @@ def organization_member_joined_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an organization member joined audit input with normalized role metadata."""
     return _organization_member_template(
@@ -349,6 +369,8 @@ def organization_member_joined_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -367,6 +389,8 @@ def organization_member_removed_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an organization member removed audit input scoped to the organization tenant by default."""
     return _organization_member_template(
@@ -384,6 +408,8 @@ def organization_member_removed_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -402,6 +428,8 @@ def organization_member_role_changed_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an organization role-change audit input without assuming role labels are protocol semantics."""
     return _organization_member_template(
@@ -419,6 +447,8 @@ def organization_member_role_changed_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -437,6 +467,8 @@ def consent_granted_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a consent-granted audit input using stable consent, subject, and purpose ids."""
     return _consent_template(
@@ -454,6 +486,8 @@ def consent_granted_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -472,6 +506,8 @@ def consent_revoked_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a consent-revoked audit input that groups with the original consent id."""
     return _consent_template(
@@ -489,6 +525,8 @@ def consent_revoked_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -507,10 +545,12 @@ def data_subject_request_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a data-subject workflow audit input without claiming regulatory completion."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "data.subject.request.created",
@@ -537,10 +577,12 @@ def export_bundle_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an export bundle audit input that references bundle contents by ids or hashes only."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "export.bundle.created",
@@ -567,10 +609,12 @@ def retention_policy_applied_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a retention-policy applied audit input with stable resource metadata when available."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "retention.policy.applied",
@@ -599,11 +643,13 @@ def agent_session_started_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an agent-session audit input using the shared metadata.sessionId grouping convention."""
     initiated = {"type": initiated_by.get("type"), "id": initiated_by.get("id")} if initiated_by else None
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": agent_actor,
             "action": "agent.session.started",
@@ -615,6 +661,53 @@ def agent_session_started_template(
             ),
         },
         block_raw_content=True,
+    )
+
+
+def activity_episode_started_template(
+    *,
+    activity_episode_id: str,
+    actor: dict[str, Any],
+    auth_session_id: str | None = None,
+    auth_context_id: str | None = None,
+    domain: str | None = None,
+    start_reason: str | None = None,
+    event_id: str | None = None,
+    occurred_at: str | None = None,
+    scope: dict[str, Any] | None = None,
+    request_id: str | None = None,
+    purpose: str | None = None,
+    lawful_basis: str | None = None,
+    data_categories: list[str] | None = None,
+    retention: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    risk_signals: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Open an activity episode that groups downstream change/review/ci/deploy/runtime events.
+
+    activityEpisodeId is the reserved, un-shadowable grouping key (stamped by the shared
+    builder); authSessionId/authContextId are reserved context keys placed in reserved
+    template metadata so callers cannot override them.
+    """
+    return _build_template(
+        _common_options(
+            event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals
+        ),
+        {
+            "actor": actor,
+            "action": "activity.episode.started",
+            "target": _resource("activity_episode", activity_episode_id),
+            "purpose": "change_provenance",
+            "retention": "security_1y",
+            "metadata": _compact_metadata(
+                {
+                    "authSessionId": auth_session_id,
+                    "authContextId": auth_context_id,
+                    "domain": domain,
+                    "startReason": start_reason,
+                }
+            ),
+        },
     )
 
 
@@ -633,10 +726,12 @@ def agent_prompt_recorded_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an agent prompt audit input with a prompt hash rather than raw prompt text."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": agent_actor,
             "action": "agent.prompt.recorded",
@@ -667,10 +762,12 @@ def agent_tool_called_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build an agent tool-call audit input while representing raw inputs by optional hashes."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": agent_actor,
             "action": "agent.tool.called",
@@ -701,10 +798,12 @@ def change_proposal_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a change proposal audit input that captures stable ids and branch labels, not raw diffs."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "change.proposal.created",
@@ -734,10 +833,12 @@ def files_changed_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a files-changed audit input from path hashes and counts rather than raw file paths."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "change.files.changed",
@@ -774,6 +875,8 @@ def review_approval_recorded_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a review approval audit input with bounded review metadata."""
     return _review_template(
@@ -793,6 +896,8 @@ def review_approval_recorded_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -813,6 +918,8 @@ def review_finding_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a review finding audit input without defaulting to raw review text in metadata."""
     return _review_template(
@@ -832,6 +939,8 @@ def review_finding_created_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -852,6 +961,8 @@ def review_waiver_recorded_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a review waiver audit input using ids or hashes rather than raw waiver rationale."""
     return _review_template(
@@ -871,6 +982,8 @@ def review_waiver_recorded_template(
         data_categories,
         retention,
         metadata,
+        activity_episode_id,
+        risk_signals,
     )
 
 
@@ -890,10 +1003,12 @@ def ci_job_completed_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a CI job completion audit input with status and optional artifact id only."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": service,
             "action": "ci.job.completed",
@@ -922,10 +1037,12 @@ def deployment_created_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a deployment audit input from stable deployment, artifact, and policy ids."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": service,
             "action": "deploy.deployed",
@@ -954,10 +1071,12 @@ def runtime_observed_template(
     data_categories: list[str] | None = None,
     retention: str | None = None,
     metadata: dict[str, Any] | None = None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build a runtime observation audit input from aggregate outcomes or ids, not raw payloads."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": "audit.runtime.observed",
@@ -995,6 +1114,7 @@ audit_templates = {
     },
     "agent": {
         "session_started": agent_session_started_template,
+        "episode_started": activity_episode_started_template,
         "prompt_recorded": agent_prompt_recorded_template,
         "tool_called": agent_tool_called_template,
     },
@@ -1026,6 +1146,8 @@ def _organization_member_template(
     data_categories: list[str] | None,
     retention: str | None,
     metadata: dict[str, Any] | None,
+    activity_episode_id: str | None,
+    risk_signals: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Build organization-member templates with tenant scope derived from organization id when omitted."""
     return _build_template(
@@ -1039,6 +1161,8 @@ def _organization_member_template(
             data_categories,
             retention,
             metadata,
+            activity_episode_id,
+            risk_signals,
         ),
         {
             "actor": actor,
@@ -1067,10 +1191,12 @@ def _consent_template(
     data_categories: list[str] | None,
     retention: str | None,
     metadata: dict[str, Any] | None,
+    activity_episode_id: str | None,
+    risk_signals: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Build consent lifecycle templates with stable optional subject and purpose grouping ids."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": actor,
             "action": action,
@@ -1101,10 +1227,12 @@ def _review_template(
     data_categories: list[str] | None,
     retention: str | None,
     metadata: dict[str, Any] | None,
+    activity_episode_id: str | None,
+    risk_signals: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Build review lifecycle templates with bounded counts and ids instead of raw review content."""
     return _build_template(
-        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata),
+        _common_options(event_id, occurred_at, scope, request_id, purpose, lawful_basis, data_categories, retention, metadata, activity_episode_id, risk_signals),
         {
             "actor": reviewer,
             "action": action,
@@ -1134,8 +1262,10 @@ def _common_options(
     data_categories: list[str] | None,
     retention: str | None,
     metadata: dict[str, Any] | None,
+    activity_episode_id: str | None = None,
+    risk_signals: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect optional audit-event fields so templates expose only host-owned overrides."""
+    """Collect optional audit-event fields plus episode/risk threading so templates expose only host-owned overrides."""
     return {
         "id": event_id,
         "occurredAt": occurred_at,
@@ -1146,6 +1276,8 @@ def _common_options(
         "dataCategories": data_categories,
         "retention": retention,
         "metadata": metadata,
+        "activityEpisodeId": activity_episode_id,
+        "riskSignals": risk_signals,
     }
 
 
@@ -1155,14 +1287,19 @@ def _build_template(
     *,
     block_raw_content: bool = False,
 ) -> dict[str, Any]:
-    """Merge public audit fields with template defaults while preserving reserved template metadata ids."""
+    """Merge public audit fields with template defaults; risk signals and the reserved activityEpisodeId win over caller metadata."""
     if block_raw_content:
         _assert_metadata_does_not_contain_raw_content(common.get("metadata"))
+    metadata = _merge_metadata(common.get("metadata"), template.get("metadata"))
+    if common.get("riskSignals") is not None:
+        metadata = with_risk_signals(metadata, common["riskSignals"])
+    if common.get("activityEpisodeId") is not None:
+        metadata = {**metadata, "activityEpisodeId": common["activityEpisodeId"]}
     event = {
         "actor": template["actor"],
         "action": template["action"],
         "target": template["target"],
-        "metadata": _merge_metadata(common.get("metadata"), template.get("metadata")),
+        "metadata": metadata,
     }
     for common_key in ("id", "occurredAt", "scope", "requestId"):
         if common.get(common_key) is not None:
@@ -1219,7 +1356,6 @@ def _compact_session_security_context(input_value: dict[str, Any] | None) -> dic
             "location": compact_location,
             "method": input_value.get("method"),
             "provider": input_value.get("provider"),
-            "riskScore": input_value.get("riskScore") if "riskScore" in input_value else input_value.get("risk_score"),
         }
     )
 

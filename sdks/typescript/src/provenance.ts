@@ -43,7 +43,8 @@ import {
   type EvidenceEntity,
   type EvidenceScope,
   type Principal,
-} from "./index";
+} from "./index.js";
+import { withRiskSignals, type RiskSignals } from "./risk.js";
 
 export interface AgentIdentity {
   name: string;
@@ -111,6 +112,8 @@ export interface StartSessionInput {
   requestId?: string;
   /** Non-PII, key-name-redacted metadata only — never raw prompt/diff text. */
   metadata?: Record<string, unknown>;
+  /** Layer-1 activity episode id; stamped un-shadowably on the session event and every downstream record* event. */
+  activityEpisodeId?: string;
 }
 
 export interface PromptInput {
@@ -120,6 +123,7 @@ export interface PromptInput {
   contextHashes?: string[];
   /** Non-PII, key-name-redacted metadata only — never raw prompt text. */
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface ToolCallInput {
@@ -135,6 +139,7 @@ export interface ToolCallInput {
   reads?: FileRef[];
   modifies?: FileModification[];
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface ChangeProposalInput {
@@ -148,6 +153,7 @@ export interface ChangeProposalInput {
   rejectedFiles?: FileRef[];
   createdHunks?: Array<{ id: string; hash: string; fileId: string; pathHash: string }>;
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface FileChangeInput {
@@ -162,6 +168,7 @@ export interface FileChangeInput {
   causedByProposalId?: string;
   changedBy?: EvidenceEntity;
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface ReviewInput {
@@ -175,6 +182,7 @@ export interface ReviewInput {
   waiverCount?: number;
   decision?: "approved" | "changes_requested" | "waived";
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface CiRunInput {
@@ -188,6 +196,7 @@ export interface CiRunInput {
   artifactHash?: string;
   derivedFromFiles?: FileRef[];
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface DeploymentInput {
@@ -201,6 +210,7 @@ export interface DeploymentInput {
   policyId?: string;
   policyRequirements?: string[];
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface RuntimeEventInput {
@@ -213,6 +223,7 @@ export interface RuntimeEventInput {
   routeHash?: string;
   observedOutcome?: string;
   metadata?: Record<string, unknown>;
+  riskSignals?: RiskSignals;
 }
 
 export interface ProvenanceSession {
@@ -332,8 +343,9 @@ export function createProvenanceRecorder(sinks: ProvenanceSinks): ProvenanceReco
         promptHash: input.promptHash,
         contextHashes: input.contextHashes,
         ...input.metadata,
-        // Stamped last so a caller's metadata can never shadow the session id.
+        // Stamped last so a caller's metadata can never shadow the session id or episode id.
         sessionId: input.sessionId,
+        activityEpisodeId: input.activityEpisodeId,
       });
 
       const eventInput: AuditEventInput = {
@@ -396,6 +408,9 @@ export function createProvenanceRecorder(sinks: ProvenanceSinks): ProvenanceReco
       if (input.dataCategories !== undefined) {
         ctx.dataCategories = input.dataCategories;
       }
+      if (input.activityEpisodeId !== undefined) {
+        ctx.activityEpisodeId = input.activityEpisodeId;
+      }
       const session = makeSession(sinks, input.scope, input.sessionId, input.agentActor, ctx);
       return { session, result: { event, edges } };
     },
@@ -406,6 +421,7 @@ interface SessionContext {
   purpose: string;
   retention?: string;
   dataCategories?: string[];
+  activityEpisodeId?: string;
 }
 
 /**
@@ -429,9 +445,16 @@ function makeSession(
     action: string,
     target: { type: string; id: string },
     metadata: Record<string, unknown>,
+    riskSignals?: RiskSignals,
   ): AuditEventInput {
-    // Stamp the session id on every event the session emits (after the caller's
-    // metadata so it cannot be shadowed) for group-by-session reads.
+    // Stamp the session id (and the Layer-1 activity episode id, when the session
+    // declared one) on every event the session emits, AFTER the caller's metadata
+    // so neither can be shadowed; risk signals are normalized onto metadata.riskSignals.
+    const stamped: Record<string, unknown> = { ...metadata, sessionId };
+    if (ctx.activityEpisodeId !== undefined) {
+      stamped.activityEpisodeId = ctx.activityEpisodeId;
+    }
+    const finalMetadata = riskSignals !== undefined ? withRiskSignals(stamped, riskSignals) : stamped;
     const eventInput: AuditEventInput = {
       id,
       scope,
@@ -439,7 +462,7 @@ function makeSession(
       action,
       target,
       purpose: ctx.purpose,
-      metadata: { ...metadata, sessionId },
+      metadata: finalMetadata,
     };
     if (occurredAt !== undefined) {
       eventInput.occurredAt = occurredAt;
@@ -479,6 +502,7 @@ function makeSession(
             contextHashes: input.contextHashes,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
       return { event, edges: [] };
@@ -502,6 +526,7 @@ function makeSession(
             latencyMs: input.latencyMs,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 
@@ -546,6 +571,7 @@ function makeSession(
             acceptedPathHashes: input.acceptedPathHashes,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 
@@ -608,6 +634,7 @@ function makeSession(
             ),
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 
@@ -678,6 +705,7 @@ function makeSession(
             decision: input.decision,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 
@@ -711,6 +739,7 @@ function makeSession(
             artifactHash: input.artifactHash,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 
@@ -745,6 +774,7 @@ function makeSession(
           "deploy.deployed",
           deploymentEntity,
           compact({ bundleHash: input.bundleHash, sourceHash: input.sourceHash, ...input.metadata }),
+          input.riskSignals,
         ),
       );
 
@@ -793,6 +823,7 @@ function makeSession(
             observedOutcome: input.observedOutcome,
             ...input.metadata,
           }),
+          input.riskSignals,
         ),
       );
 

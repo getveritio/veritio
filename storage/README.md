@@ -96,6 +96,50 @@ boundary.
 not an `AuditStore` and does not claim durable audit evidence on its own. Use it
 alongside a durable store when a cache is useful.
 
+## Object-Storage Archive (Cloudflare R2 / AWS S3)
+
+`createObjectAuditArchive` is a derived cold tier for a tenant's evidence
+chains on any S3-compatible object store (Cloudflare R2, AWS S3, MinIO). It is
+NOT an `AuditStore` and must never own appends: object storage cannot couple
+gapless per-tenant sequencing to idempotency-conflict checks atomically, so
+sequencing stays in a conforming authoritative store and the archive seals
+already-sequenced records into immutable segments. Events and edges are the
+protocol's two independently sequenced chains, so they archive under separate
+key namespaces (`sealSegment`/`sealEdgeSegment`) and `verifyTenant` replays
+both, mirroring `FileEvidenceStore.verify`.
+
+Segments store the exact `canonicalJson` bytes of each record as NDJSON lines,
+so hashes recompute byte-for-byte and a full tenant chain verifies from the
+archive alone. Sealing fails closed on gaps, overlaps, tampered records, and
+mixed tenants; an identical replay of an already-sealed range is idempotent.
+`archiveAuditStoreTenant` drains a tenant's un-archived event tail from any
+`AuditStore` incrementally, resuming from the archive's own tip (edge batches
+are sealed directly — `AuditStore` does not expose edge records).
+
+The host injects an `ObjectArchiveClient` (`put`/`get`/`list` over bytes) built
+on its own S3 client — an R2 bucket binding, the AWS SDK, or Bun's built-in
+`S3Client` — and owns credentials, bucket provisioning, and retention/WORM
+policy. Serialize archiving per tenant; the archive assumes one sealer per
+tenant chain.
+
+## ClickHouse Read Model
+
+`createClickHouseAuditReadModel` is a derived, eventually consistent analytical
+read model for scan-heavy groupings: activity-episode rollups, session
+reconstruction, and subject scans. It is NOT an `AuditStore` and must never be
+authoritative — ClickHouse has no synchronous unique constraints or
+transactional tip checks, so verify/export and idempotency stay on the
+authoritative store.
+
+Projection is at-least-once: duplicates collapse via `ReplacingMergeTree`, and
+the read helpers query with `FINAL` so replays never double-count. The full
+canonical record travels as a raw `String` column (never ClickHouse's native
+JSON type), every projected and returned record is hash-revalidated, and all
+value filters bind through ClickHouse query parameters. The host injects a
+`ClickHouseExecutor` over the HTTP interface (see
+`integration/clickhouse-read-model.test.ts` for a fetch-based reference) and
+owns endpoint, credentials, and database selection.
+
 ## AuditStore Conformance Suite
 
 `@veritio/storage/conformance` exports `createAuditStoreConformanceTests` for
@@ -163,7 +207,27 @@ so the Neon factory stays covered without requiring a hosted Neon account.
 Projects that need hosted Neon proof can set `VERITIO_NEON_TEST_URL` to a
 disposable branch connection string in their own CI.
 
-For local runs:
+Derived-tier integration suites gate on their own variables the same way:
+
+- `VERITIO_S3_TEST_ENDPOINT` (+ `VERITIO_S3_TEST_ACCESS_KEY_ID`,
+  `VERITIO_S3_TEST_SECRET_ACCESS_KEY`, `VERITIO_S3_TEST_BUCKET`) for the
+  object archive against any S3-compatible endpoint.
+- `VERITIO_CLICKHOUSE_TEST_ENDPOINT` (+ `VERITIO_CLICKHOUSE_TEST_USER`,
+  `VERITIO_CLICKHOUSE_TEST_PASSWORD`, `VERITIO_CLICKHOUSE_TEST_DATABASE`) for
+  the ClickHouse read model.
+
+For local runs, `storage/docker-compose.yml` provides disposable targets for
+every suite (Postgres, MySQL, MariaDB, MongoDB as a single-node replica set,
+MinIO with a pre-provisioned bucket, and ClickHouse) on ports that avoid
+common local services:
+
+```sh
+bun run --cwd storage db:up     # start containers and wait for health
+bun run --cwd storage test:live # run every suite against them
+bun run --cwd storage db:down   # discard containers and data
+```
+
+To point at databases you manage yourself instead:
 
 1. Start a disposable Postgres, Neon branch, MySQL, MariaDB, or MongoDB test
    database outside this package.

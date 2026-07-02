@@ -63,6 +63,13 @@ sibling repo.
 - Core SDKs must not read environment variables or framework globals directly.
 - Sensitive metadata must be explicitly redacted and deterministic.
 - Hash-chain, canonical JSON, retention, and event ordering semantics must be tested.
+- Authoritative evidence storage requires a conforming `AuditStore` (gapless
+  per-tenant sequence, idempotency uniqueness, fail-closed integrity — proven
+  by `@veritio/storage/conformance`). The object-storage archive (R2/S3) and
+  ClickHouse read model in `@veritio/storage` are DERIVED tiers: eventually
+  consistent, never sequence owners, never authoritative for verify/DSAR.
+  Derived tiers keep canonical record bytes as opaque strings (never a
+  driver's native JSON type) and hash-revalidate every record on read.
 - Framework adapters stay thin and receive configured Veritio recorders from host apps.
 - Hosted-provider features must remain optional and must not make the OSS SDK unusable without an account.
 - Hosted-only fields, billing concepts, hosted region behavior, private admin operations, and customer portal logic must not become protocol semantics here.
@@ -93,6 +100,9 @@ sibling repo.
 - Python tests: `bun run test:python`
 - Go tests: `bun run test:go`
 - TypeScript typecheck: `bun run typecheck`
+- Storage live-DB containers (Postgres/MySQL/MariaDB/Mongo-RS/MinIO/ClickHouse): `bun run --cwd storage db:up`
+- Storage conformance + derived tiers against those containers: `bun run --cwd storage test:live`
+- Discard storage test containers: `bun run --cwd storage db:down`
 - Split status: `bun run status:split`
 - Split siblings gate: `bun run verify:siblings`
 - Full split gate: `bun run verify:split`

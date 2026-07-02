@@ -6,6 +6,12 @@
   - canonical JSON
   - event hashing
   - hash-chain verification when implemented
+  - deterministic risk-signal scoring: signal normalization (fail-closed),
+    per-step scoring, episode rollup, and the `DEFAULT_RISK_POLICY`
+    (`veritio.reference.v1`) constants must produce byte-identical scores across
+    languages, pinned by `spec/conformance` fixtures
+  - `security.risk` assertion builders, with `hashAssertionRecord` parity with
+    `hashAuditRecord`
 - If a feature lands in one SDK only, document it as experimental or add parity tasks before handoff.
 - Prefer standard libraries in core SDKs.
 - Do not read environment variables in SDK core.
@@ -25,6 +31,14 @@ treat as a parity TODO for Python/Go):
   (downstream change/review/ci/deploy/runtime events target isolated or shared
   entities and cannot otherwise be attributed to one session). `sessionId` is
   non-PII and must not match the redaction key pattern.
+
+- **`metadata.activityEpisodeId` stamp.** Mirroring the `metadata.sessionId`
+  convention, every event a session emits also carries
+  `metadata.activityEpisodeId === <activityEpisodeId>`, applied AFTER caller
+  metadata so a caller can never shadow it. It groups one session's events under
+  one durable activity episode for risk rollup. Currently TypeScript only — treat
+  as a parity TODO for Python/Go capture/recorder. `activityEpisodeId` is non-PII
+  and must not match the redaction key pattern.
 
 - **Agent-capture adapters.** `@veritio/claude-code` (TypeScript) captures Claude
   Code hook events into the recorder. The hook→recorder mapping (see its

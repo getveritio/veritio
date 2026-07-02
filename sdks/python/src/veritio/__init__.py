@@ -22,7 +22,19 @@ from .governed_change import (
     merge_veritio_metadata,
     ref_key,
 )
+from .risk import (
+    DEFAULT_RISK_POLICY,
+    band_of,
+    build_security_risk_assessed_event,
+    create_security_risk_assertion,
+    hash_assertion_record,
+    normalize_risk_signals,
+    rollup_episode_risk,
+    score_risk_signals,
+    with_risk_signals,
+)
 from .templates import (
+    activity_episode_started_template,
     agent_prompt_recorded_template,
     agent_session_started_template,
     agent_tool_called_template,
@@ -108,4 +120,14 @@ __all__ = [
     "review_finding_created_template",
     "review_waiver_recorded_template",
     "runtime_observed_template",
+    "activity_episode_started_template",
+    "DEFAULT_RISK_POLICY",
+    "band_of",
+    "build_security_risk_assessed_event",
+    "create_security_risk_assertion",
+    "hash_assertion_record",
+    "normalize_risk_signals",
+    "rollup_episode_risk",
+    "score_risk_signals",
+    "with_risk_signals",
 ]

@@ -146,15 +146,17 @@ func NormalizeAuditLogSurface(value any) string {
 // AuditTemplateCommonInput carries the public AuditEventInput overrides shared
 // by template helpers, keeping protocol normalization in CreateAuditEvent.
 type AuditTemplateCommonInput struct {
-	ID             string
-	OccurredAt     string
-	Scope          *EvidenceScope
-	RequestID      string
-	Purpose        string
-	LawfulBasis    string
-	DataCategories []string
-	Retention      string
-	Metadata       map[string]any
+	ID                string
+	OccurredAt        string
+	Scope             *EvidenceScope
+	RequestID         string
+	Purpose           string
+	LawfulBasis       string
+	DataCategories    []string
+	Retention         string
+	Metadata          map[string]any
+	ActivityEpisodeID string
+	RiskSignals       *RiskSignals
 }
 
 // SessionSecurityContext keeps auth security details to hashed or coarse fields
@@ -167,7 +169,6 @@ type SessionSecurityContext struct {
 	Location      *SessionSecurityLocation
 	Method        string
 	Provider      string
-	RiskScore     *float64
 }
 
 // SessionSecurityLocation represents coarse authentication location context
@@ -735,6 +736,19 @@ func buildTemplate(common AuditTemplateCommonInput, template AuditEventInput, bl
 		Target:   template.Target,
 		Metadata: mergeTemplateMetadata(common.Metadata, template.Metadata),
 	}
+	// Stamp normalized risk signals and the activity-episode id AFTER caller and
+	// template metadata so a caller can never shadow normalized riskSignals or the
+	// reserved activityEpisodeId join key.
+	if common.RiskSignals != nil {
+		normalized, err := NormalizeRiskSignals(*common.RiskSignals)
+		if err != nil {
+			return AuditEventInput{}, err
+		}
+		event.Metadata["riskSignals"] = riskSignalsMap(normalized)
+	}
+	if common.ActivityEpisodeID != "" {
+		event.Metadata["activityEpisodeId"] = common.ActivityEpisodeID
+	}
 	if common.ID != "" {
 		event.ID = common.ID
 	}
@@ -883,7 +897,6 @@ func compactSessionSecurityContext(input *SessionSecurityContext) map[string]any
 		"location":      location,
 		"method":        input.Method,
 		"provider":      input.Provider,
-		"riskScore":     input.RiskScore,
 	})
 }
 
@@ -1142,4 +1155,39 @@ var auditLogSurfaceAliases = map[string]string{
 	"webhook":     "webhook",
 	"hook":        "webhook",
 	"callback":    "webhook",
+}
+
+// EpisodeStartedAuditTemplateInput records the opening of an activity episode so
+// downstream change/review/ci/deploy/runtime/risk events can be threaded to it.
+type EpisodeStartedAuditTemplateInput struct {
+	AuditTemplateCommonInput
+	ActivityEpisodeID string
+	Actor             Principal
+	AuthSessionID     string
+	AuthContextID     string
+	Domain            string
+	StartReason       string
+}
+
+// EpisodeStartedTemplate builds an activity.episode.started audit input. The
+// episode id is stamped un-shadowably at metadata.activityEpisodeId (via the
+// shared template builder) and as the event target so every later event in the
+// episode joins on the same key. This adds no new core protocol field: the action
+// pattern and open metadata already accept it.
+func EpisodeStartedTemplate(input EpisodeStartedAuditTemplateInput) (AuditEventInput, error) {
+	common := input.AuditTemplateCommonInput
+	common.ActivityEpisodeID = input.ActivityEpisodeID
+	return buildTemplate(common, AuditEventInput{
+		Actor:     input.Actor,
+		Action:    "activity.episode.started",
+		Target:    templateResource("activity_episode", input.ActivityEpisodeID, ""),
+		Purpose:   "change_provenance",
+		Retention: "security_1y",
+		Metadata: compactMetadata(map[string]any{
+			"authSessionId": input.AuthSessionID,
+			"authContextId": input.AuthContextID,
+			"domain":        input.Domain,
+			"startReason":   input.StartReason,
+		}),
+	}, true)
 }

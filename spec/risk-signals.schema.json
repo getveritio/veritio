@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/risk-signals.schema.json",
+  "title": "Veritio Risk Signals",
+  "description": "Normalized, non-PII signals describing an operation's risk surface. Stamped at metadata.riskSignals and used as the input to deterministic risk scoring.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["operationType"],
+  "properties": {
+    "operationType": {
+      "type": "string",
+      "enum": ["read", "create", "update", "config", "bulk", "permission", "delete", "destructive"]
+    },
+    "reversibility": {
+      "type": "string",
+      "enum": ["reversible", "recoverable", "irreversible"]
+    },
+    "envCriticality": {
+      "type": "string",
+      "enum": ["sandbox", "development", "staging", "production"]
+    },
+    "dataVolume": { "type": "integer", "minimum": 0 },
+    "fanOut": { "type": "integer", "minimum": 0 },
+    "referenceCount": { "type": "integer", "minimum": 0 }
+  }
+}

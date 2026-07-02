@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -48,6 +49,7 @@ _EVIDENCE_ENTITY_TYPES = {
     "file",
     "diff_hunk",
     "agent_session",
+    "activity_episode",
     "tool_call",
     "ci_run",
     "artifact",
@@ -119,7 +121,7 @@ def create_audit_event(input_event: dict[str, Any]) -> dict[str, Any]:
         "actor": _without_none(input_event["actor"]),
         "action": input_event["action"],
         "target": _without_none(input_event["target"]),
-        "scope": _without_none(input_event["scope"]) if input_event.get("scope") else None,
+        "scope": _clean_scope(input_event["scope"]) if input_event.get("scope") else None,
         "requestId": input_event.get("requestId"),
         "purpose": input_event.get("purpose"),
         "lawfulBasis": input_event.get("lawfulBasis"),
@@ -141,7 +143,7 @@ def create_evidence_edge(input_edge: dict[str, Any]) -> dict[str, Any]:
         "id": input_edge.get("id") or f"edge_{uuid.uuid4()}",
         "schemaVersion": EDGE_SCHEMA_VERSION,
         "occurredAt": _normalize_datetime(input_edge.get("occurredAt") or datetime.now(timezone.utc)),
-        "scope": _without_none(input_edge["scope"]) if input_edge.get("scope") else None,
+        "scope": _clean_scope(input_edge["scope"]) if input_edge.get("scope") else None,
         "from": from_entity,
         "relation": input_edge["relation"],
         "to": to_entity,
@@ -299,9 +301,23 @@ def _sanitize_digest_envelope(value: Any) -> dict[str, Any] | None:
 
 
 def _normalize_json(value: Any) -> Any:
-    """Normalize Python values into the canonical JSON value domain."""
-    if value is None or isinstance(value, (str, bool, int, float)):
+    """Normalize Python values into the canonical JSON value domain.
+
+    Whole-valued finite floats are coerced to int so canonical JSON renders "1"/"0"
+    (matching TypeScript JSON.stringify and Go encoding/json) rather than Python's
+    "1.0"/"0.0". The risk scorer deterministically emits whole floats (multiplier
+    weights of 1.0, zero-magnitude contributions of 0.0, clamped 1.0 / floored 0.0
+    scores), so without this coercion a SCORED security.risk assertion or
+    security.risk.assessed event would hash differently in Python than in TS/Go.
+    Non-finite floats (NaN/Infinity) fail closed: canonical JSON cannot represent
+    them and an integrity hash must never be computed over one.
+    """
+    if value is None or isinstance(value, (str, bool, int)):
         return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("canonical JSON cannot represent a non-finite number")
+        return int(value) if value.is_integer() else value
     if isinstance(value, list):
         return [_normalize_json(item) for item in value]
     if isinstance(value, datetime):
@@ -429,6 +445,17 @@ def _assert_non_empty(value: Any, field: str) -> None:
     """Require non-empty string fields at protocol boundaries."""
     if not isinstance(value, str) or not value.strip():
         raise TypeError(f"{field} is required")
+
+
+def _clean_scope(scope: dict[str, Any]) -> dict[str, Any] | None:
+    """Keep only truthy tenant/workspace/environment scope fields, mirroring the TypeScript
+    cleanScope helper and Go's `omitempty` so an empty-string optional field (e.g.
+    environment: "") is dropped identically across SDKs. A retained empty field would
+    otherwise change the canonical bytes and diverge the cross-language record hash.
+    Returns None when nothing remains so the caller omits the scope entirely.
+    """
+    cleaned = {key: scope[key] for key in ("tenantId", "workspaceId", "environment") if scope.get(key)}
+    return cleaned or None
 
 
 def _without_none(value: dict[str, Any]) -> dict[str, Any]:

@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/security-risk-assertion.schema.json",
+  "title": "Veritio Security Risk Assertion",
+  "description": "Detector-produced, append-only assertion recording a computed risk conclusion about an evidence subject.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "recordType",
+    "schemaVersion",
+    "recordAuthority",
+    "id",
+    "type",
+    "scope",
+    "occurredAt",
+    "producer",
+    "idempotencyKeyHash",
+    "subject",
+    "conclusion",
+    "factors"
+  ],
+  "properties": {
+    "recordType": { "const": "assertion.recorded" },
+    "schemaVersion": { "const": "2026-06-23" },
+    "recordAuthority": { "const": "veritio" },
+    "id": { "type": "string", "minLength": 1 },
+    "type": { "const": "security.risk" },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenantId"],
+      "properties": {
+        "tenantId": { "type": "string", "minLength": 1 },
+        "workspaceId": { "type": "string" },
+        "environment": { "type": "string" }
+      }
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "kind", "type", "id"],
+      "properties": {
+        "authority": { "const": "veritio.detectors" },
+        "kind": { "const": "principal" },
+        "type": { "const": "service" },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "idempotencyKeyHash": { "$ref": "#/$defs/sha256Hex" },
+    "subject": { "$ref": "#/$defs/evidenceRef" },
+    "conclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "level", "policyVersion", "assessment"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 1 },
+        "level": { "type": "string", "enum": ["none", "low", "medium", "high", "critical"] },
+        "policyVersion": { "type": "string", "minLength": 1 },
+        "assessment": { "type": "string", "enum": ["step", "episode_rollup"] }
+      }
+    },
+    "factors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "value", "kind", "weight", "contribution"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "value": { "type": ["number", "string"] },
+          "kind": { "type": "string", "enum": ["base", "additive", "multiplier"] },
+          "weight": { "type": "number" },
+          "contribution": { "type": "number" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256Hex": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "evidenceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "kind", "type", "id"],
+      "properties": {
+        "authority": { "type": "string", "minLength": 1 },
+        "kind": {
+          "type": "string",
+          "enum": ["principal", "entity", "activity", "change", "revision", "assertion", "record", "commit"]
+        },
+        "type": { "type": "string", "minLength": 1 },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

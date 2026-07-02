@@ -875,3 +875,99 @@ func optionalStringPointer(t *testing.T, value any) *string {
 	typed := stringValue(t, value)
 	return &typed
 }
+
+func TestTemplatesStampRiskSignalsAndEpisodeUnshadowably(t *testing.T) {
+	template, err := ChangeProposalCreatedTemplate(ChangeProposalAuditTemplateInput{
+		AuditTemplateCommonInput: AuditTemplateCommonInput{
+			ID:         "evt_change_proposal_risk",
+			OccurredAt: "2026-06-23T10:00:00.000Z",
+			Scope:      &EvidenceScope{TenantID: "org_123"},
+			Metadata: map[string]any{
+				"activityEpisodeId": "caller_shadow",
+				"riskSignals":       map[string]any{"operationType": "read"},
+			},
+			ActivityEpisodeID: "episode_real_01",
+			RiskSignals:       &RiskSignals{OperationType: "delete", EnvCriticality: "production"},
+		},
+		ProposalID:   "proposal_123",
+		Actor:        Principal{Type: "ai_agent", ID: "agent_codex"},
+		SessionID:    "agt_sess_123",
+		RepositoryID: "repo_123",
+		Branch:       "main",
+	})
+	if err != nil {
+		t.Fatalf("ChangeProposalCreatedTemplate error: %v", err)
+	}
+	event, err := CreateAuditEvent(template)
+	if err != nil {
+		t.Fatalf("CreateAuditEvent error: %v", err)
+	}
+	if event.Metadata["activityEpisodeId"] != "episode_real_01" {
+		t.Fatalf("episode id=%#v", event.Metadata["activityEpisodeId"])
+	}
+	expectedSignals := map[string]any{
+		"operationType":  "delete",
+		"reversibility":  "recoverable",
+		"envCriticality": "production",
+		"dataVolume":     float64(0),
+		"fanOut":         float64(0),
+		"referenceCount": float64(0),
+	}
+	if !reflect.DeepEqual(event.Metadata["riskSignals"], expectedSignals) {
+		t.Fatalf("riskSignals=%#v, want %#v", event.Metadata["riskSignals"], expectedSignals)
+	}
+}
+
+func TestEpisodeStartedTemplateStampsEpisodeTargetAndMetadata(t *testing.T) {
+	template, err := EpisodeStartedTemplate(EpisodeStartedAuditTemplateInput{
+		AuditTemplateCommonInput: AuditTemplateCommonInput{
+			ID:         "evt_episode_started",
+			OccurredAt: "2026-06-23T10:00:00.000Z",
+			Scope:      &EvidenceScope{TenantID: "org_123"},
+		},
+		ActivityEpisodeID: "episode_real_01",
+		Actor:             Principal{Type: "ai_agent", ID: "agent_codex"},
+		AuthSessionID:     "ses_123",
+		Domain:            "billing",
+		StartReason:       "code_review",
+	})
+	if err != nil {
+		t.Fatalf("EpisodeStartedTemplate error: %v", err)
+	}
+	event, err := CreateAuditEvent(template)
+	if err != nil {
+		t.Fatalf("CreateAuditEvent error: %v", err)
+	}
+	if event.Action != "activity.episode.started" {
+		t.Fatalf("action=%s", event.Action)
+	}
+	if event.Target.Type != "activity_episode" || event.Target.ID != "episode_real_01" {
+		t.Fatalf("target=%#v", event.Target)
+	}
+	expected := map[string]any{
+		"activityEpisodeId": "episode_real_01",
+		"authSessionId":     "ses_123",
+		"domain":            "billing",
+		"startReason":       "code_review",
+	}
+	if !reflect.DeepEqual(event.Metadata, expected) {
+		t.Fatalf("metadata=%#v, want %#v", event.Metadata, expected)
+	}
+}
+
+func TestEvidenceEdgeAcceptsActivityEpisodeEntity(t *testing.T) {
+	edge, err := CreateEvidenceEdge(EvidenceEdgeInput{
+		ID:         "edge_episode_part_of",
+		OccurredAt: "2026-06-23T10:00:00.000Z",
+		From:       EvidenceEntity{Type: "change", ID: "chg_01"},
+		Relation:   "part_of",
+		To:         EvidenceEntity{Type: "activity_episode", ID: "episode_real_01"},
+		Metadata:   map[string]any{},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvidenceEdge error: %v", err)
+	}
+	if edge.To.Type != "activity_episode" {
+		t.Fatalf("to.type=%s", edge.To.Type)
+	}
+}

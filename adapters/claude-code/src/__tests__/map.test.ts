@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AdapterConfig } from "../config";
-import { buildBashFileChange, buildSessionContext, buildToolCall, promptHashOf } from "../map";
+import { buildBashFileChange, buildSessionContext, buildToolCall, episodeIdOf, promptHashOf } from "../map";
 import type { HookPayload } from "../types";
 
 const config: AdapterConfig = {
@@ -22,6 +22,7 @@ describe("buildSessionContext", () => {
   test("maps a SessionStart payload to a StartSessionInput", () => {
     const ctx = buildSessionContext(payload({ hook_event_name: "SessionStart", model: "claude-opus-4-8" }), config, {
       now: NOW,
+      activityEpisodeId: episodeIdOf("sess_a"),
       branch: "feat/x",
       repository: { provider: "github", id: "acme/app" },
     });
@@ -34,6 +35,14 @@ describe("buildSessionContext", () => {
     expect(ctx.branch).toBe("feat/x");
     expect(ctx.repository).toEqual({ provider: "github", id: "acme/app" });
     expect(ctx.scope.tenantId).toBe("local");
+    expect(ctx.activityEpisodeId).toBe("ep_sess_a");
+  });
+});
+
+describe("episodeIdOf", () => {
+  test("derives a stable, sanitized activity-episode id from the session id", () => {
+    expect(episodeIdOf("sess_a")).toBe("ep_sess_a");
+    expect(episodeIdOf("a/b:c")).toBe("ep_a_b_c");
   });
 });
 

@@ -1,13 +1,22 @@
 import type { FileChangeInput, FileModification, ToolCallInput } from "@veritio/core";
-import type { AdapterConfig } from "./config";
-import { hashJson, pathEntityId, sha256 } from "./redact";
-import type { HookPayload, SessionContext } from "./types";
+import type { AdapterConfig } from "./config.js";
+import { hashJson, pathEntityId, sha256 } from "./redact.js";
+import type { HookPayload, SessionContext } from "./types.js";
 
 /** Claude Code tools whose `tool_input.file_path` yields a recordable file change. */
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit"]);
 
 function sanitize(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+/**
+ * Derives the stable activity-episode id that groups one Claude Code session's
+ * events. Deterministic from the session id so every separate hook process
+ * resolves the same episode without shared memory.
+ */
+export function episodeIdOf(sessionId: string): string {
+  return `ep_${sanitize(sessionId)}`;
 }
 
 /**
@@ -18,7 +27,7 @@ function sanitize(value: string): string {
 export function buildSessionContext(
   payload: HookPayload,
   config: AdapterConfig,
-  opts: { now: string; branch?: string; repository?: { provider: string; id: string } },
+  opts: { now: string; activityEpisodeId: string; branch?: string; repository?: { provider: string; id: string } },
 ): SessionContext {
   const context: SessionContext = {
     scope: {
@@ -34,6 +43,7 @@ export function buildSessionContext(
     occurredAt: opts.now,
     purpose: "agent_provenance",
   };
+  context.activityEpisodeId = opts.activityEpisodeId;
   if (opts.branch) {
     context.branch = opts.branch;
   }

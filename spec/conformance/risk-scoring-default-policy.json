@@ -1,0 +1,128 @@
+{
+  "name": "risk-scoring-default-policy-v1",
+  "policyVersion": "veritio.reference.v1",
+  "cases": [
+    {
+      "name": "insert one row in production scores low (~0.20)",
+      "signals": { "operationType": "create", "dataVolume": 1 },
+      "breakdown": {
+        "base": 0.2,
+        "dataVolumeContribution": 0.002,
+        "fanOutContribution": 0,
+        "referenceCountContribution": 0,
+        "additiveSum": 0.202,
+        "reversibilityFactor": 1,
+        "envCriticalityFactor": 1,
+        "preClampScore": 0.202
+      },
+      "expected": {
+        "score": 0.202,
+        "level": "low",
+        "policyVersion": "veritio.reference.v1",
+        "factors": [
+          { "key": "operationType", "value": "create", "kind": "base", "weight": 1, "contribution": 0.2 },
+          { "key": "dataVolume", "value": 1, "kind": "additive", "weight": 0.5, "contribution": 0.002 },
+          { "key": "fanOut", "value": 0, "kind": "additive", "weight": 0.3, "contribution": 0 },
+          { "key": "referenceCount", "value": 0, "kind": "additive", "weight": 0.2, "contribution": 0 },
+          { "key": "reversibility", "value": "recoverable", "kind": "multiplier", "weight": 1, "contribution": 1 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1, "contribution": 1 }
+        ]
+      }
+    },
+    {
+      "name": "drop a 12k-row table referenced by 12 apps scores critical (1.0)",
+      "signals": {
+        "operationType": "destructive",
+        "reversibility": "irreversible",
+        "envCriticality": "production",
+        "dataVolume": 12000,
+        "fanOut": 12,
+        "referenceCount": 12
+      },
+      "breakdown": {
+        "base": 0.85,
+        "dataVolumeContribution": 0.1983,
+        "fanOutContribution": 0.0389,
+        "referenceCountContribution": 0.0155,
+        "additiveSum": 1.1027,
+        "reversibilityFactor": 1.3,
+        "envCriticalityFactor": 1,
+        "preClampScore": 1.4335
+      },
+      "expected": {
+        "score": 1,
+        "level": "critical",
+        "policyVersion": "veritio.reference.v1",
+        "factors": [
+          { "key": "operationType", "value": "destructive", "kind": "base", "weight": 1, "contribution": 0.85 },
+          { "key": "dataVolume", "value": 12000, "kind": "additive", "weight": 0.5, "contribution": 0.1983 },
+          { "key": "fanOut", "value": 12, "kind": "additive", "weight": 0.3, "contribution": 0.0389 },
+          { "key": "referenceCount", "value": 12, "kind": "additive", "weight": 0.2, "contribution": 0.0155 },
+          { "key": "reversibility", "value": "irreversible", "kind": "multiplier", "weight": 1.3, "contribution": 1.3 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1, "contribution": 1 }
+        ]
+      }
+    },
+    {
+      "name": "read in a sandbox scores none",
+      "signals": { "operationType": "read", "envCriticality": "sandbox" },
+      "breakdown": {
+        "base": 0.05,
+        "dataVolumeContribution": 0,
+        "fanOutContribution": 0,
+        "referenceCountContribution": 0,
+        "additiveSum": 0.05,
+        "reversibilityFactor": 1,
+        "envCriticalityFactor": 0.4,
+        "preClampScore": 0.02
+      },
+      "expected": {
+        "score": 0.02,
+        "level": "none",
+        "policyVersion": "veritio.reference.v1",
+        "factors": [
+          { "key": "operationType", "value": "read", "kind": "base", "weight": 1, "contribution": 0.05 },
+          { "key": "dataVolume", "value": 0, "kind": "additive", "weight": 0.5, "contribution": 0 },
+          { "key": "fanOut", "value": 0, "kind": "additive", "weight": 0.3, "contribution": 0 },
+          { "key": "referenceCount", "value": 0, "kind": "additive", "weight": 0.2, "contribution": 0 },
+          { "key": "reversibility", "value": "recoverable", "kind": "multiplier", "weight": 1, "contribution": 1 },
+          { "key": "envCriticality", "value": "sandbox", "kind": "multiplier", "weight": 0.4, "contribution": 0.4 }
+        ]
+      }
+    },
+    {
+      "name": "reversible bulk update on staging scores medium",
+      "signals": {
+        "operationType": "bulk",
+        "reversibility": "reversible",
+        "envCriticality": "staging",
+        "dataVolume": 500,
+        "fanOut": 5,
+        "referenceCount": 10
+      },
+      "breakdown": {
+        "base": 0.55,
+        "dataVolumeContribution": 0.1667,
+        "fanOutContribution": 0.02,
+        "referenceCountContribution": 0.0133,
+        "additiveSum": 0.75,
+        "reversibilityFactor": 0.6,
+        "envCriticalityFactor": 0.8,
+        "preClampScore": 0.36
+      },
+      "expected": {
+        "score": 0.36,
+        "level": "medium",
+        "policyVersion": "veritio.reference.v1",
+        "factors": [
+          { "key": "operationType", "value": "bulk", "kind": "base", "weight": 1, "contribution": 0.55 },
+          { "key": "dataVolume", "value": 500, "kind": "additive", "weight": 0.5, "contribution": 0.1667 },
+          { "key": "fanOut", "value": 5, "kind": "additive", "weight": 0.3, "contribution": 0.02 },
+          { "key": "referenceCount", "value": 10, "kind": "additive", "weight": 0.2, "contribution": 0.0133 },
+          { "key": "reversibility", "value": "reversible", "kind": "multiplier", "weight": 0.6, "contribution": 0.6 },
+          { "key": "envCriticality", "value": "staging", "kind": "multiplier", "weight": 0.8, "contribution": 0.8 }
+        ]
+      }
+    }
+  ]
+}

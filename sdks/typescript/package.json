@@ -24,6 +24,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./risk-score": {
+      "types": "./dist/risk-score.d.ts",
+      "import": "./dist/risk-score.js",
+      "default": "./dist/risk-score.js"
     }
   },
   "files": [

@@ -71,6 +71,60 @@
           "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         }
       }
+    },
+    {
+      "name": "preserves the risk signals envelope",
+      "metadata": {
+        "riskSignals": {
+          "operationType": "destructive",
+          "reversibility": "irreversible",
+          "envCriticality": "production",
+          "dataVolume": 1200,
+          "fanOut": 8,
+          "referenceCount": 30
+        }
+      },
+      "expectedMetadata": {
+        "riskSignals": {
+          "operationType": "destructive",
+          "reversibility": "irreversible",
+          "envCriticality": "production",
+          "dataVolume": 1200,
+          "fanOut": 8,
+          "referenceCount": 30
+        }
+      }
+    },
+    {
+      "name": "redacts sensitive siblings inside an assertion body",
+      "metadata": {
+        "riskAssessment": {
+          "score": 0.42,
+          "level": "medium",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "episode_rollup"
+        },
+        "riskSignals": {
+          "operationType": "permission",
+          "reversibility": "recoverable",
+          "envCriticality": "production"
+        },
+        "detectorToken": "secret-detector-key"
+      },
+      "expectedMetadata": {
+        "riskAssessment": {
+          "score": 0.42,
+          "level": "medium",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "episode_rollup"
+        },
+        "riskSignals": {
+          "operationType": "permission",
+          "reversibility": "recoverable",
+          "envCriticality": "production"
+        },
+        "detectorToken": "[redacted]"
+      }
     }
   ]
 }

@@ -12,6 +12,8 @@ import {
   createEvidenceCommit,
   createAuditRecorder,
   detectAuditLogClassifiers,
+  episodeStartedTemplate,
+  EVIDENCE_ENTITY_TYPES,
   HASH_ALGORITHM,
   hashAuditEvent,
   hashAuditRecord,
@@ -627,6 +629,93 @@ describe("auditTemplates", () => {
     expect(auditTemplateSets.code).toContain("review.waiver.recorded");
   });
 
+  test("includes activity_episode in the evidence entity allowlist", () => {
+    expect(EVIDENCE_ENTITY_TYPES).toContain("activity_episode");
+  });
+
+  test("threads activityEpisodeId un-shadowably onto template metadata", () => {
+    const event = createAuditEvent(
+      auditTemplates.code.filesChanged({
+        id: "evt_files_ep",
+        occurredAt: "2026-06-20T00:03:00.000Z",
+        sourceTreeId: "tree_123",
+        actor: { type: "ai_agent", id: "agent_codex" },
+        scope: { tenantId: "org_123" },
+        sessionId: "agt_sess_123",
+        fileCount: 1,
+        activityEpisodeId: "ep_001",
+        metadata: { activityEpisodeId: "caller_shadow" },
+      }),
+    );
+
+    expect(event.metadata.activityEpisodeId).toBe("ep_001");
+    expect(event.metadata.sessionId).toBe("agt_sess_123");
+  });
+
+  test("builds an activity.episode.started event with episode metadata", () => {
+    const event = createAuditEvent(
+      episodeStartedTemplate({
+        id: "evt_episode_started",
+        occurredAt: "2026-06-20T00:05:00.000Z",
+        activityEpisodeId: "ep_001",
+        actor: { type: "user", id: "usr_admin" },
+        scope: { tenantId: "org_123" },
+        authSessionId: "ses_123",
+        authContextId: "authctx_123",
+        domain: "billing",
+        startReason: "user_action",
+      }),
+    );
+
+    expect(event.action).toBe("activity.episode.started");
+    expect(event.target).toEqual({ type: "activity_episode", id: "ep_001" });
+    expect(event.purpose).toBe("change_provenance");
+    expect(event.metadata).toEqual({
+      activityEpisodeId: "ep_001",
+      authSessionId: "ses_123",
+      authContextId: "authctx_123",
+      domain: "billing",
+      startReason: "user_action",
+    });
+  });
+
+  test("drops the removed riskScore field from session security context", () => {
+    const securityContext = { method: "password", provider: "credentials", riskScore: 0.9 };
+    const event = createAuditEvent(
+      auditTemplates.auth.signedIn({
+        id: "evt_signin_risk",
+        occurredAt: "2026-06-20T00:00:00.000Z",
+        userId: "usr_123",
+        sessionId: "sess_123",
+        scope: { tenantId: "org_123", environment: "test" },
+        securityContext,
+      }),
+    );
+
+    expect(event.metadata.securityContext).toEqual({ method: "password", provider: "credentials" });
+  });
+
+  test("stamps normalized riskSignals onto template metadata", () => {
+    const event = createAuditEvent(
+      auditTemplates.code.filesChanged({
+        id: "evt_files_risk",
+        occurredAt: "2026-06-20T00:06:00.000Z",
+        sourceTreeId: "tree_123",
+        actor: { type: "ai_agent", id: "agent_codex" },
+        scope: { tenantId: "org_123" },
+        sessionId: "agt_sess_123",
+        riskSignals: { operationType: "delete", dataVolume: 100 },
+      }),
+    );
+
+    expect(event.metadata.riskSignals).toMatchObject({
+      operationType: "delete",
+      reversibility: "recoverable",
+      envCriticality: "production",
+      dataVolume: 100,
+    });
+  });
+
   test("exposes audit log classifier metadata helpers and detectors", () => {
     expect(auditLogVisibilityValues).toEqual(["internal", "external", "partner", "system"]);
     expect(auditLogSurfaceValues).toEqual(["api", "app", "worker", "cli", "webhook"]);
@@ -642,9 +731,7 @@ describe("auditTemplates", () => {
       visibility: "partner",
       surface: "webhook",
     });
-    expect(
-      detectAuditLogClassifiers({ visibility: "customer", client: { type: "browser" } }),
-    ).toEqual({
+    expect(detectAuditLogClassifiers({ visibility: "customer", client: { type: "browser" } })).toEqual({
       visibility: "external",
       surface: "app",
     });

@@ -117,14 +117,23 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 		Visibility: "system",
 		Surface:    "worker",
 	})
-	riskScore := 0.21
-
 	events := []veritio.AuditEventInput{}
+	authMetadata, err := veritio.WithRiskSignals(
+		mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
+		veritio.RiskSignals{
+			OperationType:  "create",
+			Reversibility:  "recoverable",
+			EnvCriticality: "production",
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
 	authEvent, err := veritio.AuthSessionCreatedTemplate(veritio.SessionAuditTemplateInput{
 		AuditTemplateCommonInput: veritio.AuditTemplateCommonInput{
 			Scope:     scope,
 			RequestID: "scenario:auth-session",
-			Metadata:  mergeMaps(externalAPI, map[string]any{"canonicalPlanHash": canonicalPlanHash}),
+			Metadata:  authMetadata,
 		},
 		UserID:    demoUserID,
 		SessionID: "session_demo_us_ca",
@@ -135,9 +144,8 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 				Country: "US",
 				Region:  "CA",
 			},
-			Method:    "password",
-			Provider:  "better-auth",
-			RiskScore: &riskScore,
+			Method:   "password",
+			Provider: "better-auth",
 		},
 	})
 	if err != nil {

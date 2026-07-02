@@ -234,6 +234,41 @@ describe("createGovernedChangeDraft", () => {
     expect(draft.edges.some((edge) => edge.relation === "derived_from")).toBe(false);
   });
 
+  test("threads activityEpisodeId onto change.declared, activity.recorded, and entity.revision.created", () => {
+    const entry = defineEntity<{ id: string; quantity: number }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: { quantity: { capture: "full" } },
+    });
+
+    const draft = createGovernedChangeDraft({
+      scope,
+      entity: entry,
+      after: { id: "42", quantity: 11 },
+      changedPaths: ["/quantity"],
+      change: { id: "chg_ep", type: "project.estimate.created", initiatedBy },
+      activity: { id: "act_ep", type: "computation.project_cost_estimate", performedBy: producer },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:ep",
+      context: { activityEpisodeId: "ep_gov_001" },
+    });
+
+    expect(draft.events.map((event) => event.action)).toEqual([
+      "change.declared",
+      "activity.recorded",
+      "entity.revision.created",
+    ]);
+    expect(draft.events.map((event) => event.metadata.activityEpisodeId)).toEqual([
+      "ep_gov_001",
+      "ep_gov_001",
+      "ep_gov_001",
+    ]);
+  });
+
   test("rejects invalid governed-change timestamps", () => {
     const projectEntry = defineEntity<{ id: string }>({
       authority: "acme.billing",

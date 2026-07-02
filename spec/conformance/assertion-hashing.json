@@ -1,0 +1,91 @@
+{
+  "name": "assertion-hashing-v1",
+  "hashAlgorithm": "sha256",
+  "canonicalization": "veritio-json-v1",
+  "cases": [
+    {
+      "name": "hashes a security risk assertion record",
+      "assertion": {
+        "recordType": "assertion.recorded",
+        "schemaVersion": "2026-06-23",
+        "recordAuthority": "veritio",
+        "id": "asr_fixture_risk_01",
+        "type": "security.risk",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "production"
+        },
+        "occurredAt": "2026-06-23T00:00:00.000Z",
+        "producer": {
+          "authority": "veritio.detectors",
+          "kind": "principal",
+          "type": "service",
+          "id": "veritio.detectors.risk"
+        },
+        "idempotencyKeyHash": "007bb0b51e8fdf6b4099eb4bb1faa04fbf32adb4e8894d1a20e119861111dbe8",
+        "subject": {
+          "authority": "veritio",
+          "kind": "change",
+          "type": "billing.plan",
+          "id": "chg_fixture_01"
+        },
+        "conclusion": {
+          "score": 0.612,
+          "level": "high",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "step"
+        },
+        "factors": [
+          { "key": "operationType", "value": "destructive", "kind": "base", "weight": 1, "contribution": 0.85 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1, "contribution": 1 }
+        ]
+      },
+      "expectedHash": "fd6ee589489fda840e46bc80a999f5c2c95ffb95fafa073070796cd655ec5573"
+    },
+    {
+      "name": "hashes a scored assertion carrying whole-valued float factors",
+      "assertion": {
+        "recordType": "assertion.recorded",
+        "schemaVersion": "2026-06-23",
+        "recordAuthority": "veritio",
+        "id": "asr_fixture_risk_01",
+        "type": "security.risk",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "production"
+        },
+        "occurredAt": "2026-06-23T00:00:00.000Z",
+        "producer": {
+          "authority": "veritio.detectors",
+          "kind": "principal",
+          "type": "service",
+          "id": "veritio.detectors.risk"
+        },
+        "idempotencyKeyHash": "007bb0b51e8fdf6b4099eb4bb1faa04fbf32adb4e8894d1a20e119861111dbe8",
+        "subject": {
+          "authority": "veritio",
+          "kind": "change",
+          "type": "billing.plan",
+          "id": "chg_fixture_01"
+        },
+        "conclusion": {
+          "score": 0.202,
+          "level": "low",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "step"
+        },
+        "factors": [
+          { "key": "operationType", "value": "create", "kind": "base", "weight": 1, "contribution": 0.2 },
+          { "key": "dataVolume", "value": 1, "kind": "additive", "weight": 0.5, "contribution": 0.002 },
+          { "key": "fanOut", "value": 0, "kind": "additive", "weight": 0.3, "contribution": 0.0 },
+          { "key": "referenceCount", "value": 0, "kind": "additive", "weight": 0.2, "contribution": 0.0 },
+          { "key": "reversibility", "value": "recoverable", "kind": "multiplier", "weight": 1.0, "contribution": 1.0 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1.0, "contribution": 1.0 }
+        ]
+      },
+      "expectedHash": "c58adaf1c0dcc25adf274410e094a9bddb0494beda2539866e376a66106f3322"
+    }
+  ]
+}

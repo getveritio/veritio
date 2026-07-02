@@ -1,5 +1,5 @@
 import type { AuditEventInput, EvidenceEdgeInput } from "@veritio/core";
-import type { OutboxAdapter, OutboxDispatcher, OutboxListOptions, OutboxPayload } from "./outbox";
+import type { OutboxAdapter, OutboxDispatcher, OutboxListOptions, OutboxPayload } from "./outbox.js";
 
 /**
  * HTTP delivery of governed-change evidence to a Veritio ingest endpoint.

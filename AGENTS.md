@@ -55,6 +55,27 @@ local development links. Hosted-only fields must not become protocol semantics.
 - Metadata redaction must be explicit and deterministic.
 - Hashing, canonical JSON, idempotency keys, and storage ordering must be deterministic and tested.
 - Storage adapters must fail closed when required fields, tenant scope, or integrity data are missing.
+- Storage has a hard authoritative/derived boundary. Authoritative = a
+  conforming `AuditStore` (Postgres/Neon, MySQL/MariaDB, MongoDB regular
+  collection, file store) that passes `@veritio/storage/conformance`: gapless
+  per-tenant sequence, idempotency-conflict rejection, expected-previous-hash
+  checks, hash-revalidated reads. Derived = the object-storage archive
+  (Cloudflare R2 / AWS S3 via an injected `ObjectArchiveClient`) and the
+  ClickHouse read model (injected `ClickHouseExecutor`): eventually
+  consistent, at-least-once projection, never sequence owners, never the
+  authoritative answer for verify or DSAR. Object storage cannot couple
+  sequencing to idempotency atomically and ClickHouse has no synchronous
+  unique constraints — do not promote either to an `AuditStore`.
+- Derived tiers must carry the exact `canonicalJson` record bytes as opaque
+  strings (NDJSON segment lines in the archive; a raw `String` column in
+  ClickHouse — never a driver's native JSON type) and must recompute record
+  hashes on both write and read so corrupted or re-encoded bytes fail closed.
+- Storage adapters are proven against real databases locally via
+  `storage/docker-compose.yml` (`bun run --cwd storage db:up`, then
+  `bun run --cwd storage test:live`); CI runs the same env-gated suites
+  through service containers in `.github/workflows/verify.yml`. The MongoDB
+  target must be a replica set (transactions) and the live suites skip
+  silently when their `VERITIO_*_TEST_*` variables are absent.
 - Avoid vendor lock-in in OSS modules. Hosted-provider features belong behind optional clients or server modules.
 - If a change affects event semantics, graph edges, canonical JSON, hashing, redaction, idempotency, or export manifests, update this OSS repo before hosted code.
 - Every named function, exported helper, class method with protocol/storage

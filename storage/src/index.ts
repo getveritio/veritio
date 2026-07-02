@@ -735,6 +735,8 @@ function cloneRecord(record: AuditRecord): AuditRecord {
   return JSON.parse(JSON.stringify(record)) as AuditRecord;
 }
 
-export * from "./file-store";
-export * from "./ingest-target";
-export * from "./outbox";
+export * from "./clickhouse-read-model.js";
+export * from "./file-store.js";
+export * from "./ingest-target.js";
+export * from "./object-archive.js";
+export * from "./outbox.js";

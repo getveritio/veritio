@@ -1,0 +1,71 @@
+{
+  "name": "security-risk-assertion-v1",
+  "cases": [
+    {
+      "name": "builds a step risk assertion envelope",
+      "input": {
+        "id": "asr_fixture_risk_01",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "production"
+        },
+        "occurredAt": "2026-06-23T00:00:00.000Z",
+        "producerId": "veritio.detectors.risk",
+        "subject": {
+          "authority": "veritio",
+          "kind": "change",
+          "type": "billing.plan",
+          "id": "chg_fixture_01"
+        },
+        "idempotencyKey": "risk:chg_fixture_01:step",
+        "conclusion": {
+          "score": 0.612,
+          "level": "high",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "step"
+        },
+        "factors": [
+          { "key": "operationType", "value": "destructive", "kind": "base", "weight": 1, "contribution": 0.85 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1, "contribution": 1 }
+        ]
+      },
+      "expected": {
+        "recordType": "assertion.recorded",
+        "schemaVersion": "2026-06-23",
+        "recordAuthority": "veritio",
+        "id": "asr_fixture_risk_01",
+        "type": "security.risk",
+        "scope": {
+          "tenantId": "org_fixture_123",
+          "workspaceId": "wks_fixture_456",
+          "environment": "production"
+        },
+        "occurredAt": "2026-06-23T00:00:00.000Z",
+        "producer": {
+          "authority": "veritio.detectors",
+          "kind": "principal",
+          "type": "service",
+          "id": "veritio.detectors.risk"
+        },
+        "idempotencyKeyHash": "007bb0b51e8fdf6b4099eb4bb1faa04fbf32adb4e8894d1a20e119861111dbe8",
+        "subject": {
+          "authority": "veritio",
+          "kind": "change",
+          "type": "billing.plan",
+          "id": "chg_fixture_01"
+        },
+        "conclusion": {
+          "score": 0.612,
+          "level": "high",
+          "policyVersion": "veritio.reference.v1",
+          "assessment": "step"
+        },
+        "factors": [
+          { "key": "operationType", "value": "destructive", "kind": "base", "weight": 1, "contribution": 0.85 },
+          { "key": "envCriticality", "value": "production", "kind": "multiplier", "weight": 1, "contribution": 1 }
+        ]
+      }
+    }
+  ]
+}

@@ -23,7 +23,7 @@ let { sessions, busy, onRun }: Props = $props();
     <div class="min-w-0">
       <h2 class="text-sm font-semibold tracking-tight text-foreground">Agent sessions</h2>
       <p class="text-[11px] text-muted-foreground">
-        prompt → tool read → proposal → governed recalcs → human approval, grouped by one session id.
+        prompt → tool read → proposal → governed recalcs → human approval, grouped by one activity episode.
       </p>
     </div>
     <Button size="sm" disabled={busy} onclick={onRun}>
@@ -39,12 +39,13 @@ let { sessions, busy, onRun }: Props = $props();
     </Card>
   {:else}
     <Card class="overflow-hidden">
-      {#each sessions as session (session.sessionId)}
+      {#each sessions as session (session.activityEpisodeId)}
         <div
           class="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_auto] items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0"
         >
           <div class="min-w-0">
-            <p class="truncate font-mono text-[11px] text-muted-foreground">{session.sessionId}</p>
+            <p class="truncate font-mono text-[11px] text-foreground">{session.activityEpisodeId}</p>
+            <p class="truncate font-mono text-[10px] text-muted-foreground">{session.sessionId}</p>
             <p class="truncate text-xs text-muted-foreground">{session.agentLabel} · {session.modelLabel}</p>
           </div>
           <div class="min-w-0 text-xs text-muted-foreground">

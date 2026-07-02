@@ -16,6 +16,14 @@ export interface AdapterConfig {
   agentActorId: string;
   workspaceId?: string;
   environment: string;
+  /**
+   * Opt-in override for the activity-episode id. When set, it threads multiple
+   * Claude Code sessions into ONE durable activity episode (cross-session
+   * swimlane). Falls back to the deterministic `ep_<sessionId>` derivation when
+   * unset. Non-PII grouping id only (never an email/username); it travels
+   * verbatim as `metadata.activityEpisodeId` on every emitted event.
+   */
+  activityEpisodeId?: string;
 }
 
 /**
@@ -43,6 +51,10 @@ export function resolveConfig(env: NodeJS.ProcessEnv): AdapterConfig {
   const workspaceId = env.VERITIO_WORKSPACE_ID?.trim();
   if (workspaceId) {
     config.workspaceId = workspaceId;
+  }
+  const activityEpisodeId = env.VERITIO_ACTIVITY_EPISODE_ID?.trim();
+  if (activityEpisodeId) {
+    config.activityEpisodeId = activityEpisodeId;
   }
   return config;
 }

@@ -5,12 +5,19 @@ import { isAbsolute, join } from "node:path";
 import { type AuditEvent, type EvidenceEdge, type RecordResult, createProvenanceRecorder } from "@veritio/core";
 import { createFileEvidenceStore } from "@veritio/storage";
 
-import { resolveConfig } from "./config";
-import { postToIngest } from "./ingest";
-import { type ChangedFile, buildBashFileChange, buildSessionContext, buildToolCall, promptHashOf } from "./map";
-import { sha256 } from "./redact";
-import { clearState, loadState, saveState } from "./state";
-import type { HookPayload } from "./types";
+import { resolveConfig } from "./config.js";
+import { postToIngest } from "./ingest.js";
+import {
+  type ChangedFile,
+  buildBashFileChange,
+  buildSessionContext,
+  buildToolCall,
+  episodeIdOf,
+  promptHashOf,
+} from "./map.js";
+import { sha256 } from "./redact.js";
+import { clearState, loadState, saveState } from "./state.js";
+import type { HookPayload } from "./types.js";
 
 /** Largest file the turn-scan will hash, to keep a Stop hook bounded. */
 const MAX_HASH_BYTES = 2_000_000;
@@ -47,7 +54,14 @@ async function main(): Promise<void> {
 
   switch (payload.hook_event_name) {
     case "SessionStart": {
-      state.context = buildSessionContext(payload, config, { now, ...readGit(payload.cwd) });
+      // Precedence: persisted state first (keeps the id stable across this
+      // session's many separate hook processes), then the opt-in
+      // VERITIO_ACTIVITY_EPISODE_ID override (threads sessions into one episode),
+      // then the deterministic ep_<sessionId> default. The override only takes
+      // effect on the FIRST SessionStart, before state exists.
+      const activityEpisodeId = state.activityEpisodeId ?? config.activityEpisodeId ?? episodeIdOf(payload.session_id);
+      state.activityEpisodeId = activityEpisodeId;
+      state.context = buildSessionContext(payload, config, { now, activityEpisodeId, ...readGit(payload.cwd) });
       const { result } = await recorder.startSession(state.context);
       collect(result);
       break;

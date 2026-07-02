@@ -1,4 +1,5 @@
-import type { ActorType, AuditEventInput, EvidenceScope, LawfulBasis, Principal, Resource } from "./index";
+import type { ActorType, AuditEventInput, EvidenceScope, LawfulBasis, Principal, Resource } from "./index.js";
+import { withRiskSignals, type RiskSignals } from "./risk.js";
 
 export type AuditTemplateSetName = "auth" | "organization" | "data" | "agent" | "code";
 
@@ -140,6 +141,8 @@ export interface AuditTemplateCommonInput {
   dataCategories?: string[];
   retention?: string;
   metadata?: Record<string, unknown>;
+  activityEpisodeId?: string;
+  riskSignals?: RiskSignals;
 }
 
 export interface UserAuditTemplateInput extends AuditTemplateCommonInput {
@@ -167,7 +170,6 @@ export interface SessionSecurityContext {
   };
   method?: string;
   provider?: string;
-  riskScore?: number;
 }
 
 export interface PasswordResetAuditTemplateInput extends AuditTemplateCommonInput {
@@ -230,6 +232,15 @@ export interface AgentSessionAuditTemplateInput extends AuditTemplateCommonInput
   initiatedBy?: Principal;
   agent?: { name: string; version?: string };
   model?: { provider: string; name: string };
+}
+
+export interface EpisodeStartedAuditTemplateInput extends AuditTemplateCommonInput {
+  activityEpisodeId: string;
+  actor: Principal;
+  authSessionId?: string;
+  authContextId?: string;
+  domain?: string;
+  startReason?: string;
 }
 
 export interface AgentPromptAuditTemplateInput extends AuditTemplateCommonInput {
@@ -533,6 +544,30 @@ export function agentSessionStartedTemplate(input: AgentSessionAuditTemplateInpu
 }
 
 /**
+ * Builds an activity.episode.started event that opens a Layer-1 activity episode.
+ * The episode id is the target and is threaded onto metadata.activityEpisodeId
+ * (un-shadowably, via buildTemplate) so every downstream event sharing the episode
+ * groups under the same chain key. No event.schema.json change is required: the
+ * dotted-action pattern and open metadata already accept this event.
+ */
+export function episodeStartedTemplate(input: EpisodeStartedAuditTemplateInput): AuditEventInput {
+  return buildTemplate(input, {
+    actor: input.actor,
+    action: "activity.episode.started",
+    target: resource("activity_episode", input.activityEpisodeId),
+    purpose: input.purpose ?? "change_provenance",
+    retention: input.retention ?? "security_1y",
+    metadata: compactMetadata({
+      activityEpisodeId: input.activityEpisodeId,
+      authSessionId: input.authSessionId,
+      authContextId: input.authContextId,
+      domain: input.domain,
+      startReason: input.startReason,
+    }),
+  });
+}
+
+/**
  * Builds an agent prompt recorded event with a prompt hash only. Raw prompt text
  * must never be passed into metadata.
  */
@@ -776,11 +811,20 @@ function buildTemplate(
   if (options.metadataPolicy === "block-raw-content") {
     assertMetadataDoesNotContainRawContent(input.metadata);
   }
+  let metadata = mergeMetadata(input.metadata, template.metadata);
+  if (input.activityEpisodeId !== undefined) {
+    // Stamped after caller + template metadata so it cannot be shadowed, mirroring
+    // the un-shadowable Layer-1 chain key applied by mergeVeritioMetadata.
+    metadata.activityEpisodeId = input.activityEpisodeId;
+  }
+  if (input.riskSignals !== undefined) {
+    metadata = withRiskSignals(metadata, input.riskSignals);
+  }
   const event: AuditEventInput = {
     actor: template.actor,
     action: template.action,
     target: template.target,
-    metadata: mergeMetadata(input.metadata, template.metadata),
+    metadata,
   };
   if (input.id) {
     event.id = input.id;
@@ -937,7 +981,6 @@ function compactSessionSecurityContext(input: SessionSecurityContext | undefined
       : undefined,
     method: input.method,
     provider: input.provider,
-    riskScore: input.riskScore,
   });
 }
 
@@ -986,14 +1029,15 @@ function firstNormalized<T extends string>(
 
 /** Narrows nested metadata bags before classifier detectors read aliases. */
 function metadataObject(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : undefined;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 }
 
 /** Normalizes classifier labels so `user-facing`, `User Facing`, and aliases match. */
 function normalizeClassifierLabel(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
 }
 
 /**

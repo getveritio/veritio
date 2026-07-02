@@ -7,8 +7,8 @@ import type {
   JsonObject,
   JsonValue,
   Principal,
-} from "./index";
-import { canonicalJson } from "./index";
+} from "./index.js";
+import { canonicalJson } from "./index.js";
 
 export type EvidenceRefKind =
   | "principal"

@@ -32,6 +32,15 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   `entity.revision.created` metadata (`veritio.revision.parents` is now `[]`
   instead of `[synthetic]`) byte-identically across all three SDKs — a deliberate,
   correct hash change since the placeholder was never valid.
+- **riskScore ad-hoc field replaced** (`sdks/{ts,py,go}`, `adapters/better-auth`,
+  examples): the numeric `riskScore` on the session security context was removed
+  (breaking) and replaced by the deterministic `riskSignals` model — normalized,
+  scored byte-identically across languages by the SDK risk module
+  (`veritio.reference.v1`) — plus the `security.risk` assertion path
+  (`recordType: assertion.recorded`, linked by `based_on` edges). The local
+  server stores assertions as a sink and never scores. Remaining cross-language
+  parity TODO: the `activityEpisodeId` recorder stamp and any Python/Go
+  agent-capture adapter are tracked under `.claude/rules/02-sdk-parity.md`.
 
 ## Deferred — protocol-change / cross-repo cycle
 

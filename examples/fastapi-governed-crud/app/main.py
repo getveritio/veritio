@@ -26,6 +26,7 @@ from veritio import (
     organization_member_joined_template,
     retention_policy_applied_template,
     verify_evidence_commits,
+    with_risk_signals,
 )
 
 CANONICALIZATION = "veritio-json-v1"
@@ -191,9 +192,11 @@ class DemoState:
                     "location": {"country": "US", "region": "CA", "city": "San Francisco"},
                     "method": "password",
                     "provider": "better-auth",
-                    "riskScore": 0.21,
                 },
-                metadata={**classifier, "canonicalPlanHash": canonical_plan_hash},
+                metadata=with_risk_signals(
+                    {**classifier, "canonicalPlanHash": canonical_plan_hash},
+                    {"operationType": "create", "reversibility": "recoverable", "envCriticality": "production"},
+                ),
             ),
             organization_created_template(
                 organization_id=self.tenant_id,
