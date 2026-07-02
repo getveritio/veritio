@@ -27,7 +27,7 @@
     },
     "adapters/claude-code": {
       "name": "@veritio/claude-code",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "bin": {
         "veritio-claude-code-hook": "./dist/hook.js",
       },
@@ -153,7 +153,7 @@
     },
     "sdks/typescript": {
       "name": "@veritio/core",
-      "version": "0.0.1",
+      "version": "0.1.0",
     },
     "server/node": {
       "name": "@veritio/server",
@@ -164,7 +164,7 @@
     },
     "storage": {
       "name": "@veritio/storage",
-      "version": "0.0.1",
+      "version": "0.1.0",
       "devDependencies": {
         "@veritio/core": "workspace:*",
         "mongodb": "^7.3.0",
