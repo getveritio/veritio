@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import type { AuditEventInput, AuditRecord, EvidenceEdgeInput, EvidenceEdgeRecord, ProvenanceRecorder } from "../index";
 import {
-  HASH_ALGORITHM,
-  MemoryAuditStore,
   createAuditEvent,
   createEvidenceEdge,
   createProvenanceRecorder,
+  HASH_ALGORITHM,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
+  MemoryAuditStore,
   verifyAuditRecords,
   verifyEvidenceEdgeRecords,
 } from "../index";
-import type { AuditEventInput, AuditRecord, EvidenceEdgeInput, EvidenceEdgeRecord, ProvenanceRecorder } from "../index";
 
 const SCOPE = { tenantId: "tenant_demo", workspaceId: "ws_app", environment: "dev" };
 

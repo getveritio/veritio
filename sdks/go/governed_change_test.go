@@ -339,3 +339,61 @@ func validGovernedChangeInput(t *testing.T) GovernedChangeDraftInput {
 		DigestKeys:         DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
 	}
 }
+
+func TestGovernedRevisionIDMatchesConformanceFixture(t *testing.T) {
+	fixture := loadFixture(t, "governed-revision-id.json")
+	cases, ok := fixture["cases"].([]any)
+	if !ok || len(cases) == 0 {
+		t.Fatal("governed-revision-id.json has no cases")
+	}
+	for _, rawCase := range cases {
+		fixtureCase := rawCase.(map[string]any)
+		got := GovernedRevisionID(
+			fixtureCase["entityType"].(string),
+			fixtureCase["entityId"].(string),
+			fixtureCase["stateDigest"].(string),
+			fixtureCase["changeId"].(string),
+		)
+		if got != fixtureCase["expected"].(string) {
+			t.Fatalf("%s: expected %s, got %s", fixtureCase["name"], fixtureCase["expected"], got)
+		}
+	}
+}
+
+func TestRollbackToIdenticalStateYieldsDistinctRevisionID(t *testing.T) {
+	draftFor := func(changeID string) GovernedChangeDraft {
+		draft, err := CreateGovernedChangeDraft(GovernedChangeDraftInput{
+			Scope:              EvidenceScope{TenantID: "org_acme_123"},
+			Entity:             minimalEntityDefinition(t),
+			Before:             map[string]any{"id": "42", "quantity": 10},
+			After:              map[string]any{"id": "42", "quantity": 11},
+			ChangedPaths:       []string{"/quantity"},
+			Change:             GovernedChangeDeclaration{ID: changeID, Type: "project.estimate.recalculation", InitiatedBy: EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"}},
+			Activity:           GovernedActivityDeclaration{ID: "act_roll", Type: "computation.project_cost_estimate", PerformedBy: EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"}},
+			Producer:           EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+			OccurredAt:         "2026-06-23T10:18:00.000Z",
+			IdempotencyKeyHash: "sha256:rollback-test",
+		})
+		if err != nil {
+			t.Fatalf("CreateGovernedChangeDraft returned error: %v", err)
+		}
+		return draft
+	}
+
+	first := draftFor("chg_a")
+	rollback := draftFor("chg_b")
+	replay := draftFor("chg_a")
+
+	// Identical governed state (same commitment digest) ...
+	if rollback.Revision.StateCommitment.Digest != first.Revision.StateCommitment.Digest {
+		t.Fatal("expected identical state commitments for the rollback scenario")
+	}
+	// ... but a DIFFERENT change must never merge into the same revision node.
+	if rollback.Revision.Ref.ID == first.Revision.Ref.ID {
+		t.Fatal("rollback to an identical state must yield a distinct revision id")
+	}
+	// Replaying the same change stays idempotent.
+	if replay.Revision.Ref.ID != first.Revision.Ref.ID {
+		t.Fatal("replaying the same change must yield the same revision id")
+	}
+}

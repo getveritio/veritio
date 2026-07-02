@@ -5,15 +5,7 @@
   "description": "A separate evidence record payload that links stable graph entity references without embedding raw payloads.",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "id",
-    "schemaVersion",
-    "occurredAt",
-    "from",
-    "relation",
-    "to",
-    "metadata"
-  ],
+  "required": ["id", "schemaVersion", "occurredAt", "from", "relation", "to", "metadata"],
   "properties": {
     "id": {
       "type": "string",

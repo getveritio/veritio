@@ -45,7 +45,15 @@ decisions that deserve a coordinated `veritio-protocol-change` /
 ## Deferred — protocol-change / cross-repo cycle
 
 ### C — revision id collides on rollback to an identical earlier state
-- **Status:** confirmed across TS/Python/Go.
+- **Status:** STOPGAP LANDED (`fix/review-backlog-deferred`): the revision id
+  is now `rev_<type>_<id>_<digest12>_<sha256(changeId)8>` byte-identically
+  across TS/Python/Go, pinned by `spec/conformance/governed-revision-id.json`
+  (+ rollback-distinctness tests in all three SDKs). Verified that the cloud
+  read models consume `revision.ref.id` as an opaque map key (never parsed),
+  so the format change is transparent to Explain/timeline/diff. REMAINING
+  OPEN: the spec's host-assigned ordinal design (`rev_..._18` + `ordinal`)
+  is still the target; the id changes again when hosts assign ordinals.
+- **Original finding (for context):** confirmed across TS/Python/Go.
 - **Where:** `sdks/typescript/src/governed-change.ts` (`rev_<type>_<id>_<digest12>`),
   Python `governed_change.py`, Go `governed_change.go` (same scheme); consumers
   `veritio-cloud/src/cloud/governed-changes.server.ts` + `src/evidence/governed-changes.ts`
@@ -65,9 +73,12 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   diverges from the spec's ordinal target). Decide deliberately.
 
 ### lineagePolicy is a declared-but-unenforced knob
-- **Status:** confirmed. `GovernedEntityDefinition.lineagePolicy` ('linear' | 'dag')
-  is declared in all SDKs + the design spec but never read; no linear/dag branch
-  exists.
+- **Status:** RESOLVED as documented-reserved (`fix/review-backlog-deferred`):
+  the field is now explicitly documented as RESERVED / not-yet-enforced in all
+  three SDKs, with enforcement tied to the host-assigned ordinal design (C).
+  Kept (not removed) so hosts can record intent without a schema change later.
+- **Original finding (for context):** `GovernedEntityDefinition.lineagePolicy`
+  ('linear' | 'dag') is declared in all SDKs + the design spec but never read.
 - **Action:** either honor it (host-side OCC enforcement, tied to C) or document
   it as reserved/not-yet-enforced. Removal touches public API in 3 languages +
   the spec example — do it as a deliberate decision, not a silent drop.
@@ -75,7 +86,11 @@ decisions that deserve a coordinated `veritio-protocol-change` /
 ## Deferred — documentation / low-risk parity
 
 ### E — EvidenceCommit hash construction has no prose spec
-- **Status:** confirmed. The algorithm (leaf separator `veritio-record-leaf-v1`,
+- **Status:** LANDED (`fix/review-backlog-deferred`): normative
+  `spec/evidence-commit-hashing.md` (manifest normalization, leaf/node/commit
+  domain separators, odd-leaf rule, chain linkage), transcribed from the SDK
+  sources; the conformance fixture stays the tie-breaker.
+- **Original finding (for context):** confirmed. The algorithm (leaf separator `veritio-record-leaf-v1`,
   node separator `veritio-merkle-node-v1`, commit separator `veritio-commit-v1`,
   Merkle odd-leaf rule, canonical input) lives ONLY in SDK source
   (`sdks/typescript/src/index.ts:953/971/473`, Python `event.py:379/389/209`,
@@ -86,7 +101,11 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   algorithm carefully from the SDK source + verify against the fixture.
 
 ### A — EvidenceCommit verification is scoped to ledger atomicity (document the boundary)
-- **Status:** confirmed-as-intended, not a bug. `verifyEvidenceCommits`
+- **Status:** LANDED (`fix/review-backlog-deferred`): "Verification scope
+  (v1)" section in `spec/evidence-commit-hashing.md` + tightened
+  `verifyEvidenceCommits` doc-comments in all three SDKs. The optional
+  membership reconciliation in the composed `verify()` remains a future nicety.
+- **Original finding (for context):** confirmed-as-intended, not a bug. `verifyEvidenceCommits`
   (`index.ts:484`, `event.py:212`, `event.go:550`) checks only the commit chain's
   internal consistency and never reconciles `member.recordHash` against the
   actually-verified records, so a fabricated chain verifies `ok` in isolation.
@@ -98,7 +117,10 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   Optionally add a cheap membership reconciliation in the composed `verify()`.
 
 ### I — CaptureMode advertises 8 modes, only 4 implemented (fails closed)
-- **Status:** partly-confirmed. `CaptureMode` advertises 8 modes; the
+- **Status:** LANDED (`fix/review-backlog-deferred`): implemented-vs-reserved
+  modes documented on `CaptureMode` (TS), `EntityFieldPolicy.Capture` (Go),
+  and the `define_entity` docstring (Python). Type kept wide deliberately.
+- **Original finding (for context):** partly-confirmed. `CaptureMode` advertises 8 modes; the
   state-commitment builder implements 4 (`omit`, `full`, `keyed_digest`,
   `content_digest`) and the other 4 (`randomized_digest`, `reference`, `redact`,
   `encrypt`) `throw`/error (fail closed — no silent weak commitment).
@@ -107,7 +129,10 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   set. No data-leak risk today.
 
 ### H — `verifyEvidenceCommits` defensive validation is uneven across SDKs
-- **Status:** partly-confirmed, cosmetic. Python has two extra type guards
+- **Status:** LANDED (`fix/review-backlog-deferred`): TS gained the
+  streamId/hash type guards (Python parity, with tests); Go gained the empty
+  streamId guard (its type system already rules out a non-string hash).
+- **Original finding (for context):** partly-confirmed, cosmetic. Python has two extra type guards
   (`streamId`/`hash` are strings → `invalid_member_manifest`/`hash_mismatch`)
   that TS/Go lack; every other branch matches.
 - **Action:** add the two guards to TS + Go for parity (low priority).

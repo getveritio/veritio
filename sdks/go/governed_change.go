@@ -35,6 +35,11 @@ type CapturePolicyRef struct {
 }
 
 type EntityFieldPolicy struct {
+	// Capture selects the per-field commitment mode. IMPLEMENTED in the v1
+	// state-commitment builder (all three SDKs): "omit", "content_digest",
+	// "keyed_digest", "full". The remaining modes ("randomized_digest",
+	// "reference", "redact", "encrypt") are RESERVED and fail closed at draft
+	// time rather than producing a silently weaker commitment.
 	Capture string
 }
 
@@ -44,7 +49,12 @@ type GovernedEntityDefinition struct {
 	SchemaRef     string
 	FieldSetRef   string
 	Identity      func(map[string]any) string
-	Fields        map[string]EntityFieldPolicy
+	Fields map[string]EntityFieldPolicy
+	// LineagePolicy is RESERVED, not yet enforced ("linear" or "dag"). No SDK
+	// or reference-store branch reads it today; host-side enforcement lands
+	// with the host-assigned revision-ordinal design (docs/review-backlog.md
+	// item C). Declared now so hosts can record intent without a schema
+	// change later.
 	LineagePolicy string
 }
 
@@ -193,6 +203,22 @@ func DefineEntity(definition GovernedEntityDefinition) (GovernedEntityDefinition
 CreateGovernedChangeDraft creates v1-compatible audit event and edge inputs for a
 governed change without claiming EvidenceCommit atomicity.
 */
+// GovernedRevisionID derives the deterministic revision id for a
+// governed-state commitment. The id is content-addressed by the state digest
+// AND scoped by the producing change (first 8 hex chars of sha256(changeID)),
+// so a rollback that restores a byte-identical earlier state still yields a
+// DISTINCT revision id while replaying the same change stays idempotent.
+// Byte-identical across the TS/Python/Go SDKs
+// (spec/conformance/governed-revision-id.json). The design target remains a
+// host-assigned ordinal suffix; hosts that assign ordinals supersede this
+// derivation.
+func GovernedRevisionID(entityType, entityID, stateDigest, changeID string) string {
+	digest12 := stateDigest[len("sha256:") : len("sha256:")+12]
+	sum := sha256.Sum256([]byte(changeID))
+	change8 := hex.EncodeToString(sum[:])[:8]
+	return fmt.Sprintf("rev_%s_%s_%s_%s", entityType, entityID, digest12, change8)
+}
+
 func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDraft, error) {
 	if input.Scope.TenantID == "" {
 		return GovernedChangeDraft{}, errors.New("scope.tenantId is required")
@@ -248,7 +274,7 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 		Authority: "veritio",
 		Kind:      "revision",
 		Type:      input.Entity.Type,
-		ID:        fmt.Sprintf("rev_%s_%s_%s", input.Entity.Type, entityRef.ID, stateCommitment.Digest[len("sha256:"):len("sha256:")+12]),
+		ID:        GovernedRevisionID(input.Entity.Type, entityRef.ID, stateCommitment.Digest, input.Change.ID),
 	}
 	changedPaths := append([]string{}, input.ChangedPaths...)
 	sort.Strings(changedPaths)

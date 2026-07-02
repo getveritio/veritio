@@ -212,7 +212,15 @@ def hash_evidence_commit(commit: dict[str, Any]) -> str:
 
 
 def verify_evidence_commits(commits: list[dict[str, Any]]) -> dict[str, Any]:
-    """Verify EvidenceCommit chains independently per stream id."""
+    """Verify EvidenceCommit chains independently per stream id.
+
+    Verification scope (v1): proves the commit LEDGER's internal consistency
+    only — it deliberately does NOT reconcile member record hashes against
+    independently verified records, so a fabricated commit chain verifies ok
+    in isolation. Per-record integrity comes from verify_audit_records /
+    verify_evidence_edge_records; compose both for end-to-end evidence
+    verification. See spec/evidence-commit-hashing.md.
+    """
     stream_state: dict[str, dict[str, Any]] = {}
     for index, commit in enumerate(commits):
         if commit.get("hashAlgorithm") != HASH_ALGORITHM:

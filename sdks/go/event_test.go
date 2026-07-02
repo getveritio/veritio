@@ -971,3 +971,29 @@ func TestEvidenceEdgeAcceptsActivityEpisodeEntity(t *testing.T) {
 		t.Fatalf("to.type=%s", edge.To.Type)
 	}
 }
+
+func TestVerifyEvidenceCommitsRejectsEmptyStreamID(t *testing.T) {
+	commit, err := CreateEvidenceCommit(EvidenceCommitInput{
+		CommitID:           "cmt_guard",
+		StreamID:           "str_guard",
+		Sequence:           1,
+		PreviousCommitHash: nil,
+		CommittedAt:        "2026-06-23T10:15:31.000Z",
+		Members: []EvidenceCommitMember{
+			{
+				Index:      0,
+				RecordType: "audit.record",
+				RecordID:   "evt_guard",
+				RecordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvidenceCommit returned error: %v", err)
+	}
+	commit.StreamID = ""
+	result := VerifyEvidenceCommits([]EvidenceCommit{commit})
+	if result.OK || result.Reason != "invalid_member_manifest" {
+		t.Fatalf("expected invalid_member_manifest for empty streamId, got %+v", result)
+	}
+}

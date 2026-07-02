@@ -4,15 +4,7 @@
   "title": "Veritio Audit Event",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "id",
-    "schemaVersion",
-    "occurredAt",
-    "actor",
-    "action",
-    "target",
-    "metadata"
-  ],
+  "required": ["id", "schemaVersion", "occurredAt", "actor", "action", "target", "metadata"],
   "properties": {
     "id": {
       "type": "string",

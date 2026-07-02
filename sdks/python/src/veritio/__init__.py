@@ -19,6 +19,7 @@ from .event import (
 from .governed_change import (
     create_governed_change_draft,
     define_entity,
+    governed_revision_id,
     merge_veritio_metadata,
     ref_key,
 )
@@ -87,6 +88,7 @@ __all__ = [
     "verify_evidence_commits",
     "create_governed_change_draft",
     "define_entity",
+    "governed_revision_id",
     "merge_veritio_metadata",
     "ref_key",
     "agent_prompt_recorded_template",

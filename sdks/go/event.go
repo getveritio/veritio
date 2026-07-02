@@ -547,6 +547,13 @@ func HashEvidenceCommit(commit EvidenceCommit) (string, error) {
 /*
 VerifyEvidenceCommits verifies commit sequence and previous-hash linkage per
 stream, plus member manifest, Merkle root, and commit hash integrity.
+
+Verification scope (v1): this proves the commit LEDGER's internal consistency
+only. It deliberately does NOT reconcile member record hashes against
+independently verified records, so a fabricated commit chain over fabricated
+hashes verifies OK in isolation. Per-record integrity comes from
+VerifyAuditRecords/VerifyEvidenceEdgeRecords; compose both for end-to-end
+evidence verification. See spec/evidence-commit-hashing.md.
 */
 func VerifyEvidenceCommits(commits []EvidenceCommit) EvidenceCommitVerificationResult {
 	streamState := map[string]struct {
@@ -562,6 +569,13 @@ func VerifyEvidenceCommits(commits []EvidenceCommit) EvidenceCommitVerificationR
 		}
 		if commit.TreeAlgorithm != EvidenceCommitTreeAlgorithm {
 			return EvidenceCommitVerificationResult{OK: false, Index: index, Reason: "unsupported_tree_algorithm"}
+		}
+		// Defensive parity with the Python verifier: an empty streamId must
+		// fail closed instead of keying a chain on the empty string. (Go's
+		// type system already rules out a non-string hash; an empty hash is
+		// caught by the hash comparison below as hash_mismatch.)
+		if commit.StreamID == "" {
+			return EvidenceCommitVerificationResult{OK: false, Index: index, Reason: "invalid_member_manifest"}
 		}
 		state := streamState[commit.StreamID]
 		if !sameOptionalString(commit.PreviousCommitHash, state.PreviousHash) {

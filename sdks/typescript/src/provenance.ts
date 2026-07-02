@@ -44,7 +44,7 @@ import {
   type EvidenceScope,
   type Principal,
 } from "./index.js";
-import { withRiskSignals, type RiskSignals } from "./risk.js";
+import { type RiskSignals, withRiskSignals } from "./risk.js";
 
 export interface AgentIdentity {
   name: string;

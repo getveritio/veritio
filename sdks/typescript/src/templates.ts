@@ -1,5 +1,5 @@
 import type { ActorType, AuditEventInput, EvidenceScope, LawfulBasis, Principal, Resource } from "./index.js";
-import { withRiskSignals, type RiskSignals } from "./risk.js";
+import { type RiskSignals, withRiskSignals } from "./risk.js";
 
 export type AuditTemplateSetName = "auth" | "organization" | "data" | "agent" | "code";
 

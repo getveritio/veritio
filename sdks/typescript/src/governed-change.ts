@@ -32,6 +32,13 @@ export interface CapturePolicyRef {
   version: string;
 }
 
+/**
+ * Per-field capture policy for governed-state commitments. IMPLEMENTED in the
+ * v1 state-commitment builder (all three SDKs): `omit`, `content_digest`,
+ * `keyed_digest`, `full`. The remaining modes (`randomized_digest`,
+ * `reference`, `redact`, `encrypt`) are RESERVED: selecting one fails closed
+ * at draft time rather than producing a silently weaker commitment.
+ */
 export type CaptureMode =
   | "omit"
   | "content_digest"
@@ -53,6 +60,14 @@ export interface GovernedEntityDefinition<Row extends Record<string, unknown>> {
   fieldSetRef: string;
   identity(row: Row): string;
   fields: Partial<Record<keyof Row & string, EntityFieldPolicy>>;
+  /**
+   * RESERVED, not yet enforced. Declares whether the host store should require
+   * linear revision lineage (single parent, OCC on the head) or allow a DAG
+   * (merges). No SDK or reference-store branch reads it today; enforcement is
+   * host-side and lands with the host-assigned revision-ordinal design (see
+   * docs/review-backlog.md item C). Declared now so hosts can record intent
+   * without a schema change later.
+   */
   lineagePolicy?: "linear" | "dag";
 }
 
@@ -226,6 +241,28 @@ export function mergeVeritioMetadata(
 }
 
 /**
+ * Derives the deterministic revision id for a governed-state commitment. The
+ * id is content-addressed by the state digest AND scoped by the change that
+ * produced it (first 8 hex chars of sha256(changeId)), so a rollback that
+ * restores a byte-identical earlier state still yields a DISTINCT revision id
+ * (the digest alone would merge the two revisions into one Explain node),
+ * while replaying the same change stays idempotent. Byte-identical across the
+ * TS/Python/Go SDKs (spec/conformance/governed-revision-id.json). The design
+ * target remains a host-assigned ordinal suffix; hosts that assign ordinals
+ * supersede this derivation.
+ */
+export function governedRevisionId(
+  entityType: string,
+  entityId: string,
+  stateDigest: string,
+  changeId: string,
+): string {
+  const digest12 = stateDigest.slice("sha256:".length, "sha256:".length + 12);
+  const change8 = createHash("sha256").update(changeId, "utf8").digest("hex").slice(0, 8);
+  return `rev_${entityType}_${entityId}_${digest12}_${change8}`;
+}
+
+/**
  * Creates a current-protocol governed-change draft. The draft uses normal audit
  * events plus evidence edges so v1 stores can append it without claiming
  * EvidenceCommit atomicity before that protocol exists.
@@ -266,7 +303,7 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
     authority: "veritio",
     kind: "revision",
     type: input.entity.type,
-    id: `rev_${input.entity.type}_${entityRef.id}_${stateCommitment.digest.slice("sha256:".length, "sha256:".length + 12)}`,
+    id: governedRevisionId(input.entity.type, entityRef.id, stateCommitment.digest, input.change.id),
   };
   const revision: RevisionDraft = {
     ref: revisionRef,

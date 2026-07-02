@@ -6,6 +6,7 @@ from veritio import (
     create_audit_event,
     create_governed_change_draft,
     define_entity,
+    governed_revision_id,
     merge_veritio_metadata,
     ref_key,
 )
@@ -261,3 +262,63 @@ class GovernedChangeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GovernedRevisionIdTests(unittest.TestCase):
+    def test_matches_the_cross_language_conformance_fixture(self):
+        from pathlib import Path
+
+        fixture = json.loads(
+            (Path(__file__).resolve().parents[3] / "spec" / "conformance" / "governed-revision-id.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for case in fixture["cases"]:
+            with self.subTest(case["name"]):
+                self.assertEqual(
+                    governed_revision_id(case["entityType"], case["entityId"], case["stateDigest"], case["changeId"]),
+                    case["expected"],
+                )
+
+    def test_rollback_to_identical_state_yields_distinct_id_and_replay_is_idempotent(self):
+        entry = define_entity(
+            authority="acme.billing",
+            entity_type="project_entry",
+            schema_ref="acme.billing/project_entry@3",
+            field_set_ref="project-entry-governed-fields@2",
+            identity=lambda row: row["id"],
+            fields={"quantity": {"capture": "full"}},
+        )
+
+        def draft_for(change_id):
+            return create_governed_change_draft(
+                {
+                    "scope": SCOPE,
+                    "entity": entry,
+                    "before": {"id": "42", "quantity": 10},
+                    "after": {"id": "42", "quantity": 11},
+                    "changedPaths": ["/quantity"],
+                    "change": {"id": change_id, "type": "project.estimate.recalculation", "initiatedBy": INITIATED_BY},
+                    "activity": {
+                        "id": "act_roll",
+                        "type": "computation.project_cost_estimate",
+                        "performedBy": PRODUCER,
+                    },
+                    "producer": PRODUCER,
+                    "occurredAt": "2026-06-23T10:18:00.000Z",
+                    "idempotencyKeyHash": "sha256:rollback-test",
+                }
+            )
+
+        first = draft_for("chg_a")
+        rollback = draft_for("chg_b")
+        replay = draft_for("chg_a")
+
+        # Identical governed state (same commitment digest) ...
+        self.assertEqual(
+            rollback["revision"]["stateCommitment"]["digest"], first["revision"]["stateCommitment"]["digest"]
+        )
+        # ... but a DIFFERENT change must never merge into the same revision node.
+        self.assertNotEqual(rollback["revision"]["ref"]["id"], first["revision"]["ref"]["id"])
+        # Replaying the same change stays idempotent.
+        self.assertEqual(replay["revision"]["ref"]["id"], first["revision"]["ref"]["id"])
