@@ -67,6 +67,34 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
+      # S3-compatible target for the object-archive integration suite. The
+      # bitnami image starts the server without a command override (GitHub
+      # service containers cannot pass args reliably) and pre-creates the
+      # test bucket via MINIO_DEFAULT_BUCKETS.
+      minio:
+        image: bitnami/minio:latest
+        env:
+          MINIO_ROOT_USER: veritio
+          MINIO_ROOT_PASSWORD: veritio-local
+          MINIO_DEFAULT_BUCKETS: veritio-archive
+        ports:
+          - 9000:9000
+
+      clickhouse:
+        image: clickhouse/clickhouse-server:24.8
+        env:
+          CLICKHOUSE_USER: veritio
+          CLICKHOUSE_PASSWORD: veritio
+          CLICKHOUSE_DB: veritio
+        ports:
+          - 8123:8123
+        options: >-
+          --health-cmd "wget -qO- http://127.0.0.1:8123/ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+          --ulimit nofile=262144:262144
+
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -117,6 +145,11 @@ jobs:
           VERITIO_MYSQL_TEST_URL: mysql://root:veritio@127.0.0.1:3306/veritio
           VERITIO_MARIADB_TEST_URL: mysql://root:veritio@127.0.0.1:3307/veritio
           VERITIO_MONGODB_TEST_URL: mongodb://127.0.0.1:27017/veritio?replicaSet=rs0
+          VERITIO_S3_TEST_ENDPOINT: http://127.0.0.1:9000
+          VERITIO_S3_TEST_ACCESS_KEY_ID: veritio
+          VERITIO_S3_TEST_SECRET_ACCESS_KEY: veritio-local
+          VERITIO_S3_TEST_BUCKET: veritio-archive
+          VERITIO_CLICKHOUSE_TEST_ENDPOINT: http://127.0.0.1:8123
         run: bun run verify
 
       - name: Verify examples
