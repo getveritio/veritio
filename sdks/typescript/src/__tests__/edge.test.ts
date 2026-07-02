@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
+import type { EvidenceEdge, EvidenceEdgeInput } from "../index";
 import {
   createEvidenceEdge,
   hashEvidenceEdge,
@@ -7,7 +8,6 @@ import {
   hashIdempotencyKey,
   verifyEvidenceEdgeRecords,
 } from "../index";
-import type { EvidenceEdge, EvidenceEdgeInput } from "../index";
 
 const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");
 
@@ -72,15 +72,7 @@ describe("evidence edge schema", () => {
       };
     };
 
-    expect(schema.required).toEqual([
-      "id",
-      "schemaVersion",
-      "occurredAt",
-      "from",
-      "relation",
-      "to",
-      "metadata",
-    ]);
+    expect(schema.required).toEqual(["id", "schemaVersion", "occurredAt", "from", "relation", "to", "metadata"]);
     expect(schema.properties.schemaVersion.const).toBe("2026-06-13");
     expect(schema.properties.from.$ref).toBe("#/$defs/entity");
     expect(schema.properties.to.$ref).toBe("#/$defs/entity");
@@ -207,9 +199,7 @@ describe("hashEvidenceEdge", () => {
     const fixture = await loadConformanceFixture<EdgeHashingFixture>("edge-hashing.json");
 
     for (const conformanceCase of fixture.cases) {
-      expect(hashEvidenceEdge(conformanceCase.edge, conformanceCase.previousHash)).toBe(
-        conformanceCase.expectedHash,
-      );
+      expect(hashEvidenceEdge(conformanceCase.edge, conformanceCase.previousHash)).toBe(conformanceCase.expectedHash);
     }
   });
 });
@@ -219,9 +209,9 @@ describe("hashEvidenceEdgeRecord", () => {
     const fixture = await loadConformanceFixture<EdgeRecordHashingFixture>("edge-record-hashing.json");
 
     for (const conformanceCase of fixture.cases) {
-      expect(
-        hashIdempotencyKey(conformanceCase.tenantId, conformanceCase.idempotencyKey),
-      ).toBe(conformanceCase.expectedIdempotencyKeyHash);
+      expect(hashIdempotencyKey(conformanceCase.tenantId, conformanceCase.idempotencyKey)).toBe(
+        conformanceCase.expectedIdempotencyKeyHash,
+      );
       expect(hashEvidenceEdgeRecord(conformanceCase.recordWithoutHash)).toBe(conformanceCase.expectedHash);
     }
   });

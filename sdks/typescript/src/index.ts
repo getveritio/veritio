@@ -481,6 +481,15 @@ export function hashEvidenceCommit(commit: EvidenceCommit | Omit<EvidenceCommit,
  * Verifies EvidenceCommit chains per stream. A valid chain starts at sequence 1
  * with `previousCommitHash: null`, then increments by one and points to the
  * previous commit hash for that stream.
+ *
+ * Verification scope (v1): this proves the commit LEDGER's internal
+ * consistency only — sequence/previous-hash linkage, member-manifest shape,
+ * Merkle root, and commit hash. It deliberately does NOT reconcile
+ * `member.recordHash` against independently verified records, so a fabricated
+ * commit chain over fabricated hashes verifies `ok` in isolation. Per-record
+ * integrity comes from `verifyAuditRecords`/`verifyEvidenceEdgeRecords`;
+ * compose both (as the reference server's `verify()` does) for end-to-end
+ * evidence verification. See spec/evidence-commit-hashing.md.
  */
 export function verifyEvidenceCommits(commits: readonly EvidenceCommit[]): EvidenceCommitVerificationResult {
   const streamState = new Map<string, { previousHash: string | null; sequence: number }>();
@@ -494,6 +503,16 @@ export function verifyEvidenceCommits(commits: readonly EvidenceCommit[]): Evide
     }
     if (commit.treeAlgorithm !== EVIDENCE_COMMIT_TREE_ALGORITHM) {
       return { ok: false, index, reason: "unsupported_tree_algorithm" };
+    }
+    // Defensive parity with the Python verifier: commits arriving from
+    // untrusted JSON may not honor the compile-time type, so a missing/empty
+    // streamId or a non-string hash fails closed instead of keying a stream
+    // on undefined or comparing against a non-string.
+    if (typeof commit.streamId !== "string" || commit.streamId.length === 0) {
+      return { ok: false, index, reason: "invalid_member_manifest" };
+    }
+    if (typeof commit.hash !== "string") {
+      return { ok: false, index, reason: "hash_mismatch" };
     }
 
     const state = streamState.get(commit.streamId) ?? { previousHash: null, sequence: 0 };
@@ -1129,7 +1148,7 @@ function prefixedSha256(value: string): string {
   return `sha256:${sha256Hex(value)}`;
 }
 
-export * from "./provenance.js";
 export * from "./governed-change.js";
-export * from "./templates.js";
+export * from "./provenance.js";
 export * from "./risk.js";
+export * from "./templates.js";

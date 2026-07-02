@@ -43,10 +43,7 @@
       "description": "Monotonic append order within a tenant scope."
     },
     "previousHash": {
-      "oneOf": [
-        { "type": "null" },
-        { "$ref": "#/$defs/sha256Hex" }
-      ],
+      "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256Hex" }],
       "description": "Hash of the previous edge record in this tenant chain, or null for the first record."
     },
     "hash": {

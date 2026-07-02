@@ -9,19 +9,19 @@ import {
   auditTemplates,
   canonicalJson,
   createAuditEvent,
-  createEvidenceCommit,
   createAuditRecorder,
+  createEvidenceCommit,
   detectAuditLogClassifiers,
-  episodeStartedTemplate,
   EVIDENCE_ENTITY_TYPES,
+  episodeStartedTemplate,
   HASH_ALGORITHM,
   hashAuditEvent,
   hashAuditRecord,
   hashEvidenceCommit,
   hashIdempotencyKey,
   MemoryAuditStore,
-  verifyEvidenceCommits,
   verifyAuditRecords,
+  verifyEvidenceCommits,
 } from "../index";
 
 const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");
@@ -950,5 +950,36 @@ describe("auditTemplates", () => {
     for (const unsafeCase of unsafeCases) {
       expect(unsafeCase.build, unsafeCase.name).toThrow(/not allowed|looks like raw content/);
     }
+  });
+});
+
+describe("verifyEvidenceCommits defensive guards", () => {
+  test("fails closed on an empty streamId and a non-string hash (Python parity)", () => {
+    const commit = createEvidenceCommit({
+      commitId: "cmt_guard",
+      streamId: "str_guard",
+      sequence: 1,
+      previousCommitHash: null,
+      committedAt: "2026-06-23T10:15:31.000Z",
+      members: [
+        {
+          index: 0,
+          recordType: "audit.record",
+          recordId: "evt_guard",
+          recordHash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        },
+      ],
+    });
+
+    expect(verifyEvidenceCommits([{ ...commit, streamId: "" }])).toEqual({
+      ok: false,
+      index: 0,
+      reason: "invalid_member_manifest",
+    });
+    expect(verifyEvidenceCommits([{ ...commit, hash: 123 as unknown as string }])).toEqual({
+      ok: false,
+      index: 0,
+      reason: "hash_mismatch",
+    });
   });
 });

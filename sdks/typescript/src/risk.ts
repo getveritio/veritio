@@ -12,10 +12,10 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import type { AuditEventInput, Principal } from "./index.js";
-import { canonicalJson, hashIdempotencyKey } from "./index.js";
 import type { EvidenceRef } from "./governed-change.js";
 import { mergeVeritioMetadata } from "./governed-change.js";
+import type { AuditEventInput, Principal } from "./index.js";
+import { canonicalJson, hashIdempotencyKey } from "./index.js";
 import type { RiskFactor, RiskLevel, RiskSignals } from "./risk-score.js";
 import { withRiskSignals } from "./risk-score.js";
 

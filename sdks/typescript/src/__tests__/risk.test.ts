@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import {
   canonicalJson,
   createAuditEvent,
   createEvidenceCommit,
-  createSecurityRiskAssertion as reexportedCreateAssertion,
   EVIDENCE_ENTITY_TYPES,
-  hashAuditEvent,
   type EvidenceCommitInput,
+  hashAuditEvent,
+  createSecurityRiskAssertion as reexportedCreateAssertion,
 } from "../index";
+import type {
+  EpisodeRiskRollup,
+  RiskAssessment,
+  RiskSignals,
+  SecurityRiskAssertion,
+  SecurityRiskAssertionInput,
+} from "../risk";
 import {
   bandOf,
   buildSecurityRiskAssessedEvent,
@@ -22,13 +29,6 @@ import {
   round4,
   sat,
   scoreRiskSignals,
-} from "../risk";
-import type {
-  EpisodeRiskRollup,
-  RiskAssessment,
-  RiskSignals,
-  SecurityRiskAssertion,
-  SecurityRiskAssertionInput,
 } from "../risk";
 
 const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");

@@ -53,7 +53,16 @@ def define_entity(
     fields: dict[str, dict[str, str]],
     lineage_policy: str | None = None,
 ) -> dict[str, Any]:
-    """Register governed entity capture policy at the host boundary."""
+    """Register governed entity capture policy at the host boundary.
+
+    Field capture modes IMPLEMENTED by the v1 state-commitment builder (all
+    three SDKs): "omit", "content_digest", "keyed_digest", "full"; the
+    remaining modes ("randomized_digest", "reference", "redact", "encrypt")
+    are RESERVED and fail closed at draft time. ``lineage_policy`` ("linear"
+    or "dag") is RESERVED, not yet enforced: no SDK or reference-store branch
+    reads it today; host-side enforcement lands with the host-assigned
+    revision-ordinal design (docs/review-backlog.md item C).
+    """
     _assert_non_empty(authority, "authority")
     _assert_non_empty(entity_type, "type")
     _assert_non_empty(schema_ref, "schemaRef")
@@ -69,6 +78,22 @@ def define_entity(
     if lineage_policy:
         entity["lineagePolicy"] = lineage_policy
     return entity
+
+
+def governed_revision_id(entity_type: str, entity_id: str, state_digest: str, change_id: str) -> str:
+    """Derive the deterministic revision id for a governed-state commitment.
+
+    Content-addressed by the state digest AND scoped by the producing change
+    (first 8 hex chars of sha256(change_id)), so a rollback that restores a
+    byte-identical earlier state still yields a DISTINCT revision id while
+    replaying the same change stays idempotent. Byte-identical across the
+    TS/Python/Go SDKs (spec/conformance/governed-revision-id.json). The design
+    target remains a host-assigned ordinal suffix; hosts that assign ordinals
+    supersede this derivation.
+    """
+    digest12 = state_digest[len("sha256:") : len("sha256:") + 12]
+    change8 = hashlib.sha256(change_id.encode("utf-8")).hexdigest()[:8]
+    return f"rev_{entity_type}_{entity_id}_{digest12}_{change8}"
 
 
 def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]:
@@ -107,7 +132,7 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
         "authority": "veritio",
         "kind": "revision",
         "type": entity["type"],
-        "id": f"rev_{entity['type']}_{entity_ref['id']}_{state_commitment['digest'][len('sha256:'):len('sha256:') + 12]}",
+        "id": governed_revision_id(entity["type"], entity_ref["id"], state_commitment["digest"], change["id"]),
     }
     revision = {
         "ref": revision_ref,

@@ -3,9 +3,10 @@ import {
   createAuditEvent,
   createGovernedChangeDraft,
   defineEntity,
+  type EvidenceRef,
+  governedRevisionId,
   mergeVeritioMetadata,
   refKey,
-  type EvidenceRef,
 } from "../index";
 
 const scope = { tenantId: "org_acme_123", workspaceId: "wks_security_456", environment: "test" };
@@ -317,5 +318,66 @@ describe("createGovernedChangeDraft", () => {
         idempotencyKeyHash: "sha256:unsupported-capture",
       }),
     ).toThrow("capture mode reference is not supported by the current governed-change draft helper");
+  });
+});
+
+describe("governed revision id derivation", () => {
+  test("matches the cross-language conformance fixture", async () => {
+    const fixture = (await Bun.file(
+      new URL("../../../../spec/conformance/governed-revision-id.json", import.meta.url).pathname,
+    ).json()) as {
+      cases: {
+        name: string;
+        entityType: string;
+        entityId: string;
+        stateDigest: string;
+        changeId: string;
+        expected: string;
+      }[];
+    };
+    for (const conformanceCase of fixture.cases) {
+      expect(
+        governedRevisionId(
+          conformanceCase.entityType,
+          conformanceCase.entityId,
+          conformanceCase.stateDigest,
+          conformanceCase.changeId,
+        ),
+      ).toBe(conformanceCase.expected);
+    }
+  });
+
+  test("a rollback to an identical state yields a distinct id; replaying the same change does not", () => {
+    const entry = defineEntity<{ id: string; quantity: number }>({
+      authority: "acme.billing",
+      type: "project_entry",
+      schemaRef: "acme.billing/project_entry@3",
+      fieldSetRef: "project-entry-governed-fields@2",
+      identity: (row) => row.id,
+      fields: { quantity: { capture: "full" } },
+    });
+    const baseInput = {
+      scope,
+      entity: entry,
+      before: { id: "42", quantity: 10 },
+      after: { id: "42", quantity: 11 },
+      changedPaths: ["/quantity"],
+      activity: { id: "act_roll", type: "computation.project_cost_estimate", performedBy: producer },
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKeyHash: "sha256:rollback-test",
+    };
+    const change = (id: string) => ({ id, type: "project.estimate.recalculation", initiatedBy });
+
+    const first = createGovernedChangeDraft({ ...baseInput, change: change("chg_a") });
+    const rollback = createGovernedChangeDraft({ ...baseInput, change: change("chg_b") });
+    const replay = createGovernedChangeDraft({ ...baseInput, change: change("chg_a") });
+
+    // Identical governed state (same commitment digest) …
+    expect(rollback.revision.stateCommitment.digest).toBe(first.revision.stateCommitment.digest);
+    // … but a DIFFERENT change must never merge into the same revision node.
+    expect(rollback.revision.ref.id).not.toBe(first.revision.ref.id);
+    // Replaying the same change stays idempotent.
+    expect(replay.revision.ref.id).toBe(first.revision.ref.id);
   });
 });

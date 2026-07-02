@@ -1,0 +1,29 @@
+{
+  "description": "Governed revision id derivation (rev_<entityType>_<entityId>_<stateDigest12>_<sha256(changeId)8>). The change-scoped suffix keeps a rollback to a byte-identical earlier state a DISTINCT revision while replays of the same change stay idempotent. The design target remains a host-assigned ordinal suffix; hosts that assign ordinals supersede this derivation.",
+  "cases": [
+    {
+      "name": "initial change producing state A",
+      "entityType": "project_entry",
+      "entityId": "entry_42",
+      "stateDigest": "sha256:8c0fa61ac55fbdd9883cfc06e772022a4d2234317454ca0ddd0063454cb09c29",
+      "changeId": "chg_2026_001",
+      "expected": "rev_project_entry_entry_42_8c0fa61ac55f_d011d853"
+    },
+    {
+      "name": "rollback restoring the identical state A must yield a DISTINCT id",
+      "entityType": "project_entry",
+      "entityId": "entry_42",
+      "stateDigest": "sha256:8c0fa61ac55fbdd9883cfc06e772022a4d2234317454ca0ddd0063454cb09c29",
+      "changeId": "chg_2026_003",
+      "expected": "rev_project_entry_entry_42_8c0fa61ac55f_1be5ff35"
+    },
+    {
+      "name": "replaying the same change is idempotent (identical id to the first case)",
+      "entityType": "project_entry",
+      "entityId": "entry_42",
+      "stateDigest": "sha256:8c0fa61ac55fbdd9883cfc06e772022a4d2234317454ca0ddd0063454cb09c29",
+      "changeId": "chg_2026_001",
+      "expected": "rev_project_entry_entry_42_8c0fa61ac55f_d011d853"
+    }
+  ]
+}
