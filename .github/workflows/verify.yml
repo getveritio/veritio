@@ -68,15 +68,16 @@ jobs:
           --health-retries 10
 
       # S3-compatible target for the object-archive integration suite. The
-      # bitnami image starts the server without a command override (GitHub
-      # service containers cannot pass args reliably) and pre-creates the
-      # test bucket via MINIO_DEFAULT_BUCKETS.
+      # runner passes service `command` args through to `docker create` (the
+      # mongo service above relies on the same behavior). No health-cmd: the
+      # bucket-provisioning step below retries until MinIO answers, and the
+      # integration suite retries its first request as well.
       minio:
-        image: bitnami/minio:latest
+        image: minio/minio:latest
+        command: server /data
         env:
           MINIO_ROOT_USER: veritio
           MINIO_ROOT_PASSWORD: veritio-local
-          MINIO_DEFAULT_BUCKETS: veritio-archive
         ports:
           - 9000:9000
 
@@ -136,6 +137,24 @@ jobs:
           done
 
           docker exec "$container_id" mongosh --quiet --eval 'rs.status()'
+          exit 1
+
+      - name: Create MinIO test bucket
+        env:
+          AWS_ACCESS_KEY_ID: veritio
+          AWS_SECRET_ACCESS_KEY: veritio-local
+          AWS_REGION: us-east-1
+        run: |
+          for _ in $(seq 1 30); do
+            if aws --endpoint-url http://127.0.0.1:9000 s3 mb s3://veritio-archive 2>/dev/null; then
+              exit 0
+            fi
+            if aws --endpoint-url http://127.0.0.1:9000 s3 ls s3://veritio-archive >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "MinIO bucket provisioning failed" >&2
           exit 1
 
       - name: Verify
