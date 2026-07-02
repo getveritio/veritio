@@ -1,7 +1,7 @@
 import type { FileChangeInput, FileModification, ToolCallInput } from "@veritio/core";
-import type { AdapterConfig } from "./config";
-import { hashJson, pathEntityId, sha256 } from "./redact";
-import type { HookPayload, SessionContext } from "./types";
+import type { AdapterConfig } from "./config.js";
+import { hashJson, pathEntityId, sha256 } from "./redact.js";
+import type { HookPayload, SessionContext } from "./types.js";
 
 /** Claude Code tools whose `tool_input.file_path` yields a recordable file change. */
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit"]);

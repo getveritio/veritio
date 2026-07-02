@@ -1129,7 +1129,7 @@ function prefixedSha256(value: string): string {
   return `sha256:${sha256Hex(value)}`;
 }
 
-export * from "./provenance";
-export * from "./governed-change";
-export * from "./templates";
-export * from "./risk";
+export * from "./provenance.js";
+export * from "./governed-change.js";
+export * from "./templates.js";
+export * from "./risk.js";

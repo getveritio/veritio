@@ -2,8 +2,8 @@
 import { createInterface } from "node:readline";
 import type { FileEvidenceStore } from "@veritio/storage";
 import { createFileEvidenceStore } from "@veritio/storage";
-import { resolveConfig } from "./config";
-import { exportSession, getSession, listSessions } from "./query";
+import { resolveConfig } from "./config.js";
+import { exportSession, getSession, listSessions } from "./query.js";
 
 /**
  * Reference query+export MCP server for the captured local provenance. A minimal

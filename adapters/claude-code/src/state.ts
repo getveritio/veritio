@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { SessionContext } from "./types";
+import type { SessionContext } from "./types.js";
 
 /**
  * Per-session state persisted between hook process invocations (each hook event

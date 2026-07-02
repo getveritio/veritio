@@ -6,10 +6,10 @@
  * reusable building blocks (config resolution, redaction, per-session state, the
  * hook→recorder mapping, and the ingest poster) for embedding or testing.
  */
-export * from "./config";
-export * from "./ingest";
-export * from "./map";
-export * from "./query";
-export * from "./redact";
-export * from "./state";
-export type { HookPayload, SessionContext } from "./types";
+export * from "./config.js";
+export * from "./ingest.js";
+export * from "./map.js";
+export * from "./query.js";
+export * from "./redact.js";
+export * from "./state.js";
+export type { HookPayload, SessionContext } from "./types.js";

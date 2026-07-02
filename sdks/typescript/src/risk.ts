@@ -12,14 +12,14 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import type { AuditEventInput, Principal } from "./index";
-import { canonicalJson, hashIdempotencyKey } from "./index";
-import type { EvidenceRef } from "./governed-change";
-import { mergeVeritioMetadata } from "./governed-change";
-import type { RiskFactor, RiskLevel, RiskSignals } from "./risk-score";
-import { withRiskSignals } from "./risk-score";
+import type { AuditEventInput, Principal } from "./index.js";
+import { canonicalJson, hashIdempotencyKey } from "./index.js";
+import type { EvidenceRef } from "./governed-change.js";
+import { mergeVeritioMetadata } from "./governed-change.js";
+import type { RiskFactor, RiskLevel, RiskSignals } from "./risk-score.js";
+import { withRiskSignals } from "./risk-score.js";
 
-export * from "./risk-score";
+export * from "./risk-score.js";
 
 /**
  * Append-only `assertion.recorded` envelope for a security.risk conclusion. This

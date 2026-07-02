@@ -43,8 +43,8 @@ import {
   type EvidenceEntity,
   type EvidenceScope,
   type Principal,
-} from "./index";
-import { withRiskSignals, type RiskSignals } from "./risk";
+} from "./index.js";
+import { withRiskSignals, type RiskSignals } from "./risk.js";
 
 export interface AgentIdentity {
   name: string;
