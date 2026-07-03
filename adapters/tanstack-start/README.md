@@ -1,33 +1,75 @@
 # `@veritio/tanstack-start`
 
-TanStack Start adapter for server functions, route handlers, and request-scoped audit context.
+Thin TanStack Start adapter for recording route-handler and server-function
+evidence through a host-configured Veritio recorder.
 
-This package does not import TanStack Start runtime APIs. Host applications inject a configured Veritio recorder and explicit request context from server-side code.
+This package does not import TanStack Start runtime APIs, reads no environment
+state, and owns no protocol semantics. Host applications resolve tenant/actor
+context and inject a configured recorder from server-side code.
+
+## Install
+
+```sh
+npm install @veritio/tanstack-start @veritio/core
+```
 
 ## Usage
 
+`resolveContext` runs on every record call and must return the tenant scope
+and acting principal. The adapter **fails closed** with a `TypeError` when
+`tenantId` or `actor` is missing, so an unauthenticated request can never
+produce a scopeless event:
+
 ```ts
+import { createAuditRecorder, MemoryAuditStore } from "@veritio/core";
 import { createTanStackStartVeritioAdapter } from "@veritio/tanstack-start";
-import { createAuditRecorder } from "@veritio/core";
 
-const veritio = createTanStackStartVeritioAdapter({
-  recorder: createAuditRecorder({ store }),
+const recorder = createAuditRecorder({ store: new MemoryAuditStore() });
+
+export const veritio = createTanStackStartVeritioAdapter({
+  recorder,
   environment: "production",
-  resolveContext(input) {
+  resolveContext: async (input) => {
+    const session = await readSession(input.request); // host-owned auth
     return {
-      tenantId: input.params?.orgId ?? "org_123",
-      actor: { type: "service", id: "tanstack-start" },
-      requestId: "req_123"
+      tenantId: session.orgId,
+      actor: { type: "user", id: session.userId },
     };
-  }
-});
-
-await veritio.recordServerFunction({
-  params: { orgId: "org_123" },
-  action: "billing.plan.changed",
-  target: { type: "subscription", id: "sub_123" },
-  lawfulBasis: "contract"
+  },
 });
 ```
 
-Browser code should not receive storage credentials, provider tokens, stores, or recorders. Veritio supports audit trail evidence workflows; it does not guarantee legal compliance.
+Record inside a server route, or wrap a server function so evidence is written
+only after it succeeds:
+
+```ts
+await veritio.recordRouteHandler({
+  request,
+  action: "entry.created",
+  target: { type: "entry", id: entry.id },
+});
+
+// Evidence records only when the wrapped function resolves.
+const result = await veritio.withServerFunction(
+  { action: "entry.renamed", target: { type: "entry", id: entryId } },
+  () => updateEntryTitle(entryId, title),
+);
+```
+
+Per-call `idempotencyKey` and `append` options pass through to the store;
+`purpose`, `lawfulBasis`, `dataCategories`, and `retention` stay
+host-controlled.
+
+## Boundary
+
+- The recorder (and any storage credentials behind it) stays server-side; never
+  construct this adapter in browser-visible code. For client components, use
+  `@veritio/react` intent attributes and record on the server.
+- Prefer stable IDs in metadata — no emails, IP addresses, or freeform
+  personal data.
+- See `examples/tanstack-start-better-auth` for a full TanStack Start app
+  recording governed CRUD and auth lifecycle evidence with a server-owned
+  recorder.
+
+Veritio supports audit trail evidence workflows; it is not legal advice and
+does not guarantee compliance with any regulation or framework.

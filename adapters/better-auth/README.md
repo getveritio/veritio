@@ -15,6 +15,12 @@ Initial event targets:
 
 This adapter must receive a configured Veritio recorder from the host application. It must not read secrets or storage credentials directly.
 
+## Install
+
+```sh
+npm install @veritio/better-auth @veritio/core
+```
+
 ## Usage
 
 ```ts
@@ -109,3 +115,42 @@ headers, cookies, raw IP addresses, precise locations, or raw user agents into
 adapter metadata. Prefer `securityContext.ipAddressHash`, `networkHash`,
 `userAgentHash`, and country/region location when the host has intentionally
 chosen to capture authentication security context.
+
+## Defaults and determinism
+
+Every recorded event carries `purpose: "access_management"`,
+`lawfulBasis: "contract"`, and `retention: "security_1y"`, and derives a
+deterministic idempotency key (for example
+`better-auth:session-created:<tenantId>:<sessionId>`) so a replayed hook cannot
+duplicate evidence. Stable IDs are required and validated before they become
+tenant scope, actor, target, or idempotency-key material.
+
+## Pure event mappers
+
+When the host records through something other than an `AuditStore` (an outbox,
+a queue, a hosted ingest call), use the pure mappers instead of the recorder
+methods. They return a portable `AuditEventInput` with the same
+metadata-minimization rules and no side effects:
+
+```ts
+import { buildBetterAuthSessionCreatedAuditEventInput } from "@veritio/better-auth";
+
+const eventInput = buildBetterAuthSessionCreatedAuditEventInput(
+  { user: { id: "usr_123" }, session: { id: "sess_123" }, tenantId: "org_123" },
+  "production",
+);
+```
+
+`buildBetterAuthUserCreatedAuditEventInput`,
+`buildBetterAuthOrganizationCreatedAuditEventInput`, and
+`buildBetterAuthSessionRevokedAuditEventInput` follow the same shape.
+
+## Full examples
+
+Five runnable reference apps wire this adapter end to end (Better Auth
+lifecycle hooks + governed CRUD + evidence graph): `examples/nextjs-better-auth`,
+`examples/react-better-auth`, `examples/vue-better-auth`,
+`examples/sveltekit-better-auth`, and `examples/tanstack-start-better-auth`.
+
+Veritio supports audit trail evidence workflows; it is not legal advice and
+does not guarantee compliance with any regulation or framework.

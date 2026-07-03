@@ -130,3 +130,36 @@ local development links. Hosted-only fields must not become protocol semantics.
 - Define portable protocol and SDK behavior here before implementing hosted
   behavior in `veritio-cloud`; publish website claims only after backing OSS or
   hosted behavior exists.
+
+## Release & Integration Map
+
+Who consumes what, and what a release actually requires. Check this before
+bumping versions or assuming an integration needs an update.
+
+- **Core release train (versions move together):** `@veritio/core`
+  (`sdks/typescript`), `@veritio/storage`, `@veritio/claude-code`.
+  `@veritio/claude-code` pins the other two with EXACT versions — bump all
+  three plus those pins plus `bun.lock` in one release PR (see PR #16/#19 for
+  the pattern). Publish order: core → storage → claude-code.
+- **Framework adapters** (`@veritio/better-auth`, `next`, `tanstack-start`,
+  `sveltekit`, `react`, `vue`, `svelte`) are published on their own 0.0.x
+  cadence and declare `@veritio/core: ">=0.0.0"` as a PEER dependency — a core
+  release does NOT require adapter bumps or republishing. Adapter README/doc
+  changes only reach npmjs.com via an adapter republish.
+- **Never published (do not wait on them in a release):** `@veritio/express`,
+  `@veritio/hono`, `@veritio/trpc`, `server/node` (all `private: true`); the
+  `veritio` CLI is not on npm yet.
+- **Publishing:** run `npm publish` via a script file — the
+  `.claude/hooks/guard-risky-commands.sh` hook blocks it in raw shell commands.
+  Requires a short-lived npm token from the user (never stored). Run
+  `bun run verify` before publishing and confirm each version with `npm view`
+  afterward.
+- **Merging:** gate on a FRESH `gh pr checks N --watch` before `gh pr merge N`;
+  dependabot branches carry stale check results.
+- **Sibling consumers:**
+  - `veritio-cloud` links core via `file:../veritio/sdks/typescript` — always
+    tracks the local checkout, nothing to bump on release.
+  - `veritio-website` pins `@veritio/core` from npm. Check and bump it on every
+    core release; subpath imports (e.g. `@veritio/core/risk-score`, needed for
+    browser code) require `>=0.1.0`, so a stale exact pin is a silent build
+    footgun.
