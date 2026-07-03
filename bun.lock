@@ -13,7 +13,7 @@
     },
     "adapters/better-auth": {
       "name": "@veritio/better-auth",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@veritio/core": "workspace:*",
       },
@@ -60,7 +60,7 @@
     },
     "adapters/next": {
       "name": "@veritio/next",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@veritio/core": "workspace:*",
       },
@@ -74,7 +74,7 @@
     },
     "adapters/react": {
       "name": "@veritio/react",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "peerDependencies": {
         "react": ">=19.2.7",
       },
@@ -84,7 +84,7 @@
     },
     "adapters/svelte": {
       "name": "@veritio/svelte",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "peerDependencies": {
         "svelte": ">=5.56.3",
       },
@@ -94,7 +94,7 @@
     },
     "adapters/sveltekit": {
       "name": "@veritio/sveltekit",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@veritio/core": "workspace:*",
       },
@@ -108,7 +108,7 @@
     },
     "adapters/tanstack-start": {
       "name": "@veritio/tanstack-start",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "devDependencies": {
         "@veritio/core": "workspace:*",
       },
@@ -133,7 +133,7 @@
     },
     "adapters/vue": {
       "name": "@veritio/vue",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "peerDependencies": {
         "vue": ">=3.5.38",
       },
