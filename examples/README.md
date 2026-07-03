@@ -55,6 +55,17 @@ delivery target for the same records.
   scoped keys. Cloudflare Worker/Pages/R2/D1 deployment readiness is owned by
   `veritio-cloud`, not this OSS example.
 
+## Integrity and Agent-Capture Showcases
+
+- `verify-tamper-detection` shows the core TypeScript integrity story:
+  hash-chained records verified with `verifyAuditRecords`, plus fail-closed
+  detection of metadata edits, deleted records, reordered history, and
+  EvidenceCommit manifest tampering.
+- `claude-code-capture` drives the real `@veritio/claude-code` hook binary with
+  simulated Claude Code hook payloads, then queries the captured session back
+  and exports a verifiable bundle — proving raw prompts and file contents never
+  reach the store (hashes only).
+
 ## Storage Skeletons
 
 - `storage-postgres-neon`
