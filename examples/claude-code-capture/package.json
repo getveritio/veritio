@@ -1,0 +1,25 @@
+{
+  "name": "@veritio/example-claude-code-capture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun run --cwd ../../sdks/typescript build && bun run --cwd ../../adapters/claude-code build",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "workspaces": [
+    "../../sdks/typescript",
+    "../../storage",
+    "../../adapters/claude-code"
+  ],
+  "dependencies": {
+    "@veritio/claude-code": "workspace:*",
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.8",
+    "@types/node": "^25.9.3",
+    "typescript": "^6.0.3"
+  }
+}
