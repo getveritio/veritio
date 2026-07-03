@@ -106,3 +106,23 @@ sibling repo.
 - Split status: `bun run status:split`
 - Split siblings gate: `bun run verify:siblings`
 - Full split gate: `bun run verify:split`
+
+## Release & Integration Map
+
+See `AGENTS.md` § "Release & Integration Map" for the full version. Short form:
+
+- `@veritio/core` + `@veritio/storage` + `@veritio/claude-code` release
+  together (claude-code pins the others EXACTLY; one release PR bumps all
+  three + pins + `bun.lock`; publish core → storage → claude-code).
+- Published framework adapters (better-auth/next/tanstack-start/sveltekit/
+  react/vue/svelte) use peer `@veritio/core: ">=0.0.0"` — core releases never
+  require adapter bumps; adapter README changes need an adapter republish to
+  show on npm.
+- express/hono/trpc/server-node are private; the `veritio` CLI is unpublished.
+- `npm publish` must run via a script file (guard hook blocks raw commands) and
+  needs a short-lived user-supplied token; `bun run verify` before, `npm view`
+  after.
+- Merge only after a fresh `gh pr checks N --watch` (dependabot checks go stale).
+- `veritio-cloud` file-links core (auto-current). `veritio-website` pins core
+  from npm — bump it on every core release; `@veritio/core/risk-score` subpath
+  needs `>=0.1.0`.
