@@ -113,7 +113,10 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.24.x"
+          # gin-governed-crud's go.mod requires go >= 1.25.0 (raised by the
+          # x/net 0.55 bump); the SDK itself targets 1.22 and builds fine on
+          # newer toolchains.
+          go-version: "1.25.x"
           cache: false
 
       - name: Install dependencies
