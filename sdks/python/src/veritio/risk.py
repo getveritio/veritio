@@ -54,7 +54,7 @@ DEFAULT_RISK_POLICY: dict[str, Any] = {
         "k": {"dataVolume": 100, "fanOut": 25, "referenceCount": 50},
     },
     "bands": {"low": 0.05, "medium": 0.25, "high": 0.50, "critical": 0.75},
-    "rollup": {"windowSeconds": 60, "decayPerWindow": 0.5, "velocityNormalizer": 3.0},
+    "rollup": {"windowSeconds": 60, "decayPerWindow": 0.5, "velocityNormalizer": 3.0, "frequencyRules": []},
 }
 
 
@@ -202,6 +202,104 @@ def _occurred_at_ms(value: str) -> int:
     return round(date.timestamp() * 1000)
 
 
+def _is_integer_number(value: Any) -> bool:
+    """Mirror JS Number.isInteger: reject bool/None, accept ints and integer-valued finite floats.
+
+    Frequency-rule thresholds arrive as JSON numbers, so a whole float like 5.0 must
+    validate identically to TS Number.isInteger(5.0)===true while bool (int subclass)
+    and NaN/Inf never pass.
+    """
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value) and value.is_integer()
+    return False
+
+
+def _assert_frequency_rules(rules: list[dict[str, Any]]) -> None:
+    """Fail closed on malformed frequency rules before any burst detection runs.
+
+    Mirrors sdks/typescript/src/risk-score.ts assertFrequencyRules: a corrupt rule
+    (empty/blank action list, non-positive/non-finite window, fractional or sub-1
+    threshold, negative or non-finite boost) must raise rather than silently disable
+    or skew detection. bool is rejected everywhere (it subclasses int).
+    """
+    for rule in rules:
+        actions = rule.get("actions")
+        if (
+            not isinstance(actions, list)
+            or len(actions) == 0
+            or any(not isinstance(action, str) or len(action) == 0 for action in actions)
+        ):
+            raise TypeError("frequencyRules[].actions must be a non-empty array of non-empty strings")
+        window_seconds = rule.get("windowSeconds")
+        if (
+            isinstance(window_seconds, bool)
+            or not isinstance(window_seconds, (int, float))
+            or not math.isfinite(window_seconds)
+            or window_seconds <= 0
+        ):
+            raise TypeError("frequencyRules[].windowSeconds must be a finite number greater than 0")
+        threshold = rule.get("threshold")
+        if not _is_integer_number(threshold) or threshold < 1:
+            raise TypeError("frequencyRules[].threshold must be an integer greater than or equal to 1")
+        boost = rule.get("boost")
+        if (
+            isinstance(boost, bool)
+            or not isinstance(boost, (int, float))
+            or not math.isfinite(boost)
+            or boost < 0
+        ):
+            raise TypeError("frequencyRules[].boost must be a finite number greater than or equal to 0")
+
+
+def _evaluate_frequency_rules(
+    ordered: list[dict[str, Any]], rules: list[dict[str, Any]]
+) -> tuple[float, list[dict[str, Any]]]:
+    """Evaluate each frequency rule over time-sorted steps with an inclusive two-pointer window.
+
+    Mirrors sdks/typescript/src/risk-score.ts evaluateFrequencyRules: for every rule,
+    collect the epoch-ms of steps whose optional action exact-matches, slide a window
+    (endMs - startMs <= windowSeconds*1000), take the max concurrent count, and fire at
+    most once when it reaches threshold. frequencyScore is the clamped round4 sum of
+    fired boosts; match.boost is 0 when not fired. Pure integer/compare math for parity.
+    """
+    boost_sum = 0.0
+    matches: list[dict[str, Any]] = []
+    for rule in rules:
+        window_ms = rule["windowSeconds"] * 1000
+        times_ms = [
+            _occurred_at_ms(step["occurredAt"])
+            for step in ordered
+            if step.get("action") is not None and step["action"] in rule["actions"]
+        ]
+        max_count = 0
+        start = 0
+        for end in range(len(times_ms)):
+            end_ms = times_ms[end]
+            while end_ms - times_ms[start] > window_ms:
+                start += 1
+            count = end - start + 1
+            if count > max_count:
+                max_count = count
+        fired = max_count >= rule["threshold"]
+        if fired:
+            boost_sum += rule["boost"]
+        matches.append(
+            {
+                "actions": [*rule["actions"]],
+                "windowSeconds": rule["windowSeconds"],
+                "threshold": rule["threshold"],
+                "count": max_count,
+                "fired": fired,
+                "boost": rule["boost"] if fired else 0,
+            }
+        )
+    return clamp01(round4(boost_sum)), matches
+
+
 def rollup_episode_risk(steps: list[dict[str, Any]], policy: dict[str, Any] = DEFAULT_RISK_POLICY) -> dict[str, Any]:
     """Roll time-ordered step scores into an EpisodeRiskRollup using decayed momentum.
 
@@ -209,11 +307,19 @@ def rollup_episode_risk(steps: list[dict[str, Any]], policy: dict[str, Any] = DE
     REPEATED MULTIPLY (no pow); momentum_i = round4(score_i + momentum_{i-1} * decay)
     with momentum_{-1}=0; negative/equal deltas clamp windows to 0. This must match
     spec/conformance/risk-episode-rollup.json.
+
+    When rollup.frequencyRules is non-empty the episode score becomes
+    clamp01(round4(max(peak, velocityScore, frequencyScore))) and frequencyScore/
+    frequencyMatches are emitted. A missing or empty frequencyRules key takes literally
+    the pre-frequency code path and emits NO frequency keys, keeping older policies and
+    hash anchors byte-stable (spec/conformance/risk-episode-frequency.json).
     """
     rollup = policy["rollup"]
     window_ms = rollup["windowSeconds"] * 1000
     decay_per_window = rollup["decayPerWindow"]
     velocity_normalizer = rollup["velocityNormalizer"]
+    frequency_rules = rollup.get("frequencyRules", [])
+    _assert_frequency_rules(frequency_rules)
     ordered = sorted(steps, key=lambda step: _occurred_at_ms(step["occurredAt"]))
     peak = 0.0
     momentum = 0.0
@@ -238,6 +344,19 @@ def rollup_episode_risk(steps: list[dict[str, Any]], policy: dict[str, Any] = DE
             max_momentum = momentum
         previous_ms = current_ms
     velocity_score = clamp01(round4(max_momentum / velocity_normalizer))
+    if len(frequency_rules) > 0:
+        frequency_score, frequency_matches = _evaluate_frequency_rules(ordered, frequency_rules)
+        rollup_score = clamp01(round4(max(peak, velocity_score, frequency_score)))
+        return {
+            "score": rollup_score,
+            "level": band_of(rollup_score, policy["bands"]),
+            "peak": peak,
+            "velocityScore": velocity_score,
+            "stepCount": len(ordered),
+            "policyVersion": policy["policyVersion"],
+            "frequencyScore": frequency_score,
+            "frequencyMatches": frequency_matches,
+        }
     rollup_score = clamp01(round4(max(peak, velocity_score)))
     return {
         "score": rollup_score,
@@ -359,3 +478,12 @@ def build_security_risk_assessed_event(input_event: dict[str, Any]) -> dict[str,
     if input_event.get("occurredAt") is not None:
         event["occurredAt"] = input_event["occurredAt"]
     return event
+
+
+# Temperature-derived policies live in ./risk_policy (crypto-free, needs only this
+# module's DEFAULT_RISK_POLICY + round4) and are re-exported here so the public surface
+# stays single-import: `from veritio.risk import risk_policy` keeps working. This mirrors
+# the TS split where risk-score.ts ends with `export * from "./risk-policy.js"`. The
+# import cycle is benign: it runs at this module's tail, after DEFAULT_RISK_POLICY and
+# round4 are already defined, so risk_policy.py resolves them without a partial-init error.
+from .risk_policy import risk_policy  # noqa: E402

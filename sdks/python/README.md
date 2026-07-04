@@ -43,3 +43,91 @@ event = create_audit_event(
 portable filters for internal/external/partner/system logs and
 api/app/worker/cli/webhook surfaces. They only use metadata keys
 (`logVisibility`, `logSurface`); they are not protocol fields.
+
+## Risk Scoring
+
+Deterministic, explainable risk math pinned by cross-language conformance
+fixtures: the same signals produce byte-identical scores in TypeScript, Python,
+and Go (`veritio.reference.v1` policy).
+
+```python
+from veritio import risk_policy, rollup_episode_risk, score_risk_signals, with_risk_signals
+
+step = score_risk_signals(
+    {
+        "operationType": "delete",
+        "reversibility": "irreversible",
+        "envCriticality": "production",
+        "dataVolume": 250,
+    }
+)
+# step["score"] (0..1), step["level"] ("none".."critical"), step["factors"]
+
+episode = rollup_episode_risk(
+    [
+        {"occurredAt": "2026-07-03T10:00:00.000Z", "score": step["score"]},
+        {"occurredAt": "2026-07-03T10:00:20.000Z", "score": 0.35},
+    ]
+)
+# episode["score"], episode["peak"], episode["velocityScore"], episode["stepCount"]
+
+# Attach normalized signals to any event's metadata (fail-closed validation):
+metadata = with_risk_signals({"table": "invoices"}, {"operationType": "bulk", "fanOut": 40})
+```
+
+`risk_policy` derives a full policy from the reference constants with one
+temperature knob (`0` lenient, `0.5` = reference policy byte-for-byte, `1`
+strictest; multiples of `0.01` only). Overrides deep-merge after derivation and
+require an explicit `policyVersion`:
+
+```python
+strict = risk_policy({"temperature": 0.8})
+# strict["policyVersion"] == "veritio.reference.v1+temp0.80"
+
+burst_policy = risk_policy(
+    {
+        "overrides": {
+            "policyVersion": "acme.auth-burst.v1",
+            "rollup": {
+                "frequencyRules": [
+                    # >= 5 failed logins inside any 300s window adds a 0.8 boost.
+                    {"actions": ["auth.login.failed"], "windowSeconds": 300, "threshold": 5, "boost": 0.8}
+                ]
+            },
+        }
+    }
+)
+rollup = rollup_episode_risk(
+    [{"occurredAt": e["occurredAt"], "score": 0.1, "action": "auth.login.failed"} for e in failed_logins],
+    burst_policy,
+)
+# rollup["frequencyScore"], rollup["frequencyMatches"] — rules only ever raise a score.
+```
+
+## security.risk Assertions
+
+Publish a computed conclusion as an append-only, hashable assertion record:
+
+```python
+from veritio import create_security_risk_assertion, hash_assertion_record
+
+assertion = create_security_risk_assertion(
+    {
+        "scope": {"tenantId": "org_123"},
+        "producerId": "risk_engine_1",
+        "subject": {"authority": "veritio", "kind": "activity", "type": "agent_session", "id": "sess_01"},
+        "idempotencyKey": "sess_01:step_9",
+        "conclusion": {
+            "score": step["score"],
+            "level": step["level"],
+            "policyVersion": step["policyVersion"],
+            "assessment": "step",
+        },
+        "factors": step["factors"],
+    }
+)
+assertion_hash = hash_assertion_record(assertion)  # parity with hash_audit_record
+```
+
+See `docs/risk-scoring.md` for the scoring model and `spec/risk-scoring.md` for
+the normative algorithm.

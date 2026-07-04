@@ -355,4 +355,169 @@ describe("createBetterAuthVeritioAdapter", () => {
     expect(record.event.retention).toBe("security_1y");
     expect(record.event.metadata).toEqual({ invitationId: "inv_123", role: ["member", "owner"] });
   });
+
+  test("records a failed login for a resolved user without recording the attempted email", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordLoginFailed({
+      user: { id: "usr_123", email: "member@example.com" },
+      tenantId: "org_123",
+      requestId: "req_login_failed",
+      reason: "invalid_credentials",
+    });
+
+    const [record] = store.records();
+    expect(record).toBeDefined();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.action).toBe("auth.login.failed");
+    expect(record.event.actor).toEqual({ type: "user", id: "usr_123" });
+    expect(record.event.target).toEqual({ type: "user", id: "usr_123" });
+    expect(record.event.scope).toEqual({ tenantId: "org_123", environment: "test" });
+    expect(record.event.requestId).toBe("req_login_failed");
+    expect(record.event.purpose).toBe("access_management");
+    expect(record.event.lawfulBasis).toBe("legitimate_interests");
+    expect(record.event.retention).toBe("security_1y");
+    expect(record.event.metadata).toEqual({ reason: "invalid_credentials" });
+    expect(JSON.stringify(record.event)).not.toContain("member@example.com");
+  });
+
+  test("records a pre-auth failed login against the auth.login surface with an anonymous actor", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordLoginFailed({
+      tenantId: "org_123",
+      attemptId: "attempt_abc",
+      reason: "unknown_user",
+    });
+
+    const [record] = store.records();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.action).toBe("auth.login.failed");
+    expect(record.event.actor).toEqual({ type: "anonymous", id: "attempt_abc" });
+    expect(record.event.target).toEqual({ type: "auth.login", id: "attempt_abc" });
+    expect(record.event.metadata).toEqual({ reason: "unknown_user" });
+  });
+
+  test("falls back to an unknown identifier when neither user nor attemptId is provided", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordLoginFailed({ tenantId: "org_123" });
+
+    const [record] = store.records();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.actor).toEqual({ type: "anonymous", id: "unknown" });
+    expect(record.event.target).toEqual({ type: "auth.login", id: "unknown" });
+    expect(record.event.metadata).toEqual({});
+  });
+
+  test("records each failed login as a distinct security event", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordLoginFailed({ tenantId: "org_123", user: { id: "usr_123" } });
+    await adapter.recordLoginFailed({ tenantId: "org_123", user: { id: "usr_123" } });
+
+    expect(store.records()).toHaveLength(2);
+  });
+
+  test("redacts a sensitive metadata key on a failed login while preserving reason", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordLoginFailed({
+      tenantId: "org_123",
+      attemptId: "attempt_abc",
+      reason: "invalid_credentials",
+      metadata: { authorization: "Bearer secret" },
+    });
+
+    const [record] = store.records();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.metadata).toEqual({
+      authorization: "[redacted]",
+      reason: "invalid_credentials",
+    });
+  });
+
+  test("records an authorization denial for an authenticated principal", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordAccessDenied({
+      user: { id: "usr_123", email: "member@example.com" },
+      resource: { type: "invoice", id: "inv_999" },
+      tenantId: "org_123",
+      requestId: "req_denied",
+      permission: "invoice:read",
+      policy: "policy_finance_scope",
+    });
+
+    const [record] = store.records();
+    expect(record).toBeDefined();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.action).toBe("authz.access.denied");
+    expect(record.event.actor).toEqual({ type: "user", id: "usr_123" });
+    expect(record.event.target).toEqual({ type: "invoice", id: "inv_999" });
+    expect(record.event.scope).toEqual({ tenantId: "org_123", environment: "test" });
+    expect(record.event.requestId).toBe("req_denied");
+    expect(record.event.purpose).toBe("access_management");
+    expect(record.event.lawfulBasis).toBe("legitimate_interests");
+    expect(record.event.retention).toBe("security_1y");
+    expect(record.event.metadata).toEqual({
+      permission: "invoice:read",
+      policy: "policy_finance_scope",
+    });
+    expect(JSON.stringify(record.event)).not.toContain("member@example.com");
+  });
+
+  test("omits absent permission and policy tokens on an access denial", async () => {
+    const store = new MemoryAuditStore();
+    const adapter = createBetterAuthVeritioAdapter({
+      recorder: createAuditRecorder({ store }),
+      environment: "test",
+    });
+
+    await adapter.recordAccessDenied({
+      user: { id: "usr_123" },
+      resource: { type: "invoice", id: "inv_999" },
+      tenantId: "org_123",
+    });
+
+    const [record] = store.records();
+    if (!record) {
+      throw new Error("expected audit record");
+    }
+    expect(record.event.metadata).toEqual({});
+  });
 });

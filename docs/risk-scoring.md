@@ -36,6 +36,10 @@ scorer reads.
 
 ## Deterministic scoring (identical bytes across TS/Python/Go)
 
+The normative algorithm spec lives at
+[`spec/risk-scoring.md`](../spec/risk-scoring.md); where prose and the
+conformance fixtures could disagree, the fixtures win.
+
 Scoring uses only primitives with no `ln`/`exp`/`pow`, so every runtime emits the
 same bytes:
 
@@ -75,21 +79,127 @@ one episode summary. Steps are sorted by `occurredAt` ascending (non-mutating);
 momentum carries forward with integer-window decay so a burst of risky steps
 escalates while quiet gaps cool off. The rollup reports `peak` (max raw step
 score), `velocityScore` (normalized peak momentum), and the banded episode
-`score = max(peak, velocityScore)`.
+`score = max(peak, velocityScore)` — plus a `frequencyScore` component when the
+policy configures [frequency rules](#frequency-rules).
 
-## Reference policy
+## The scoring policy
 
-`DEFAULT_RISK_POLICY` (`policyVersion: 'veritio.reference.v1'`) pins the exact
-constants — operation bases, reversibility/criticality factors, magnitude weights
-and saturation constants, band thresholds, and rollup window/decay/normalizer.
-These constants are the cross-language contract: changing any value is a protocol
-change and must update the TypeScript, Python, and Go SDKs and the conformance
-fixtures together. Hosted products may supply a retuned policy, but the math shape
-is fixed.
+`scoreRiskSignals(signals, policy?)` and `rollupEpisodeRisk(steps, policy?)`
+both accept an optional `RiskScoringPolicy` and default to
+`DEFAULT_RISK_POLICY` (`policyVersion: 'veritio.reference.v1'`). The math shape
+is fixed — a policy only retunes constants. The full field reference, with the
+reference values:
 
-Bands map a `0..1` score to a level with half-open thresholds: `none` below
-`low`, then `low`/`medium`/`high`, and `critical` at or above the critical
-threshold.
+| Field | Reference value | Meaning |
+|---|---|---|
+| `policyVersion` | `veritio.reference.v1` | Recorded on every assessment/rollup so conclusions stay auditable |
+| `operationBase.read / create / update / config / bulk / permission / delete / destructive` | `0.05 / 0.20 / 0.30 / 0.45 / 0.55 / 0.60 / 0.70 / 0.85` | Base score seeded by the operation class |
+| `reversibilityFactor.reversible / recoverable / irreversible` | `0.6 / 1.0 / 1.3` | Multiplier for how recoverable the operation is |
+| `envCriticalityFactor.sandbox / development / staging / production` | `0.4 / 0.6 / 0.8 / 1.0` | Multiplier for deployment criticality |
+| `magnitude.maxBoost` | `0.40` | Ceiling on the combined additive magnitude boost |
+| `magnitude.weights.dataVolume / fanOut / referenceCount` | `0.5 / 0.3 / 0.2` | Share of `maxBoost` each magnitude signal can contribute |
+| `magnitude.k.dataVolume / fanOut / referenceCount` | `100 / 25 / 50` | Saturation constants for `sat(x, K) = x / (x + K)` |
+| `bands.low / medium / high / critical` | `0.05 / 0.25 / 0.50 / 0.75` | Half-open band thresholds (`none` below `low`, `critical` at/above `critical`) |
+| `rollup.windowSeconds` | `60` | Decay window for episode momentum |
+| `rollup.decayPerWindow` | `0.5` | Momentum multiplier applied once per whole elapsed window |
+| `rollup.velocityNormalizer` | `3.0` | Divisor turning peak momentum into `velocityScore` |
+| `rollup.frequencyRules` | `[]` | Optional per-action burst rules (see below) |
+
+These reference constants are the cross-language contract: changing any value in
+`DEFAULT_RISK_POLICY` is a protocol change and must update the TypeScript,
+Python, and Go SDKs and the conformance fixtures together.
+
+## Custom policies and temperature
+
+A host (or hosted product) may supply a retuned policy. The easy path is the
+`riskPolicy` helper (`risk_policy` in Python, `RiskPolicy` in Go), which derives
+a complete policy from the reference constants:
+
+```ts
+import { riskPolicy, scoreRiskSignals } from "@veritio/core/risk-score";
+
+// One knob: 0 = most lenient, 0.5 = the reference policy, 1 = strictest.
+const strict = riskPolicy({ temperature: 0.8 });
+scoreRiskSignals({ operationType: "delete", envCriticality: "production" }, strict);
+```
+
+**Temperature** must be a multiple of `0.01` in `[0, 1]` (fail-closed
+otherwise). `0.5` reproduces the reference values exactly; lower temperatures
+raise band thresholds, speed up momentum decay, and soften the
+irreversible/production multipliers; higher temperatures do the opposite.
+Derivation is pure two-segment linear interpolation with `round4` (no
+`pow`/`exp`), so all three SDKs derive byte-identical policies — pinned by
+`spec/conformance/risk-policy-temperature.json`. Only these fields scale:
+`bands.*`, `rollup.decayPerWindow`, `rollup.velocityNormalizer`,
+`magnitude.maxBoost`, `reversibilityFactor.irreversible`, and
+`envCriticalityFactor.production`; everything else keeps its reference value.
+
+The derived `policyVersion` is deterministic and built from integer hundredths,
+never float formatting: `riskPolicy({ temperature: 0.7 })` yields
+`veritio.reference.v1+temp0.70`.
+
+**Overrides** deep-merge *after* temperature derivation for granular tuning:
+
+```ts
+const tuned = riskPolicy({
+  temperature: 0.7,
+  overrides: {
+    policyVersion: "acme.custom.v3", // REQUIRED whenever overrides are present
+    magnitude: { maxBoost: 0.5 },
+  },
+});
+```
+
+Any override makes the policy hand-tuned, so `overrides.policyVersion` is
+mandatory (the call fails closed without it) — an automatic `+temp` suffix must
+never misrepresent overridden constants in a hashed conclusion.
+`rollup.frequencyRules` in overrides replaces the rule list wholesale, never
+merges it.
+
+## Frequency rules
+
+`policy.rollup.frequencyRules` adds per-action burst detection to the episode
+rollup — "N matching actions within a time window raise the episode score."
+Each rollup step may carry an optional freeform `action` (a dotted Veritio
+event action); steps without one never match a rule:
+
+```ts
+import { riskPolicy, rollupEpisodeRisk } from "@veritio/core/risk-score";
+
+const policy = riskPolicy({
+  overrides: {
+    policyVersion: "acme.auth-burst.v1",
+    rollup: {
+      frequencyRules: [
+        // >= 5 failed logins inside any 300s window adds a 0.8 boost.
+        { actions: ["auth.login.failed"], windowSeconds: 300, threshold: 5, boost: 0.8 },
+      ],
+    },
+  },
+});
+
+const rollup = rollupEpisodeRisk(
+  failedLogins.map((e) => ({ occurredAt: e.occurredAt, score: 0.1, action: e.action })),
+  policy,
+);
+// rollup.frequencyScore === 0.8, rollup.level === "critical"
+```
+
+Semantics (pinned by `spec/conformance/risk-episode-frequency.json`): for each
+rule, the rollup counts steps whose `action` exact-matches one of the rule's
+`actions` inside an inclusive sliding window of `windowSeconds`; a rule fires at
+most once per episode when any window reaches `threshold`. The episode
+`frequencyScore` is the clamped sum of fired boosts and the final score becomes
+`max(peak, velocityScore, frequencyScore)` — so frequency rules can only raise
+an episode score, never lower it. With no rules configured the rollup output is
+byte-identical to the pre-frequency protocol and carries no frequency fields.
+`frequencyMatches` reports every configured rule (fired or not) for
+explainability.
+
+Rule fields are validated fail-closed: `actions` must be non-empty strings,
+`windowSeconds` finite and positive, `threshold` an integer of at least 1, and
+`boost` finite and non-negative. Action strings are policy configuration, not
+user input — never put freeform or user-derived text in them.
 
 ## Where scoring lives
 

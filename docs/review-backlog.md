@@ -147,3 +147,10 @@ decisions that deserve a coordinated `veritio-protocol-change` /
 
 - **D — captureMethod hardcoded:** refuted. The reviewer's claim that
   `captureMethod` mis-asserts a guarantee did not hold against the actual code.
+
+## Cross-repo follow-ups
+
+- **veritio-website — risk-scoring explainer:** the temperature knob
+  (`riskPolicy`) and per-action frequency rules landed in OSS
+  (docs/risk-scoring.md + spec/risk-scoring.md are the source of truth); the
+  public education page for them belongs in `veritio-website`, not here.

@@ -75,14 +75,19 @@ type RiskAssessment struct {
 }
 
 // EpisodeRiskRollup is the windowed momentum rollup across an ordered set of
-// per-step scores in one activity episode.
+// per-step scores in one activity episode. FrequencyScore and FrequencyMatches
+// are present ONLY when the policy configures at least one frequency rule
+// (pointer/omitempty so a legitimate 0.0 frequencyScore survives but a rule-free
+// rollup stays byte-identical to the pre-frequency protocol output).
 type EpisodeRiskRollup struct {
-	Score         float64   `json:"score"`
-	Level         RiskLevel `json:"level"`
-	Peak          float64   `json:"peak"`
-	VelocityScore float64   `json:"velocityScore"`
-	StepCount     int       `json:"stepCount"`
-	PolicyVersion string    `json:"policyVersion"`
+	Score            float64              `json:"score"`
+	Level            RiskLevel            `json:"level"`
+	Peak             float64              `json:"peak"`
+	VelocityScore    float64              `json:"velocityScore"`
+	StepCount        int                  `json:"stepCount"`
+	PolicyVersion    string               `json:"policyVersion"`
+	FrequencyScore   *float64             `json:"frequencyScore,omitempty"`
+	FrequencyMatches []FrequencyRuleMatch `json:"frequencyMatches,omitempty"`
 }
 
 // RiskConclusion is the minimized scoring summary embedded in a security risk
@@ -145,10 +150,15 @@ type RiskBands struct {
 }
 
 // RiskRollupPolicy controls episode momentum decay and velocity normalization.
+// FrequencyRules are optional sliding-window burst rules evaluated during a
+// rollup; empty (the reference default) keeps the pre-frequency code path and
+// emits no frequency fields. Rules can only raise an episode score, never lower
+// it, because frequencyScore joins the final max().
 type RiskRollupPolicy struct {
 	WindowSeconds      float64
 	DecayPerWindow     float64
 	VelocityNormalizer float64
+	FrequencyRules     []EpisodeFrequencyRule
 }
 
 // RiskScoringPolicy is the full, versioned scoring policy. All math is expressed
@@ -327,16 +337,23 @@ func ScoreRiskSignals(signals RiskSignals, policy RiskScoringPolicy) (RiskAssess
 	}, nil
 }
 
-// EpisodeRiskStep is one scored step in an activity episode.
+// EpisodeRiskStep is one scored step in an activity episode. Action is an
+// optional freeform dotted event action (e.g. "auth.login.failed") used ONLY by
+// frequency-rule matching; steps without it never match a rule, so pre-frequency
+// callers stay byte-identical.
 type EpisodeRiskStep struct {
 	OccurredAt string  `json:"occurredAt"`
 	Score      float64 `json:"score"`
+	Action     string  `json:"action,omitempty"`
 }
 
-// orderedStep holds a step's parsed time and score after sorting.
+// orderedStep holds a step's parsed time, score, and optional action after
+// sorting. The action is retained so frequency rules can match the time-sorted
+// stream without re-parsing the original steps.
 type orderedStep struct {
-	at    time.Time
-	score float64
+	at     time.Time
+	score  float64
+	action string
 }
 
 // RollupEpisodeRisk compounds per-step scores into an episode momentum rollup.
@@ -344,13 +361,29 @@ type orderedStep struct {
 // of whole windows between consecutive steps using repeated multiplication
 // (never math.Pow) so the rollup is byte-identical across SDKs. Non-positive gaps
 // clamp to zero windows (no decay). An empty episode yields a zero rollup.
+//
+// Configured frequency rules are validated fail-closed FIRST (a corrupt rule can
+// never silently disable burst detection), then evaluated over the sorted steps'
+// optional actions; the episode score becomes max(peak, velocityScore,
+// frequencyScore) and the frequency fields are emitted. With no rules the
+// function takes the pre-frequency code path and emits no frequency fields,
+// keeping existing conformance fixtures byte-stable.
 func RollupEpisodeRisk(steps []EpisodeRiskStep, policy RiskScoringPolicy) (EpisodeRiskRollup, error) {
+	frequencyRules := policy.Rollup.FrequencyRules
+	if err := assertFrequencyRules(frequencyRules); err != nil {
+		return EpisodeRiskRollup{}, err
+	}
 	rollup := EpisodeRiskRollup{
 		Level:         BandOf(0, policy.Bands),
 		StepCount:     len(steps),
 		PolicyVersion: policy.PolicyVersion,
 	}
 	if len(steps) == 0 {
+		if len(frequencyRules) > 0 {
+			frequencyScore, matches := evaluateFrequencyRules(nil, frequencyRules)
+			rollup.FrequencyScore = &frequencyScore
+			rollup.FrequencyMatches = matches
+		}
 		return rollup, nil
 	}
 	ordered := make([]orderedStep, len(steps))
@@ -359,7 +392,7 @@ func RollupEpisodeRisk(steps []EpisodeRiskStep, policy RiskScoringPolicy) (Episo
 		if err != nil {
 			return EpisodeRiskRollup{}, err
 		}
-		ordered[index] = orderedStep{at: parsed, score: step.Score}
+		ordered[index] = orderedStep{at: parsed, score: step.Score, action: step.Action}
 	}
 	sort.SliceStable(ordered, func(i int, j int) bool {
 		return ordered[i].at.Before(ordered[j].at)
@@ -388,11 +421,20 @@ func RollupEpisodeRisk(steps []EpisodeRiskStep, policy RiskScoringPolicy) (Episo
 		}
 	}
 	velocityScore := clamp01(round4(maxMomentum / policy.Rollup.VelocityNormalizer))
+	rollup.Peak = peak
+	rollup.VelocityScore = velocityScore
+	if len(frequencyRules) > 0 {
+		frequencyScore, matches := evaluateFrequencyRules(ordered, frequencyRules)
+		rollupScore := clamp01(round4(maxFloat(maxFloat(peak, velocityScore), frequencyScore)))
+		rollup.Score = rollupScore
+		rollup.Level = BandOf(rollupScore, policy.Bands)
+		rollup.FrequencyScore = &frequencyScore
+		rollup.FrequencyMatches = matches
+		return rollup, nil
+	}
 	rollupScore := clamp01(round4(maxFloat(peak, velocityScore)))
 	rollup.Score = rollupScore
 	rollup.Level = BandOf(rollupScore, policy.Bands)
-	rollup.Peak = peak
-	rollup.VelocityScore = velocityScore
 	return rollup, nil
 }
 

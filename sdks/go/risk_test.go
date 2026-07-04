@@ -179,7 +179,9 @@ func TestRollupEpisodeRiskCompoundsMomentum(t *testing.T) {
 		t.Fatalf("RollupEpisodeRisk error: %v", err)
 	}
 	want := EpisodeRiskRollup{Score: 0.40, Level: "medium", Peak: 0.40, VelocityScore: 0.2333, StepCount: 3, PolicyVersion: "veritio.reference.v1"}
-	if rollup != want {
+	// EpisodeRiskRollup now carries an optional []FrequencyRuleMatch, so it is no
+	// longer directly comparable; a rule-free rollup must still equal the plain want.
+	if !reflect.DeepEqual(rollup, want) {
 		t.Fatalf("rollup=%#v, want %#v", rollup, want)
 	}
 
@@ -520,5 +522,210 @@ func TestCreateSecurityRiskAssertionAutoGeneratesIdAndOccurredAt(t *testing.T) {
 	// The auto-generated assertion must still hash without error.
 	if _, err := HashAssertionRecord(assertion); err != nil {
 		t.Fatalf("HashAssertionRecord error: %v", err)
+	}
+}
+
+func TestRiskPolicyTemperatureMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "risk-policy-temperature.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			options := decodeValue[RiskPolicyOptions](t, conformanceCase["options"])
+			policy, err := RiskPolicy(options)
+			if _, expectErr := conformanceCase["expectError"]; expectErr {
+				if err == nil {
+					t.Fatalf("expected fail-closed error for %s", caseName(t, conformanceCase))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RiskPolicy error: %v", err)
+			}
+			expected := mapValue(t, conformanceCase["expectedPolicy"])
+			// The RiskScoringPolicy struct is intentionally untagged, so compare every
+			// leaf explicitly against the fixture map rather than round-tripping the
+			// whole struct. Full coverage (not just scaled fields) proves derivation
+			// never disturbs any pinned constant.
+			if policy.PolicyVersion != stringValue(t, expected["policyVersion"]) {
+				t.Fatalf("policyVersion = %s, want %v", policy.PolicyVersion, expected["policyVersion"])
+			}
+			assertPolicyFloatMap(t, "operationBase", policy.OperationBase, mapValue(t, expected["operationBase"]))
+			assertPolicyFloatMap(t, "reversibilityFactor", policy.ReversibilityFactor, mapValue(t, expected["reversibilityFactor"]))
+			assertPolicyFloatMap(t, "envCriticalityFactor", policy.EnvCriticalityFactor, mapValue(t, expected["envCriticalityFactor"]))
+			bands := mapValue(t, expected["bands"])
+			assertPolicyFloat(t, "bands.low", policy.Bands.Low, bands["low"])
+			assertPolicyFloat(t, "bands.medium", policy.Bands.Medium, bands["medium"])
+			assertPolicyFloat(t, "bands.high", policy.Bands.High, bands["high"])
+			assertPolicyFloat(t, "bands.critical", policy.Bands.Critical, bands["critical"])
+			rollup := mapValue(t, expected["rollup"])
+			assertPolicyFloat(t, "rollup.windowSeconds", policy.Rollup.WindowSeconds, rollup["windowSeconds"])
+			assertPolicyFloat(t, "rollup.decayPerWindow", policy.Rollup.DecayPerWindow, rollup["decayPerWindow"])
+			assertPolicyFloat(t, "rollup.velocityNormalizer", policy.Rollup.VelocityNormalizer, rollup["velocityNormalizer"])
+			expectedRules, hasRules := rollup["frequencyRules"].([]any)
+			if !hasRules {
+				t.Fatalf("rollup.frequencyRules missing from fixture expectedPolicy")
+			}
+			if len(policy.Rollup.FrequencyRules) != len(expectedRules) {
+				t.Fatalf("rollup.frequencyRules length = %d, want %d", len(policy.Rollup.FrequencyRules), len(expectedRules))
+			}
+			magnitude := mapValue(t, expected["magnitude"])
+			assertPolicyFloat(t, "magnitude.maxBoost", policy.Magnitude.MaxBoost, magnitude["maxBoost"])
+			weights := mapValue(t, magnitude["weights"])
+			assertPolicyFloat(t, "magnitude.weights.dataVolume", policy.Magnitude.Weights.DataVolume, weights["dataVolume"])
+			assertPolicyFloat(t, "magnitude.weights.fanOut", policy.Magnitude.Weights.FanOut, weights["fanOut"])
+			assertPolicyFloat(t, "magnitude.weights.referenceCount", policy.Magnitude.Weights.ReferenceCount, weights["referenceCount"])
+			k := mapValue(t, magnitude["k"])
+			assertPolicyFloat(t, "magnitude.k.dataVolume", policy.Magnitude.K.DataVolume, k["dataVolume"])
+			assertPolicyFloat(t, "magnitude.k.fanOut", policy.Magnitude.K.FanOut, k["fanOut"])
+			assertPolicyFloat(t, "magnitude.k.referenceCount", policy.Magnitude.K.ReferenceCount, k["referenceCount"])
+		})
+	}
+}
+
+// assertPolicyFloatMap compares a derived policy float map against the fixture's
+// expected object key-by-key in both directions, so a missing or extra key fails
+// as loudly as a wrong value.
+func assertPolicyFloatMap(t *testing.T, field string, actual map[string]float64, expected map[string]any) {
+	t.Helper()
+	if len(actual) != len(expected) {
+		t.Fatalf("%s: key count = %d, want %d", field, len(actual), len(expected))
+	}
+	for key, want := range expected {
+		got, ok := actual[key]
+		if !ok {
+			t.Fatalf("%s.%s missing from derived policy", field, key)
+		}
+		assertPolicyFloat(t, field+"."+key, got, want)
+	}
+}
+
+// assertPolicyFloat compares a derived policy leaf against the fixture's expected
+// value (a float64 after JSON decode), failing with the field path on mismatch.
+func assertPolicyFloat(t *testing.T, field string, actual float64, expected any) {
+	t.Helper()
+	want, ok := expected.(float64)
+	if !ok {
+		t.Fatalf("%s: expected float in fixture, got %#v", field, expected)
+	}
+	if actual != want {
+		t.Fatalf("%s = %v, want %v", field, actual, want)
+	}
+}
+
+func TestRiskEpisodeFrequencyMatchesConformanceFixtures(t *testing.T) {
+	for _, conformanceCase := range fixtureCases(t, "risk-episode-frequency.json") {
+		conformanceCase := conformanceCase
+		t.Run(caseName(t, conformanceCase), func(t *testing.T) {
+			policy := DefaultRiskPolicy
+			policy.Rollup.FrequencyRules = decodeFrequencyRules(t, conformanceCase["frequencyRules"])
+			rawSteps, ok := conformanceCase["steps"].([]any)
+			if !ok {
+				t.Fatalf("steps must be an array")
+			}
+			steps := make([]EpisodeRiskStep, 0, len(rawSteps))
+			for _, raw := range rawSteps {
+				steps = append(steps, decodeValue[EpisodeRiskStep](t, raw))
+			}
+			rollup, err := RollupEpisodeRisk(steps, policy)
+			if _, expectErr := conformanceCase["expectError"]; expectErr {
+				if err == nil {
+					t.Fatalf("expected fail-closed error for %s", caseName(t, conformanceCase))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("RollupEpisodeRisk error: %v", err)
+			}
+			actual := toJSONMap(t, rollup)
+			expected := mapValue(t, conformanceCase["expected"])
+			if !reflect.DeepEqual(actual, expected) {
+				t.Fatalf("expected %#v, got %#v", expected, actual)
+			}
+		})
+	}
+}
+
+// decodeFrequencyRules decodes a fixture frequencyRules array into typed rules,
+// preserving malformed rules verbatim so the fail-closed cases still reach
+// assertFrequencyRules.
+func decodeFrequencyRules(t *testing.T, value any) []EpisodeFrequencyRule {
+	t.Helper()
+	raw, ok := value.([]any)
+	if !ok {
+		t.Fatalf("frequencyRules must be an array, got %#v", value)
+	}
+	rules := make([]EpisodeFrequencyRule, 0, len(raw))
+	for _, item := range raw {
+		rules = append(rules, decodeValue[EpisodeFrequencyRule](t, item))
+	}
+	return rules
+}
+
+func TestRiskPolicyFailsClosedOnNonFiniteTemperature(t *testing.T) {
+	// JSON cannot express NaN/Inf, so this divergence is only reachable from native
+	// Go callers; it must fail closed exactly as risk.ts/risk.py reject it.
+	for _, temperature := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		if _, err := RiskPolicy(RiskPolicyOptions{Temperature: Float64(temperature)}); err == nil {
+			t.Fatalf("expected fail-closed error for temperature %v", temperature)
+		}
+	}
+}
+
+func TestRiskPolicyEmptyOverridesAreIgnored(t *testing.T) {
+	// A present-but-empty overrides object must be a no-op returning the reference
+	// policy, matching TS hasOverrides (Object.keys length) and Python len(...) > 0.
+	// Regression: Go previously gated on != nil only, failing the mandatory
+	// policyVersion check that the other SDKs never reach.
+	policy, err := RiskPolicy(RiskPolicyOptions{Overrides: &RiskPolicyOverrides{}})
+	if err != nil {
+		t.Fatalf("empty overrides must be a no-op, got error: %v", err)
+	}
+	if policy.PolicyVersion != DefaultRiskPolicy.PolicyVersion {
+		t.Fatalf("policyVersion = %s, want %s", policy.PolicyVersion, DefaultRiskPolicy.PolicyVersion)
+	}
+	if policy.Bands != DefaultRiskPolicy.Bands {
+		t.Fatalf("bands = %+v, want reference bands", policy.Bands)
+	}
+}
+
+func TestRollupWithoutRulesEmitsNoFrequencyFields(t *testing.T) {
+	// A rule-free policy must stay byte-identical to the pre-frequency output: no
+	// frequencyScore/frequencyMatches struct fields and no JSON keys.
+	rollup, err := RollupEpisodeRisk([]EpisodeRiskStep{
+		{OccurredAt: "2026-06-23T00:00:00.000Z", Score: 0.1, Action: "auth.login.failed"},
+	}, DefaultRiskPolicy)
+	if err != nil {
+		t.Fatalf("RollupEpisodeRisk error: %v", err)
+	}
+	if rollup.FrequencyScore != nil || rollup.FrequencyMatches != nil {
+		t.Fatalf("expected no frequency fields on the struct, got %#v", rollup)
+	}
+	encoded := toJSONMap(t, rollup)
+	if _, ok := encoded["frequencyScore"]; ok {
+		t.Fatalf("frequencyScore key must be absent: %#v", encoded)
+	}
+	if _, ok := encoded["frequencyMatches"]; ok {
+		t.Fatalf("frequencyMatches key must be absent: %#v", encoded)
+	}
+}
+
+func TestRollupFailsClosedOnNonFiniteBoost(t *testing.T) {
+	// NaN/Inf boosts are unreachable from JSON but must fail closed for native
+	// callers so a corrupt rule can never skew the clamped frequencyScore sum.
+	policy := DefaultRiskPolicy
+	policy.Rollup.FrequencyRules = []EpisodeFrequencyRule{
+		{Actions: []string{"auth.login.failed"}, WindowSeconds: 300, Threshold: 5, Boost: math.NaN()},
+	}
+	if _, err := RollupEpisodeRisk([]EpisodeRiskStep{
+		{OccurredAt: "2026-06-23T00:00:00.000Z", Score: 0.1, Action: "auth.login.failed"},
+	}, policy); err == nil {
+		t.Fatal("expected fail-closed error for NaN boost")
+	}
+}
+
+func TestDefaultRiskPolicyHasEmptyFrequencyRules(t *testing.T) {
+	// The reference policy must not configure frequency rules; otherwise every
+	// existing rollup fixture would gain frequency fields and diverge across SDKs.
+	if len(DefaultRiskPolicy.Rollup.FrequencyRules) != 0 {
+		t.Fatalf("DefaultRiskPolicy.Rollup.FrequencyRules must be empty, got %#v", DefaultRiskPolicy.Rollup.FrequencyRules)
 	}
 }

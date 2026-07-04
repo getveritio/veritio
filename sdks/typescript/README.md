@@ -169,9 +169,54 @@ const episode = rollupEpisodeRisk([
 const metadata = withRiskSignals({ table: "invoices" }, { operationType: "bulk", fanOut: 40 });
 ```
 
+### Temperature-derived policies
+
+`riskPolicy` derives a full scoring policy from the reference constants with a
+single knob — `0` is most lenient, `0.5` is the reference policy byte-for-byte,
+`1` is strictest (multiples of `0.01` only; fail-closed otherwise):
+
+```ts
+import { riskPolicy, scoreRiskSignals } from "@veritio/core";
+
+const signals = { operationType: "delete", envCriticality: "production" } as const;
+scoreRiskSignals(signals, riskPolicy({ temperature: 0.2 })).level; // lenient banding
+scoreRiskSignals(signals, riskPolicy({ temperature: 0.5 })).level; // reference banding
+scoreRiskSignals(signals, riskPolicy({ temperature: 0.8 })).level; // strict banding
+// Derived policyVersion is deterministic: "veritio.reference.v1+temp0.80"
+```
+
+Granular `overrides` deep-merge after derivation and require an explicit
+`overrides.policyVersion` (fail closed), so hand-tuned policies stay honestly
+labeled in hashed conclusions.
+
+### Frequency rules (per-action bursts)
+
+Episode rollups can detect action bursts — e.g. repeated failed logins — via
+`rollup.frequencyRules`; steps carry an optional `action` and a fired rule can
+only raise the episode score:
+
+```ts
+import { riskPolicy, rollupEpisodeRisk } from "@veritio/core";
+
+const policy = riskPolicy({
+  overrides: {
+    policyVersion: "acme.auth-burst.v1",
+    rollup: {
+      frequencyRules: [{ actions: ["auth.login.failed"], windowSeconds: 300, threshold: 5, boost: 0.8 }],
+    },
+  },
+});
+const burst = rollupEpisodeRisk(
+  failedLogins.map((e) => ({ occurredAt: e.occurredAt, score: 0.1, action: "auth.login.failed" })),
+  policy,
+);
+// burst.frequencyScore === 0.8 → burst.level "critical" when >= 5 land inside 300s
+```
+
 Browser/edge bundles should import the crypto-free math directly from the
 `@veritio/core/risk-score` subpath so `node:crypto` never enters the bundle.
-See `docs/risk-scoring.md` for the scoring model.
+See `docs/risk-scoring.md` for the scoring model and `spec/risk-scoring.md` for
+the normative algorithm.
 
 ## security.risk Assertions
 
