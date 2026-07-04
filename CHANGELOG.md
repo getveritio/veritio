@@ -8,6 +8,46 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 
 ### Added
 
+- Nothing yet.
+
+## [0.2.0] - 2026-07-05
+
+`@veritio/core` 0.2.0, `@veritio/storage` 0.2.0, `@veritio/claude-code` 0.2.0
+(released together; claude-code pins the others exactly). No breaking protocol
+changes in this release: default-policy scoring output is byte-identical to
+0.1.x, and all pre-existing conformance fixtures and frozen hash anchors are
+unchanged.
+
+### Added
+
+- Temperature-derived risk policies: `riskPolicy({ temperature, overrides })`
+  (`risk_policy` in Python, `RiskPolicy` in Go) derives a full
+  `RiskScoringPolicy` from `veritio.reference.v1`. Temperature is a multiple of
+  0.01 in `[0,1]`; `0.5` reproduces the reference policy byte-for-byte; derived
+  versions look like `veritio.reference.v1+temp0.70`. Overrides merge after
+  derivation and require an explicit `policyVersion` (fail closed). Pinned by
+  `spec/conformance/risk-policy-temperature.json`.
+- Per-action frequency rules in the episode rollup:
+  `policy.rollup.frequencyRules` (`{ actions, windowSeconds, threshold, boost }`)
+  detects bursts such as repeated failed logins; rules fire once per episode and
+  the rollup score becomes `max(peak, velocityScore, frequencyScore)`. Rollup
+  steps accept an optional `action`; policies without rules emit byte-identical
+  pre-0.2.0 output. Pinned by `spec/conformance/risk-episode-frequency.json`.
+- Better Auth adapter security mappers: `recordLoginFailed`
+  (`auth.login.failed`) and `recordAccessDenied` (`authz.access.denied`) —
+  translation-only, PII-safe (the attempted email is never recorded).
+- Normative prose spec `spec/risk-scoring.md`; full policy field reference and
+  temperature/frequency documentation in `docs/risk-scoring.md`; risk-scoring
+  README sections for the Python and Go SDKs.
+- `examples/risk-scoring-walkthrough`: tested walkthrough driving the real
+  Better Auth adapter (burst escalates to `critical`, the same actions spread
+  out stay `low`).
+- Agent Skills for coding agents (`skills/veritio-audit-trail`,
+  `skills/veritio-risk-scoring`), installable via
+  `npx skills add getveritio/veritio`.
+
+### Accumulated earlier items (shipped across the 0.1.x releases; the changelog was not cut at 0.1.0/0.1.1)
+
 - OSS hygiene scaffold for contribution workflow, security disclosure, GitHub issue templates, pull request review, and release checks.
 - Shared protocol conformance fixtures for canonical JSON, event creation, redaction, event hashing, audit record hashing, and idempotency-key hashing across TypeScript, Python, and Go tests.
 - Runner-neutral storage conformance tests for durable `AuditStore` adapters.
