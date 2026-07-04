@@ -1,0 +1,634 @@
+{
+  "name": "risk-episode-frequency-v1",
+  "policyVersion": "veritio.reference.v1",
+  "cases": [
+    {
+      "name": "failed-login burst reaches threshold inside the window and fires",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expected": {
+        "score": 0.8,
+        "level": "critical",
+        "peak": 0.1,
+        "velocityScore": 0.0646,
+        "stepCount": 5,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0.8,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 5,
+            "fired": true,
+            "boost": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "name": "four failures stay below the threshold",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expected": {
+        "score": 0.1,
+        "level": "low",
+        "peak": 0.1,
+        "velocityScore": 0.0625,
+        "stepCount": 4,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 4,
+            "fired": false,
+            "boost": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "five failures spread past the window never co-occur",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:06:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:08:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expected": {
+        "score": 0.1,
+        "level": "low",
+        "peak": 0.1,
+        "velocityScore": 0.0444,
+        "stepCount": 5,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 3,
+            "fired": false,
+            "boost": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "two rules configured, only the login rule fires",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        },
+        {
+          "actions": [
+            "authz.access.denied"
+          ],
+          "windowSeconds": 120,
+          "threshold": 3,
+          "boost": 0.6
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:00:30.000Z",
+          "score": 0.15,
+          "action": "authz.access.denied"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:30.000Z",
+          "score": 0.15,
+          "action": "authz.access.denied"
+        }
+      ],
+      "expected": {
+        "score": 0.8,
+        "level": "critical",
+        "peak": 0.15,
+        "velocityScore": 0.2,
+        "stepCount": 7,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0.8,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 5,
+            "fired": true,
+            "boost": 0.8
+          },
+          {
+            "actions": [
+              "authz.access.denied"
+            ],
+            "windowSeconds": 120,
+            "threshold": 3,
+            "count": 2,
+            "fired": false,
+            "boost": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "steps without an action never match a rule",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.2
+        },
+        {
+          "occurredAt": "2026-06-23T00:00:10.000Z",
+          "score": 0.2
+        },
+        {
+          "occurredAt": "2026-06-23T00:00:20.000Z",
+          "score": 0.2
+        },
+        {
+          "occurredAt": "2026-06-23T00:00:30.000Z",
+          "score": 0.2
+        },
+        {
+          "occurredAt": "2026-06-23T00:00:40.000Z",
+          "score": 0.2
+        }
+      ],
+      "expected": {
+        "score": 0.3333,
+        "level": "medium",
+        "peak": 0.2,
+        "velocityScore": 0.3333,
+        "stepCount": 5,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 0,
+            "fired": false,
+            "boost": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "fired boosts sum then clamp to the unit interval",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 2,
+          "boost": 0.8
+        },
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 3,
+          "boost": 0.5
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expected": {
+        "score": 1,
+        "level": "critical",
+        "peak": 0.1,
+        "velocityScore": 0.0583,
+        "stepCount": 3,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 1,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 2,
+            "count": 3,
+            "fired": true,
+            "boost": 0.8
+          },
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 3,
+            "count": 3,
+            "fired": true,
+            "boost": 0.5
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty episode with rules reports zero counts",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [],
+      "expected": {
+        "score": 0,
+        "level": "none",
+        "peak": 0,
+        "velocityScore": 0,
+        "stepCount": 0,
+        "policyVersion": "veritio.reference.v1",
+        "frequencyScore": 0,
+        "frequencyMatches": [
+          {
+            "actions": [
+              "auth.login.failed"
+            ],
+            "windowSeconds": 300,
+            "threshold": 5,
+            "count": 0,
+            "fired": false,
+            "boost": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty rule set matches the plain rollup byte-for-byte",
+      "frequencyRules": [],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expected": {
+        "score": 0.1,
+        "level": "low",
+        "peak": 0.1,
+        "velocityScore": 0.0646,
+        "stepCount": 5,
+        "policyVersion": "veritio.reference.v1"
+      }
+    },
+    {
+      "name": "zero threshold fails closed",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 0,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expectError": true
+    },
+    {
+      "name": "non-positive windowSeconds fails closed",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": -1,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expectError": true
+    },
+    {
+      "name": "negative boost fails closed",
+      "frequencyRules": [
+        {
+          "actions": [
+            "auth.login.failed"
+          ],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": -0.5
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expectError": true
+    },
+    {
+      "name": "empty actions list fails closed",
+      "frequencyRules": [
+        {
+          "actions": [],
+          "windowSeconds": 300,
+          "threshold": 5,
+          "boost": 0.8
+        }
+      ],
+      "steps": [
+        {
+          "occurredAt": "2026-06-23T00:00:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:01:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:02:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:03:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        },
+        {
+          "occurredAt": "2026-06-23T00:04:00.000Z",
+          "score": 0.1,
+          "action": "auth.login.failed"
+        }
+      ],
+      "expectError": true
+    }
+  ]
+}

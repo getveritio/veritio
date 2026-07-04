@@ -52,6 +52,20 @@ bun install
 bun run verify
 ```
 
+### Agent Skills
+
+Teach Claude Code, Codex, Cursor, opencode, and other coding agents the Veritio
+SDK — installable from [skills.sh](https://www.skills.sh):
+
+```sh
+npx skills add getveritio/veritio
+```
+
+This installs `veritio-audit-trail` (events, storage, adapters, verification)
+and `veritio-risk-scoring` (signals, temperature policies, frequency rules,
+assertions) from [`skills/`](skills/). Both follow the
+[Agent Skills](https://agentskills.io) `SKILL.md` format.
+
 ## TypeScript Quick Start
 
 Use `@veritio/core` when you want normalized event and edge payloads plus
@@ -181,8 +195,10 @@ TypeScript, Python, and Go share the same protocol semantics for:
 - optional-field omission
 - auth, organization, data, agent, and code audit templates
 - deterministic `riskSignals` scoring (`DEFAULT_RISK_POLICY`,
-  `veritio.reference.v1`) and `security.risk` assertion builders — see
-  [docs/risk-scoring.md](docs/risk-scoring.md)
+  `veritio.reference.v1`), temperature-derived policies (`riskPolicy`),
+  per-action frequency rules, and `security.risk` assertion builders — see
+  [docs/risk-scoring.md](docs/risk-scoring.md) and
+  [spec/risk-scoring.md](spec/risk-scoring.md)
 
 The TypeScript SDK currently has extra runtime helpers: `MemoryAuditStore`,
 audit/edge chain verification helpers, and the TS-only `createProvenanceRecorder`

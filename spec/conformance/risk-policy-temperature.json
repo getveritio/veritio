@@ -1,0 +1,427 @@
+{
+  "name": "risk-policy-temperature-v1",
+  "referencePolicyVersion": "veritio.reference.v1",
+  "cases": [
+    {
+      "name": "temperature 0.00 derives the pinned policy",
+      "options": {
+        "temperature": 0
+      },
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1+temp0.00",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.15
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 0.9
+        },
+        "magnitude": {
+          "maxBoost": 0.25,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.1,
+          "medium": 0.35,
+          "high": 0.6,
+          "critical": 0.85
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.3,
+          "velocityNormalizer": 4,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "temperature 0.25 derives the pinned policy",
+      "options": {
+        "temperature": 0.25
+      },
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1+temp0.25",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.225
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 0.95
+        },
+        "magnitude": {
+          "maxBoost": 0.325,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.075,
+          "medium": 0.3,
+          "high": 0.55,
+          "critical": 0.8
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.4,
+          "velocityNormalizer": 3.5,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "temperature 0.50 derives the pinned policy",
+      "options": {
+        "temperature": 0.5
+      },
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1+temp0.50",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.3
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 1
+        },
+        "magnitude": {
+          "maxBoost": 0.4,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.05,
+          "medium": 0.25,
+          "high": 0.5,
+          "critical": 0.75
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.5,
+          "velocityNormalizer": 3,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "temperature 0.70 derives the pinned policy",
+      "options": {
+        "temperature": 0.7
+      },
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1+temp0.70",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.42
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 1.08
+        },
+        "magnitude": {
+          "maxBoost": 0.48,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.038,
+          "medium": 0.222,
+          "high": 0.46,
+          "critical": 0.71
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.58,
+          "velocityNormalizer": 2.6,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "temperature 1.00 derives the pinned policy",
+      "options": {
+        "temperature": 1
+      },
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1+temp1.00",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.6
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 1.2
+        },
+        "magnitude": {
+          "maxBoost": 0.6,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.02,
+          "medium": 0.18,
+          "high": 0.4,
+          "critical": 0.65
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.7,
+          "velocityNormalizer": 2,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "no options returns the reference policy unsuffixed",
+      "options": {},
+      "expectedPolicy": {
+        "policyVersion": "veritio.reference.v1",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.3
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 1
+        },
+        "magnitude": {
+          "maxBoost": 0.4,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.05,
+          "medium": 0.25,
+          "high": 0.5,
+          "critical": 0.75
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.5,
+          "velocityNormalizer": 3,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "overrides merge after derivation and require an explicit policyVersion",
+      "options": {
+        "temperature": 0.7,
+        "overrides": {
+          "policyVersion": "acme.custom.v3",
+          "magnitude": {
+            "maxBoost": 0.5
+          }
+        }
+      },
+      "expectedPolicy": {
+        "policyVersion": "acme.custom.v3",
+        "operationBase": {
+          "read": 0.05,
+          "create": 0.2,
+          "update": 0.3,
+          "config": 0.45,
+          "bulk": 0.55,
+          "permission": 0.6,
+          "delete": 0.7,
+          "destructive": 0.85
+        },
+        "reversibilityFactor": {
+          "reversible": 0.6,
+          "recoverable": 1,
+          "irreversible": 1.42
+        },
+        "envCriticalityFactor": {
+          "sandbox": 0.4,
+          "development": 0.6,
+          "staging": 0.8,
+          "production": 1.08
+        },
+        "magnitude": {
+          "maxBoost": 0.5,
+          "weights": {
+            "dataVolume": 0.5,
+            "fanOut": 0.3,
+            "referenceCount": 0.2
+          },
+          "k": {
+            "dataVolume": 100,
+            "fanOut": 25,
+            "referenceCount": 50
+          }
+        },
+        "bands": {
+          "low": 0.038,
+          "medium": 0.222,
+          "high": 0.46,
+          "critical": 0.71
+        },
+        "rollup": {
+          "windowSeconds": 60,
+          "decayPerWindow": 0.58,
+          "velocityNormalizer": 2.6,
+          "frequencyRules": []
+        }
+      }
+    },
+    {
+      "name": "temperature above 1 fails closed",
+      "options": {
+        "temperature": 1.5
+      },
+      "expectError": true
+    },
+    {
+      "name": "negative temperature fails closed",
+      "options": {
+        "temperature": -0.1
+      },
+      "expectError": true
+    },
+    {
+      "name": "temperature not a multiple of 0.01 fails closed",
+      "options": {
+        "temperature": 0.005
+      },
+      "expectError": true
+    },
+    {
+      "name": "overrides without policyVersion fail closed",
+      "options": {
+        "overrides": {
+          "bands": {
+            "low": 0.1
+          }
+        }
+      },
+      "expectError": true
+    }
+  ]
+}

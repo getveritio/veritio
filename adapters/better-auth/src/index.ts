@@ -1,4 +1,12 @@
-import type { AuditEventInput, AuditRecord, AuditRecorder, EvidenceScope, JsonObject } from "@veritio/core";
+import type {
+  AuditEventInput,
+  AuditRecord,
+  AuditRecorder,
+  EvidenceScope,
+  JsonObject,
+  Principal,
+  Resource,
+} from "@veritio/core";
 
 export interface BetterAuthVeritioAdapterOptions {
   recorder: AuditRecorder;
@@ -79,6 +87,26 @@ export interface BetterAuthInvitationAcceptedContext {
   requestId?: string;
 }
 
+export interface BetterAuthAccessDeniedResourceRef {
+  type: string;
+  id: string;
+}
+
+export interface BetterAuthLoginFailedContext extends BetterAuthRequestContext {
+  user?: BetterAuthUserRef;
+  attemptId?: string;
+  reason?: string;
+  metadata?: JsonObject;
+}
+
+export interface BetterAuthAccessDeniedContext extends BetterAuthRequestContext {
+  user: BetterAuthUserRef;
+  resource: BetterAuthAccessDeniedResourceRef;
+  permission?: string;
+  policy?: string;
+  metadata?: JsonObject;
+}
+
 export interface BetterAuthVeritioAdapter {
   recordUserCreated(input: BetterAuthUserEventContext): Promise<AuditRecord>;
   recordSessionCreated(input: BetterAuthSessionEventContext): Promise<AuditRecord>;
@@ -86,6 +114,8 @@ export interface BetterAuthVeritioAdapter {
   recordOrganizationCreated(input: BetterAuthOrganizationCreatedContext): Promise<AuditRecord>;
   recordInvitationCreated(input: BetterAuthInvitationCreatedContext): Promise<AuditRecord>;
   recordInvitationAccepted(input: BetterAuthInvitationAcceptedContext): Promise<AuditRecord>;
+  recordLoginFailed(input: BetterAuthLoginFailedContext): Promise<AuditRecord>;
+  recordAccessDenied(input: BetterAuthAccessDeniedContext): Promise<AuditRecord>;
 }
 
 /**
@@ -276,7 +306,86 @@ export function createBetterAuthVeritioAdapter(options: BetterAuthVeritioAdapter
         { idempotencyKey: `better-auth:invitation-accepted:${tenantId}:${invitationId}:${memberId}` },
       );
     },
+
+    /**
+     * Records a failed sign-in attempt as security evidence. When the host has
+     * resolved a stable user id the event is attributed to that user; otherwise
+     * it is attributed to the anonymous pre-auth `auth.login` surface so the
+     * attempted email is never recorded raw. `reason` must be a closed
+     * machine-readable token (e.g. "invalid_credentials"), never freeform user
+     * input. No idempotency key is passed: distinct attempts are distinct
+     * security events and must not collapse into one record.
+     */
+    recordLoginFailed(input) {
+      const tenantId = requireNonEmpty(input.tenantId, "tenantId");
+      const { actor, target } = buildLoginFailurePrincipals(input);
+
+      return options.recorder.record(
+        withRequestId(
+          {
+            actor,
+            action: "auth.login.failed",
+            target,
+            scope: buildScope(tenantId, options.environment),
+            purpose: "access_management",
+            lawfulBasis: "legitimate_interests",
+            retention: "security_1y",
+            metadata: mergeMetadata(input.metadata, { reason: input.reason }),
+          },
+          input.requestId,
+        ),
+      );
+    },
+
+    /**
+     * Records an authorization denial for an authenticated principal. The user is
+     * the actor and the host-named resource is the target; optional permission and
+     * policy tokens are recorded as metadata. No idempotency key is passed so that
+     * repeated denials of the same resource remain distinct security events.
+     */
+    recordAccessDenied(input) {
+      const tenantId = requireNonEmpty(input.tenantId, "tenantId");
+      const userId = requireNonEmpty(input.user.id, "user.id");
+      const resourceType = requireNonEmpty(input.resource.type, "resource.type");
+      const resourceId = requireNonEmpty(input.resource.id, "resource.id");
+
+      return options.recorder.record(
+        withRequestId(
+          {
+            actor: { type: "user", id: userId },
+            action: "authz.access.denied",
+            target: { type: resourceType, id: resourceId },
+            scope: buildScope(tenantId, options.environment),
+            purpose: "access_management",
+            lawfulBasis: "legitimate_interests",
+            retention: "security_1y",
+            metadata: mergeMetadata(input.metadata, {
+              permission: input.permission,
+              policy: input.policy,
+            }),
+          },
+          input.requestId,
+        ),
+      );
+    },
   };
+}
+
+/**
+ * Resolves the actor/target for a failed sign-in without leaking the attempted
+ * email. A host-resolved stable user id becomes a `user` principal on both sides;
+ * otherwise the actor is the pre-auth `anonymous` principal and the target is the
+ * `auth.login` surface, each keyed by a caller-supplied stable, non-PII id (never
+ * a raw email) or `"unknown"` when the host has no safe identifier.
+ */
+function buildLoginFailurePrincipals(input: BetterAuthLoginFailedContext): { actor: Principal; target: Resource } {
+  const userId = input.user?.id;
+  if (typeof userId === "string" && userId.trim().length > 0) {
+    return { actor: { type: "user", id: userId }, target: { type: "user", id: userId } };
+  }
+  const attemptId = input.attemptId;
+  const id = typeof attemptId === "string" && attemptId.trim().length > 0 ? attemptId : "unknown";
+  return { actor: { type: "anonymous", id }, target: { type: "auth.login", id } };
 }
 
 /**

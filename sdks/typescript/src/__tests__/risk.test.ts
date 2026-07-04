@@ -11,8 +11,12 @@ import {
   createSecurityRiskAssertion as reexportedCreateAssertion,
 } from "../index";
 import type {
+  EpisodeFrequencyRule,
   EpisodeRiskRollup,
+  EpisodeRiskStep,
   RiskAssessment,
+  RiskPolicyOptions,
+  RiskScoringPolicy,
   RiskSignals,
   SecurityRiskAssertion,
   SecurityRiskAssertionInput,
@@ -25,6 +29,7 @@ import {
   DEFAULT_RISK_POLICY,
   hashAssertionRecord,
   normalizeRiskSignals,
+  riskPolicy,
   rollupEpisodeRisk,
   round4,
   sat,
@@ -68,6 +73,7 @@ describe("risk determinism primitives", () => {
     expect(DEFAULT_RISK_POLICY.envCriticalityFactor.sandbox).toBe(0.4);
     expect(DEFAULT_RISK_POLICY.magnitude.maxBoost).toBe(0.4);
     expect(DEFAULT_RISK_POLICY.rollup.decayPerWindow).toBe(0.5);
+    expect(DEFAULT_RISK_POLICY.rollup.frequencyRules).toEqual([]);
   });
 
   test("bandOf uses half-open policy thresholds", () => {
@@ -168,6 +174,120 @@ describe("rollupEpisodeRisk", () => {
     ];
     rollupEpisodeRisk(steps);
     expect(steps[0]).toEqual({ occurredAt: "2026-06-23T00:01:00.000Z", score: 0.5 });
+  });
+});
+
+interface TemperatureFixture {
+  cases: Array<{
+    name: string;
+    options: RiskPolicyOptions;
+    expectedPolicy?: RiskScoringPolicy;
+    expectError?: boolean;
+  }>;
+}
+
+describe("riskPolicy", () => {
+  test("matches temperature derivation conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<TemperatureFixture>("risk-policy-temperature.json");
+    expect(fixture.cases.length).toBeGreaterThan(0);
+    for (const c of fixture.cases) {
+      if (c.expectError) {
+        expect(() => riskPolicy(c.options)).toThrow();
+      } else {
+        expect(riskPolicy(c.options)).toEqual(c.expectedPolicy as RiskScoringPolicy);
+      }
+    }
+  });
+
+  test("no options returns a fresh copy equal to the reference policy", () => {
+    const policy = riskPolicy();
+    expect(policy).toEqual(DEFAULT_RISK_POLICY);
+    policy.bands.low = 0.9;
+    expect(DEFAULT_RISK_POLICY.bands.low).toBe(0.05);
+  });
+
+  test("temperature 0.5 reproduces reference values under a suffixed version", () => {
+    const policy = riskPolicy({ temperature: 0.5 });
+    expect(policy.policyVersion).toBe("veritio.reference.v1+temp0.50");
+    expect({ ...policy, policyVersion: DEFAULT_RISK_POLICY.policyVersion }).toEqual(DEFAULT_RISK_POLICY);
+  });
+
+  test("a present-but-empty overrides object is a no-op (TS/Python/Go parity)", () => {
+    expect(riskPolicy({ overrides: {} })).toEqual(DEFAULT_RISK_POLICY);
+  });
+
+  test("fails closed on non-finite temperatures (not representable in fixtures)", () => {
+    expect(() => riskPolicy({ temperature: Number.NaN })).toThrow("temperature must be a finite number in [0,1]");
+    expect(() => riskPolicy({ temperature: Number.POSITIVE_INFINITY })).toThrow(
+      "temperature must be a finite number in [0,1]",
+    );
+  });
+
+  test("keeps derived bands strictly ascending at every valid hundredth", () => {
+    for (let hundredths = 0; hundredths <= 100; hundredths++) {
+      const { bands } = riskPolicy({ temperature: hundredths / 100 });
+      expect(bands.low).toBeLessThan(bands.medium);
+      expect(bands.medium).toBeLessThan(bands.high);
+      expect(bands.high).toBeLessThan(bands.critical);
+    }
+  });
+});
+
+interface FrequencyFixture {
+  cases: Array<{
+    name: string;
+    frequencyRules: EpisodeFrequencyRule[];
+    steps: EpisodeRiskStep[];
+    expected?: EpisodeRiskRollup;
+    expectError?: boolean;
+  }>;
+}
+
+/** Clones the reference policy with the given frequency rules installed. */
+function referencePolicyWithRules(frequencyRules: EpisodeFrequencyRule[]): RiskScoringPolicy {
+  return {
+    ...DEFAULT_RISK_POLICY,
+    rollup: { ...DEFAULT_RISK_POLICY.rollup, frequencyRules },
+  };
+}
+
+describe("rollupEpisodeRisk frequency rules", () => {
+  test("matches frequency conformance fixtures", async () => {
+    const fixture = await loadConformanceFixture<FrequencyFixture>("risk-episode-frequency.json");
+    expect(fixture.cases.length).toBeGreaterThan(0);
+    for (const c of fixture.cases) {
+      const policy = referencePolicyWithRules(c.frequencyRules);
+      if (c.expectError) {
+        expect(() => rollupEpisodeRisk(c.steps, policy)).toThrow();
+      } else {
+        expect(rollupEpisodeRisk(c.steps, policy)).toEqual(c.expected as EpisodeRiskRollup);
+      }
+    }
+  });
+
+  test("emits no frequency fields when the policy has no rules", () => {
+    const rollup = rollupEpisodeRisk([{ occurredAt: "2026-06-23T00:00:00.000Z", score: 0.3 }]);
+    expect("frequencyScore" in rollup).toBe(false);
+    expect("frequencyMatches" in rollup).toBe(false);
+  });
+
+  test("treats a policy without rollup.frequencyRules as rule-free (pre-frequency policies)", () => {
+    const legacyPolicy = {
+      ...DEFAULT_RISK_POLICY,
+      rollup: { windowSeconds: 60, decayPerWindow: 0.5, velocityNormalizer: 3.0 },
+    } as RiskScoringPolicy;
+    const rollup = rollupEpisodeRisk([{ occurredAt: "2026-06-23T00:00:00.000Z", score: 0.3 }], legacyPolicy);
+    expect(rollup.score).toBe(0.3);
+    expect("frequencyScore" in rollup).toBe(false);
+  });
+
+  test("fails closed on a non-finite boost (not representable in fixtures)", () => {
+    const policy = referencePolicyWithRules([
+      { actions: ["auth.login.failed"], windowSeconds: 300, threshold: 5, boost: Number.NaN },
+    ]);
+    expect(() => rollupEpisodeRisk([], policy)).toThrow(
+      "frequencyRules[].boost must be a finite number greater than or equal to 0",
+    );
   });
 });
 

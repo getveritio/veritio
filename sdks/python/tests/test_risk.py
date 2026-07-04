@@ -1,3 +1,4 @@
+import copy
 import json
 import unittest
 from pathlib import Path
@@ -11,6 +12,7 @@ from veritio.risk import (
     create_security_risk_assertion,
     hash_assertion_record,
     normalize_risk_signals,
+    risk_policy,
     rollup_episode_risk,
     round4,
     score_risk_signals,
@@ -57,7 +59,10 @@ class RiskPrimitivesTests(unittest.TestCase):
         self.assertEqual(DEFAULT_RISK_POLICY["magnitude"]["weights"], {"dataVolume": 0.5, "fanOut": 0.3, "referenceCount": 0.2})
         self.assertEqual(DEFAULT_RISK_POLICY["magnitude"]["k"], {"dataVolume": 100, "fanOut": 25, "referenceCount": 50})
         self.assertEqual(DEFAULT_RISK_POLICY["bands"], {"low": 0.05, "medium": 0.25, "high": 0.50, "critical": 0.75})
-        self.assertEqual(DEFAULT_RISK_POLICY["rollup"], {"windowSeconds": 60, "decayPerWindow": 0.5, "velocityNormalizer": 3.0})
+        self.assertEqual(
+            DEFAULT_RISK_POLICY["rollup"],
+            {"windowSeconds": 60, "decayPerWindow": 0.5, "velocityNormalizer": 3.0, "frequencyRules": []},
+        )
 
 
 class NormalizeRiskSignalsTests(unittest.TestCase):
@@ -389,6 +394,7 @@ class PackageExportsTests(unittest.TestCase):
             "create_security_risk_assertion",
             "hash_assertion_record",
             "normalize_risk_signals",
+            "risk_policy",
             "rollup_episode_risk",
             "score_risk_signals",
             "with_risk_signals",
@@ -440,6 +446,109 @@ class RiskConformanceParityTests(unittest.TestCase):
         for case in fixture["cases"]:
             with self.subTest(case["name"]):
                 self.assertEqual(hash_assertion_record(case["assertion"]), case["expectedHash"])
+
+    def test_policy_temperature_matches_fixture(self):
+        fixture = load_risk_fixture("risk-policy-temperature.json")
+        for case in fixture["cases"]:
+            with self.subTest(case["name"]):
+                if case.get("expectError"):
+                    with self.assertRaises(TypeError):
+                        risk_policy(case["options"])
+                else:
+                    self.assertEqual(risk_policy(case["options"]), case["expectedPolicy"])
+
+    def test_episode_frequency_matches_fixture(self):
+        fixture = load_risk_fixture("risk-episode-frequency.json")
+        for case in fixture["cases"]:
+            with self.subTest(case["name"]):
+                policy = copy.deepcopy(DEFAULT_RISK_POLICY)
+                policy["rollup"]["frequencyRules"] = case["frequencyRules"]
+                if case.get("expectError"):
+                    with self.assertRaises(TypeError):
+                        rollup_episode_risk(case["steps"], policy)
+                else:
+                    self.assertEqual(rollup_episode_risk(case["steps"], policy), case["expected"])
+
+
+class RiskPolicyTemperatureTests(unittest.TestCase):
+    """Native temperature-derivation checks beyond the fixture (byte parity with risk-policy.ts)."""
+
+    def test_no_options_returns_reference_copy_without_mutation(self):
+        policy = risk_policy()
+        self.assertEqual(policy["policyVersion"], "veritio.reference.v1")
+        self.assertEqual(policy["bands"], DEFAULT_RISK_POLICY["bands"])
+        policy["bands"]["low"] = 0.99
+        self.assertEqual(DEFAULT_RISK_POLICY["bands"]["low"], 0.05)
+
+    def test_non_finite_temperature_fails_closed(self):
+        with self.assertRaisesRegex(TypeError, "temperature"):
+            risk_policy({"temperature": float("nan")})
+        with self.assertRaisesRegex(TypeError, "temperature"):
+            risk_policy({"temperature": float("inf")})
+
+    def test_bool_temperature_fails_closed(self):
+        with self.assertRaisesRegex(TypeError, "temperature"):
+            risk_policy({"temperature": True})
+
+    def test_overrides_require_policy_version(self):
+        with self.assertRaisesRegex(TypeError, "policyVersion"):
+            risk_policy({"overrides": {"bands": {"low": 0.1}}})
+
+    def test_empty_overrides_are_ignored(self):
+        self.assertEqual(risk_policy({"overrides": {}}), risk_policy())
+
+
+class EpisodeFrequencyRuleTests(unittest.TestCase):
+    """Native frequency-rule checks: rule-free byte-stability and fail-closed validation."""
+
+    STEPS = [
+        {"occurredAt": "2026-06-23T00:00:00.000Z", "score": 0.1, "action": "auth.login.failed"},
+        {"occurredAt": "2026-06-23T00:01:00.000Z", "score": 0.1, "action": "auth.login.failed"},
+    ]
+
+    def test_policy_without_frequency_rules_key_is_rule_free(self):
+        # A hand-built pre-frequency policy dict (no "frequencyRules" key) must emit no
+        # frequency fields, matching the pre-frequency protocol output byte-for-byte.
+        policy = {
+            "policyVersion": "veritio.reference.v1",
+            "bands": DEFAULT_RISK_POLICY["bands"],
+            "rollup": {"windowSeconds": 60, "decayPerWindow": 0.5, "velocityNormalizer": 3.0},
+        }
+        result = rollup_episode_risk(self.STEPS, policy)
+        self.assertNotIn("frequencyScore", result)
+        self.assertNotIn("frequencyMatches", result)
+
+    def test_empty_frequency_rules_emit_no_frequency_keys(self):
+        policy = copy.deepcopy(DEFAULT_RISK_POLICY)
+        policy["rollup"]["frequencyRules"] = []
+        result = rollup_episode_risk(self.STEPS, policy)
+        self.assertNotIn("frequencyScore", result)
+        self.assertNotIn("frequencyMatches", result)
+
+    def test_nan_boost_fails_closed(self):
+        policy = copy.deepcopy(DEFAULT_RISK_POLICY)
+        policy["rollup"]["frequencyRules"] = [
+            {"actions": ["auth.login.failed"], "windowSeconds": 300, "threshold": 2, "boost": float("nan")}
+        ]
+        with self.assertRaisesRegex(TypeError, "boost"):
+            rollup_episode_risk(self.STEPS, policy)
+
+    def test_bool_threshold_fails_closed(self):
+        policy = copy.deepcopy(DEFAULT_RISK_POLICY)
+        policy["rollup"]["frequencyRules"] = [
+            {"actions": ["auth.login.failed"], "windowSeconds": 300, "threshold": True, "boost": 0.5}
+        ]
+        with self.assertRaisesRegex(TypeError, "threshold"):
+            rollup_episode_risk(self.STEPS, policy)
+
+    def test_integer_valued_float_threshold_is_accepted(self):
+        # TS Number.isInteger(2.0)===true, so a whole-float threshold must validate.
+        policy = copy.deepcopy(DEFAULT_RISK_POLICY)
+        policy["rollup"]["frequencyRules"] = [
+            {"actions": ["auth.login.failed"], "windowSeconds": 300, "threshold": 2.0, "boost": 0.5}
+        ]
+        result = rollup_episode_risk(self.STEPS, policy)
+        self.assertTrue(result["frequencyMatches"][0]["fired"])
 
 
 class CrossLanguageHashAnchorTests(unittest.TestCase):

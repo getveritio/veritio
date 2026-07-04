@@ -59,7 +59,47 @@ export interface RiskAssessment {
   factors: RiskFactor[];
 }
 
-/** Result of rolling many steps into one episode-level risk summary. */
+/**
+ * One step of an episode rollup. `action` is an optional freeform dotted event
+ * action (e.g. "auth.login.failed") used ONLY by frequency-rule matching; steps
+ * without it never match a rule, which keeps pre-rule callers byte-identical.
+ */
+export interface EpisodeRiskStep {
+  occurredAt: string;
+  score: number;
+  action?: string;
+}
+
+/**
+ * One sliding-window frequency rule. Fires at most once per episode when the
+ * count of qualifying steps (action exact-matches one of `actions`) inside any
+ * `windowSeconds` window reaches `threshold`; a fired rule contributes `boost`
+ * to the episode frequencyScore. Rules can only raise an episode score, never
+ * lower it, because frequencyScore joins the final max().
+ */
+export interface EpisodeFrequencyRule {
+  actions: string[];
+  windowSeconds: number;
+  threshold: number;
+  boost: number;
+}
+
+/** Explainability record for one configured frequency rule (fired or not). */
+export interface FrequencyRuleMatch {
+  actions: string[];
+  windowSeconds: number;
+  threshold: number;
+  count: number;
+  fired: boolean;
+  boost: number;
+}
+
+/**
+ * Result of rolling many steps into one episode-level risk summary. The
+ * frequency fields are present ONLY when the policy configures at least one
+ * frequency rule, so rollups under rule-free policies stay byte-identical to
+ * the pre-frequency protocol output.
+ */
 export interface EpisodeRiskRollup {
   score: number;
   level: RiskLevel;
@@ -67,6 +107,8 @@ export interface EpisodeRiskRollup {
   velocityScore: number;
   stepCount: number;
   policyVersion: string;
+  frequencyScore?: number;
+  frequencyMatches?: FrequencyRuleMatch[];
 }
 
 /** Tunable policy. Hosted products may retune values; the math shape is fixed. */
@@ -81,7 +123,12 @@ export interface RiskScoringPolicy {
     k: { dataVolume: number; fanOut: number; referenceCount: number };
   };
   bands: { low: number; medium: number; high: number; critical: number };
-  rollup: { windowSeconds: number; decayPerWindow: number; velocityNormalizer: number };
+  rollup: {
+    windowSeconds: number;
+    decayPerWindow: number;
+    velocityNormalizer: number;
+    frequencyRules: EpisodeFrequencyRule[];
+  };
 }
 
 /**
@@ -118,7 +165,7 @@ export const DEFAULT_RISK_POLICY: RiskScoringPolicy = {
     k: { dataVolume: 100, fanOut: 25, referenceCount: 50 },
   },
   bands: { low: 0.05, medium: 0.25, high: 0.5, critical: 0.75 },
-  rollup: { windowSeconds: 60, decayPerWindow: 0.5, velocityNormalizer: 3.0 },
+  rollup: { windowSeconds: 60, decayPerWindow: 0.5, velocityNormalizer: 3.0, frequencyRules: [] },
 };
 
 /**
@@ -271,26 +318,112 @@ export function scoreRiskSignals(
 }
 
 /**
+ * Validates configured frequency rules before any scoring runs. Fails closed on
+ * malformed rules (empty/blank action lists, non-positive windows, fractional
+ * or sub-1 thresholds, negative or non-finite boosts) so a corrupt rule can
+ * never silently disable or skew burst detection.
+ */
+function assertFrequencyRules(rules: EpisodeFrequencyRule[]): void {
+  for (const rule of rules) {
+    if (
+      !Array.isArray(rule.actions) ||
+      rule.actions.length === 0 ||
+      rule.actions.some((action) => typeof action !== "string" || action.length === 0)
+    ) {
+      throw new TypeError("frequencyRules[].actions must be a non-empty array of non-empty strings");
+    }
+    if (typeof rule.windowSeconds !== "number" || !Number.isFinite(rule.windowSeconds) || rule.windowSeconds <= 0) {
+      throw new TypeError("frequencyRules[].windowSeconds must be a finite number greater than 0");
+    }
+    if (typeof rule.threshold !== "number" || !Number.isInteger(rule.threshold) || rule.threshold < 1) {
+      throw new TypeError("frequencyRules[].threshold must be an integer greater than or equal to 1");
+    }
+    if (typeof rule.boost !== "number" || !Number.isFinite(rule.boost) || rule.boost < 0) {
+      throw new TypeError("frequencyRules[].boost must be a finite number greater than or equal to 0");
+    }
+  }
+}
+
+/**
+ * Evaluates every configured frequency rule against the time-sorted steps using
+ * an inclusive two-pointer sliding window (endMs - startMs <= windowSeconds *
+ * 1000) over the steps whose action exact-matches the rule. Each rule fires at
+ * most once per episode; frequencyScore is the clamped round4 sum of fired
+ * boosts. Pure integer/compare math so TS/Python/Go agree byte-for-byte.
+ */
+function evaluateFrequencyRules(
+  sorted: EpisodeRiskStep[],
+  rules: EpisodeFrequencyRule[],
+): { frequencyScore: number; frequencyMatches: FrequencyRuleMatch[] } {
+  let boostSum = 0;
+  const frequencyMatches = rules.map((rule) => {
+    const timesMs: number[] = [];
+    for (const step of sorted) {
+      if (step.action !== undefined && rule.actions.includes(step.action)) {
+        timesMs.push(Date.parse(step.occurredAt));
+      }
+    }
+    let maxCount = 0;
+    let start = 0;
+    for (let end = 0; end < timesMs.length; end++) {
+      const endMs = timesMs[end] as number;
+      while (endMs - (timesMs[start] as number) > rule.windowSeconds * 1000) start++;
+      const count = end - start + 1;
+      if (count > maxCount) maxCount = count;
+    }
+    const fired = maxCount >= rule.threshold;
+    if (fired) boostSum += rule.boost;
+    return {
+      actions: [...rule.actions],
+      windowSeconds: rule.windowSeconds,
+      threshold: rule.threshold,
+      count: maxCount,
+      fired,
+      boost: fired ? rule.boost : 0,
+    };
+  });
+  return { frequencyScore: clamp01(round4(boostSum)), frequencyMatches };
+}
+
+/**
  * Rolls a sequence of per-step scores into one episode score. Steps are sorted
  * by occurredAt ascending (non-mutating copy); momentum carries forward with
  * integer-window decay (decayPerWindow applied via repeated multiply, never
  * pow) so a burst of risky steps escalates while quiet gaps cool off.
  * Non-positive gaps clamp to zero windows (full carry). Returns peak (max raw
  * step score), velocityScore (normalized peak momentum), and the banded rollup.
+ *
+ * When the policy configures frequency rules, each rule is evaluated over the
+ * sorted steps' optional `action` keys and the episode score becomes
+ * clamp01(round4(max(peak, velocityScore, frequencyScore))). With no rules the
+ * function takes literally the pre-frequency code path and emits no frequency
+ * fields, keeping existing conformance fixtures and hash anchors byte-stable.
  */
 export function rollupEpisodeRisk(
-  steps: { occurredAt: string; score: number }[],
+  steps: EpisodeRiskStep[],
   policy: RiskScoringPolicy = DEFAULT_RISK_POLICY,
 ): EpisodeRiskRollup {
+  // Older hand-built policies may predate rollup.frequencyRules; absent means none.
+  const frequencyRules = policy.rollup.frequencyRules ?? [];
+  assertFrequencyRules(frequencyRules);
+
   if (steps.length === 0) {
-    return {
+    // bandOf(0) (not a hardcoded "none") keeps parity with Python/Go for
+    // hand-built policies whose bands.low is <= 0.
+    const empty: EpisodeRiskRollup = {
       score: 0,
-      level: "none",
+      level: bandOf(0, policy.bands),
       peak: 0,
       velocityScore: 0,
       stepCount: 0,
       policyVersion: policy.policyVersion,
     };
+    if (frequencyRules.length > 0) {
+      const { frequencyScore, frequencyMatches } = evaluateFrequencyRules([], frequencyRules);
+      empty.frequencyScore = frequencyScore;
+      empty.frequencyMatches = frequencyMatches;
+    }
+    return empty;
   }
 
   const sorted = [...steps].sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
@@ -312,6 +445,20 @@ export function rollupEpisodeRisk(
   }
 
   const velocityScore = clamp01(round4(maxMomentum / velocityNormalizer));
+  if (frequencyRules.length > 0) {
+    const { frequencyScore, frequencyMatches } = evaluateFrequencyRules(sorted, frequencyRules);
+    const score = clamp01(round4(Math.max(peak, velocityScore, frequencyScore)));
+    return {
+      score,
+      level: bandOf(score, policy.bands),
+      peak,
+      velocityScore,
+      stepCount: sorted.length,
+      policyVersion: policy.policyVersion,
+      frequencyScore,
+      frequencyMatches,
+    };
+  }
   const score = clamp01(round4(Math.max(peak, velocityScore)));
   return {
     score,
@@ -348,3 +495,10 @@ function decayForGap(deltaMs: number, windowSeconds: number, decayPerWindow: num
 export function withRiskSignals(metadata: Record<string, unknown>, signals: RiskSignals): Record<string, unknown> {
   return { ...metadata, riskSignals: normalizeRiskSignals(signals) };
 }
+
+// Temperature-derived policies live in ./risk-policy (crypto-free, uses only
+// this module's types + round4) and are re-exported here so the browser-safe
+// `@veritio/core/risk-score` subpath exposes riskPolicy without extra imports.
+// The import cycle is benign: risk-policy only references these bindings at
+// call time, never during module evaluation.
+export * from "./risk-policy.js";

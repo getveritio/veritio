@@ -55,6 +55,15 @@ delivery target for the same records.
   scoped keys. Cloudflare Worker/Pages/R2/D1 deployment readiness is owned by
   `veritio-cloud`, not this OSS example.
 
+## Risk Scoring
+
+- `risk-scoring-walkthrough` is the deterministic, tested tour of the risk
+  surface: per-step scoring, episode rollups, temperature-derived policies
+  (`riskPolicy`), per-action frequency rules (a failed-login burst recorded
+  through the real `@veritio/better-auth` adapter escalates to `critical`
+  while the same actions spread out stay `low`), and `security.risk`
+  assertions with stable canonical hashes.
+
 ## Integrity and Agent-Capture Showcases
 
 - `verify-tamper-detection` shows the core TypeScript integrity story:
