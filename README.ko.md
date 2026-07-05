@@ -1,6 +1,6 @@
 # Veritio
 
-[English](README.md) | **한국어**
+[English](README.md) | **한국어** | [简体中文](README.zh-CN.md)
 
 > 이 문서는 영어 [README](README.md)의 요약 번역본입니다. 내용이 다를 경우 영어
 > 문서가 우선하며, 프로토콜·패키지 세부 사항은 영어 문서를 참조해 주세요.
