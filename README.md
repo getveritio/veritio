@@ -1,6 +1,6 @@
 # Veritio
 
-**English** | [한국어](README.ko.md)
+**English** | [한국어](README.ko.md) | [简体中文](README.zh-CN.md)
 
 Veritio is a protocol-first open-source evidence layer for application audit
 trails, consent history events, data subject workflow evidence, retention

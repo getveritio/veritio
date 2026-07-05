@@ -107,9 +107,10 @@ If a claim depends on a hosted provider feature, self-hosted server feature, or 
 
 ## Translations
 
-The English `README.md` is the authoritative document. A Korean translation
-lives at `README.ko.md` and may lag behind English. Community translations into
-other languages (for example 中文 or 日本語) are welcome as PRs: follow the same
+The English `README.md` is the authoritative document. Korean (`README.ko.md`)
+and Simplified Chinese (`README.zh-CN.md`) translations live alongside it and
+may lag behind English. Community translations into other languages (for
+example 日本語) are welcome as PRs: follow the same
 structure as `README.ko.md` — translate the stable top slice (intro, install,
 quick start, Workbench) and link back to the English README for fast-moving
 sections such as the package map and protocol invariants. Keep the "English is
