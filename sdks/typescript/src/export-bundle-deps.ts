@@ -61,7 +61,7 @@ export interface ChainVerificationResult {
  * records parsed from an untrusted bundle; verification re-hashes them.
  */
 export function verifyAuditChain(records: unknown[]): ChainVerificationResult {
-  return toChainResult(verifyAuditRecords(records as readonly AuditRecord[]));
+  return runChainVerifier(() => verifyAuditRecords(records as readonly AuditRecord[]));
 }
 
 /**
@@ -69,7 +69,7 @@ export function verifyAuditChain(records: unknown[]): ChainVerificationResult {
  * {@link verifyAuditChain}, over `verifyEvidenceEdgeRecords`.
  */
 export function verifyEdgeChain(records: unknown[]): ChainVerificationResult {
-  return toChainResult(verifyEvidenceEdgeRecords(records as readonly EvidenceEdgeRecord[]));
+  return runChainVerifier(() => verifyEvidenceEdgeRecords(records as readonly EvidenceEdgeRecord[]));
 }
 
 /**
@@ -77,7 +77,24 @@ export function verifyEdgeChain(records: unknown[]): ChainVerificationResult {
  * {@link verifyAuditChain}, over `verifyEvidenceCommits`.
  */
 export function verifyCommitChain(records: unknown[]): ChainVerificationResult {
-  return toChainResult(verifyEvidenceCommits(records as readonly EvidenceCommit[]));
+  return runChainVerifier(() => verifyEvidenceCommits(records as readonly EvidenceCommit[]));
+}
+
+/**
+ * Runs a core verifier and normalizes it to the shim's `{ valid, issues? }`
+ * shape, failing closed if the verifier throws. Callers pass records parsed from
+ * an untrusted bundle, and the core verifiers guard some — but not all —
+ * structurally malformed records (a record missing its `event`/`edge`/commit
+ * envelope throws rather than returning a verdict). Treating any throw as an
+ * invalid chain keeps this shim's untrusted-input contract intact without
+ * leaking raw error text into the issue payload.
+ */
+function runChainVerifier(run: () => { ok: boolean }): ChainVerificationResult {
+  try {
+    return toChainResult(run());
+  } catch {
+    return { valid: false, issues: [{ reason: "verifier_threw" }] };
+  }
 }
 
 /**
