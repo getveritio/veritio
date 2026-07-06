@@ -76,3 +76,15 @@ test("annex files join manifest.files and files keys map 1:1", async () => {
   expect(manifestPaths).toContain("annex/pack_a.json");
   expect(manifestPaths).toContain("annex/pack_b.json");
 });
+
+test("duplicate annex packId fails closed", async () => {
+  await expect(
+    buildExportBundle({
+      ...buildInput,
+      annex: [
+        { packId: "pack_dup", version: "1", entries: [{ dutyId: "duty_1", recordIds: ["r1"] }] },
+        { packId: "pack_dup", version: "2", entries: [{ dutyId: "duty_2", recordIds: ["r2"] }] },
+      ],
+    }),
+  ).rejects.toThrow(/duplicate annex packId/);
+});

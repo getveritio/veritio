@@ -169,6 +169,19 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
       })
     : undefined;
 
+  // Fail closed on duplicate annex packIds: two packs sharing a packId would map
+  // to one `annex/<packId>.json` key (last write wins) while manifest.files and
+  // manifest.annex keep both, breaking the manifest↔files 1:1 invariant.
+  if (sortedAnnex) {
+    const seen = new Set<string>();
+    for (const pack of sortedAnnex) {
+      if (seen.has(pack.packId)) {
+        throw new Error(`export bundle: duplicate annex packId "${pack.packId}"`);
+      }
+      seen.add(pack.packId);
+    }
+  }
+
   const trackedFiles: { path: string; content: string; records: number }[] = [
     { path: "records/audit-events.jsonl", content: serializeRecords(input.events), records: input.events.length },
     { path: "records/evidence-edges.jsonl", content: serializeRecords(input.edges), records: input.edges.length },
