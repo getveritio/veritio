@@ -592,4 +592,19 @@ describe("MCP JSON-RPC handler", () => {
     );
     expect(response.error.message).toBe("createdAt is required");
   });
+
+  test("create_export_bundle rejects a non-ISO createdAt", async () => {
+    const store = new LocalEvidenceStore();
+    const response = await handleMcpRequest(
+      store,
+      {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "veritio.create_export_bundle", arguments: { tenantId, createdAt: "07/06/2026" } },
+      },
+      { allowWriteTools: true },
+    );
+    expect(response.error.message).toBe("createdAt must be an ISO-8601 timestamp");
+  });
 });

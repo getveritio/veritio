@@ -1583,7 +1583,7 @@ export async function handleMcpRequest(
         return rpcResult(id, {
           bundle: await store.createExportBundle(
             { tenantId: requireTenantArg(args) },
-            { createdAt: requireString(args.createdAt, "createdAt") },
+            { createdAt: requireIsoTimestamp(args.createdAt, "createdAt") },
           ),
         });
       default:
@@ -2028,6 +2028,21 @@ function requireString(value: unknown, field: string): string {
     throw new TypeError(`${field} is required`);
   }
   return value;
+}
+
+const ISO_8601_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Requires an ISO-8601 timestamp so `createdAt` cannot poison a bundle's
+ * canonical manifest. Accepts `Z` or a numeric UTC offset and fails closed on
+ * any other string with the tool's sanitized invalid-argument message.
+ */
+function requireIsoTimestamp(value: unknown, field: string): string {
+  const text = requireString(value, field);
+  if (!ISO_8601_TIMESTAMP.test(text) || !Number.isFinite(Date.parse(text))) {
+    throw new TypeError(`${field} must be an ISO-8601 timestamp`);
+  }
+  return text;
 }
 
 /**

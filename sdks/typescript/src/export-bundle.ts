@@ -177,6 +177,9 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
   if (sortedAnnex) {
     const seen = new Set<string>();
     for (const pack of sortedAnnex) {
+      if (!/^[\x20-\x7E]+$/.test(pack.packId)) {
+        throw new Error("export bundle: annex packId must be printable ASCII");
+      }
       if (seen.has(pack.packId)) {
         throw new Error(`export bundle: duplicate annex packId "${pack.packId}"`);
       }

@@ -16,7 +16,9 @@ test("shim: canonical json is key-sorted and stable", () => {
 });
 
 test("shim: sha256Hex known vector", async () => {
-  expect(await sha256Hex("veritio")).toMatch(/^[0-9a-f]{64}$/);
+  const digest = await sha256Hex("veritio");
+  expect(digest).toMatch(/^[0-9a-f]{64}$/);
+  expect(digest).toBe("52697555d7348e7b9fac530bb016338c1e471022818d61c1282e637bd9e1a393");
 });
 
 test("rootHash is order-insensitive over file entries", async () => {
@@ -96,6 +98,15 @@ test("duplicate annex packId fails closed", async () => {
       ],
     }),
   ).rejects.toThrow(/duplicate annex packId/);
+});
+
+test("non-ASCII annex packId fails closed", async () => {
+  await expect(
+    buildExportBundle({
+      ...buildInput,
+      annex: [{ packId: "pack_é", version: "1", entries: [{ dutyId: "duty_1", recordIds: ["r1"] }] }],
+    }),
+  ).rejects.toThrow(/annex packId must be printable ASCII/);
 });
 
 test("serialize/parse round-trips a built bundle", async () => {
@@ -363,4 +374,7 @@ test("conformance: tampered bundle fails verification", async () => {
   const publicKey = await importFixturePublicKey(fixture.publicKeyHex);
   const report = await verifyExportBundle(fixture.bundle, { publicKey });
   expect(report.valid).toBe(false);
+  expect(report.checks.signature).toBe("valid");
+  expect(report.checks.integrity).toBe(false);
+  expect(report.checks.chains).toBe(false);
 });
