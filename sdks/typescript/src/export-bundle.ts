@@ -228,3 +228,56 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
 
   return { bundleVersion: "vevb-1", manifest, files };
 }
+
+/**
+ * Serializes a full {@link ExportBundle} into its single-file container form:
+ * the canonical JSON of the entire bundle. Routing through {@link canonicalJson}
+ * (rather than `JSON.stringify`) keeps the container bytes deterministic and
+ * key-sorted, so the same bundle always produces identical container text and a
+ * downstream signature or hash over the container is stable.
+ */
+export function serializeExportBundle(bundle: ExportBundle): string {
+  return canonicalJson(bundle);
+}
+
+/**
+ * Parses a single-file container string back into an {@link ExportBundle}.
+ *
+ * This performs only the structural checks needed to trust the container shape,
+ * not deep schema or integrity validation (the verifier owns that). It rejects,
+ * with a sanitized `Error`, text that is not valid JSON or not a JSON object
+ * (`'export bundle: invalid JSON container'`, never leaking the raw parser
+ * message), any `bundleVersion` other than `'vevb-1'`
+ * (`'export bundle: unsupported bundleVersion …'`), and a container whose
+ * `manifest` or `files` is missing or not an object
+ * (`'export bundle: missing manifest or files'`).
+ */
+export function parseExportBundle(text: string): ExportBundle {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new Error("export bundle: invalid JSON container");
+  }
+
+  if (typeof parsed !== "object" || parsed === null) {
+    throw new Error("export bundle: invalid JSON container");
+  }
+
+  const container = parsed as Record<string, unknown>;
+
+  if (container.bundleVersion !== "vevb-1") {
+    throw new Error(`export bundle: unsupported bundleVersion ${JSON.stringify(container.bundleVersion)}`);
+  }
+
+  if (
+    typeof container.manifest !== "object" ||
+    container.manifest === null ||
+    typeof container.files !== "object" ||
+    container.files === null
+  ) {
+    throw new Error("export bundle: missing manifest or files");
+  }
+
+  return parsed as ExportBundle;
+}

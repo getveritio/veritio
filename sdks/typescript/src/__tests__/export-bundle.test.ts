@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildExportBundle, computeRootHash } from "../export-bundle";
+import { buildExportBundle, computeRootHash, parseExportBundle, serializeExportBundle } from "../export-bundle";
 import { canonicalJson, sha256Hex } from "../export-bundle-deps";
 
 test("shim: canonical json is key-sorted and stable", () => {
@@ -87,4 +87,37 @@ test("duplicate annex packId fails closed", async () => {
       ],
     }),
   ).rejects.toThrow(/duplicate annex packId/);
+});
+
+test("serialize/parse round-trips a built bundle", async () => {
+  const built = await buildExportBundle(buildInput);
+  expect(parseExportBundle(serializeExportBundle(built))).toEqual(built);
+});
+
+test("serialize emits canonical JSON of the whole container", async () => {
+  const built = await buildExportBundle(buildInput);
+  expect(serializeExportBundle(built)).toBe(canonicalJson(built));
+});
+
+test("parse rejects unknown bundleVersion", () => {
+  expect(() => parseExportBundle(JSON.stringify({ bundleVersion: "vevb-9", manifest: {}, files: {} }))).toThrow(
+    /unsupported bundleVersion/,
+  );
+});
+
+test("parse rejects invalid JSON container", () => {
+  expect(() => parseExportBundle("not json")).toThrow("export bundle: invalid JSON container");
+});
+
+test("parse rejects a non-object container", () => {
+  expect(() => parseExportBundle("42")).toThrow("export bundle: invalid JSON container");
+});
+
+test("parse rejects a container missing manifest or files", () => {
+  expect(() => parseExportBundle(JSON.stringify({ bundleVersion: "vevb-1", files: {} }))).toThrow(
+    "export bundle: missing manifest or files",
+  );
+  expect(() => parseExportBundle(JSON.stringify({ bundleVersion: "vevb-1", manifest: {} }))).toThrow(
+    "export bundle: missing manifest or files",
+  );
 });
