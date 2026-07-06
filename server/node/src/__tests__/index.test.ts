@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseExportBundle, verifyExportBundle } from "@veritio/core";
 import {
   LocalEvidenceStore,
   type SecurityRiskAssertion,
@@ -540,5 +541,55 @@ describe("MCP JSON-RPC handler", () => {
 
     expect(response.result.verification.ok).toBe(true);
     expect(response.result.exportPreview.manifest.recordCounts).toEqual({ events: 9, edges: 14, commits: 0 });
+  });
+
+  test("create_export_bundle emits a verifiable vevb-1 bundle only when write tools are enabled", async () => {
+    const store = new LocalEvidenceStore();
+    await store.recordEvent(eventInput(), { idempotencyKey: "invite:usr_123" });
+    await store.recordEdge(edgeInput(), { idempotencyKey: "edge:usr_123:evt_local_01" });
+
+    const blocked = await handleMcpRequest(store, {
+      jsonrpc: "2.0",
+      id: 6,
+      method: "tools/call",
+      params: { name: "veritio.create_export_bundle", arguments: { tenantId, createdAt: "2026-07-06T00:00:00.000Z" } },
+    });
+    expect(blocked.error.message).toBe("MCP write tools are disabled");
+
+    const response = await handleMcpRequest(
+      store,
+      {
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: { name: "veritio.create_export_bundle", arguments: { tenantId, createdAt: "2026-07-06T00:00:00.000Z" } },
+      },
+      { allowWriteTools: true },
+    );
+
+    const bundle = parseExportBundle(response.result.bundle as string);
+    expect(bundle.bundleVersion).toBe("vevb-1");
+    expect(bundle.manifest.createdAt).toBe("2026-07-06T00:00:00.000Z");
+    expect(bundle.manifest.scope.tenantId).toBe(tenantId);
+    expect(bundle.manifest.producer.type).toBe("service");
+
+    const report = await verifyExportBundle(bundle);
+    expect(report.valid).toBe(true);
+    expect(report.checks.signature).toBe("absent");
+  });
+
+  test("create_export_bundle requires an explicit createdAt", async () => {
+    const store = new LocalEvidenceStore();
+    const response = await handleMcpRequest(
+      store,
+      {
+        jsonrpc: "2.0",
+        id: 8,
+        method: "tools/call",
+        params: { name: "veritio.create_export_bundle", arguments: { tenantId } },
+      },
+      { allowWriteTools: true },
+    );
+    expect(response.error.message).toBe("createdAt is required");
   });
 });

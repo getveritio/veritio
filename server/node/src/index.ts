@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import {
   HASH_ALGORITHM,
+  buildExportBundle,
   canonicalJson,
   createAuditEvent,
   createEvidenceCommit,
@@ -13,6 +14,7 @@ import {
   hashAuditRecord,
   hashEvidenceEdgeRecord,
   hashIdempotencyKey,
+  serializeExportBundle,
   verifyAuditRecords,
   verifyEvidenceCommits,
   verifyEvidenceEdgeRecords,
@@ -211,6 +213,18 @@ export interface McpHandlerOptions {
 
 const REDACTION_RULE =
   "metadata keys matching password|secret|token|api[_-]?key|authorization|email|phone|ssn are replaced with [redacted]";
+
+/**
+ * The service principal this local server records as the producer of every
+ * vevb-1 export bundle it emits, mirroring the `veritio-local` identity it
+ * advertises over MCP `initialize`.
+ */
+const EXPORT_BUNDLE_PRODUCER = {
+  authority: "veritio-local",
+  kind: "principal",
+  type: "service",
+  id: "veritio-local",
+} as const;
 
 const READ_TOOLS = [
   "veritio.list_events",
@@ -698,6 +712,35 @@ export class LocalEvidenceStore {
       verificationReport: verification,
       redactionManifest,
     };
+  }
+
+  /**
+   * Assembles a portable vevb-1 export bundle from all tenant-scoped evidence and
+   * returns its serialized single-file container. Selection mirrors
+   * {@link previewExportBundle}: tenant audit events and edges plus every local
+   * commit. `createdAt` is supplied by the caller so the build stays fully
+   * deterministic — the SDK builder never reads a clock — and the producer is this
+   * server's own service principal. The bundle is unsigned, so an offline verifier
+   * reports its signature as `absent`.
+   */
+  async createExportBundle(
+    scope: EvidenceScope & { tenantId: string },
+    options: { createdAt: string },
+  ): Promise<string> {
+    const tenantId = requireTenantId(scope, "scope.tenantId");
+    const events = await this.listEvents({ tenantId });
+    const edges = await this.listEdges({ tenantId });
+    const commits = await this.listCommits();
+    const bundle = await buildExportBundle({
+      scope: { tenantId },
+      range: exportBundleRange(events, edges, commits, options.createdAt),
+      producer: EXPORT_BUNDLE_PRODUCER,
+      createdAt: options.createdAt,
+      events,
+      edges,
+      commits,
+    });
+    return serializeExportBundle(bundle);
   }
 
   /**
@@ -1537,7 +1580,12 @@ export async function handleMcpRequest(
         await store.reset();
         return rpcResult(id, { ok: true });
       case "veritio.create_export_bundle":
-        return rpcResult(id, await store.previewExportBundle({ tenantId: requireTenantArg(args) }));
+        return rpcResult(id, {
+          bundle: await store.createExportBundle(
+            { tenantId: requireTenantArg(args) },
+            { createdAt: requireString(args.createdAt, "createdAt") },
+          ),
+        });
       default:
         return rpcError(id, -32602, `Unknown MCP tool: ${name}`);
     }
@@ -1947,6 +1995,32 @@ function requireTenantArg(args: Record<string, unknown>): string {
 }
 
 /**
+ * Derives an export bundle's `[from, to]` window from the ISO timestamps of the
+ * selected records (audit `occurredAt`, edge `occurredAt`, commit `committedAt`).
+ * All timestamps are canonical UTC ISO-8601, so a lexical min/max is a correct
+ * chronological bound. An empty selection falls back to `createdAt` for both
+ * ends, keeping the range valid without inventing a wider window.
+ */
+function exportBundleRange(
+  events: AuditRecord[],
+  edges: EvidenceEdgeRecord[],
+  commits: EvidenceCommit[],
+  createdAt: string,
+): { from: string; to: string } {
+  const timestamps = [
+    ...events.map((record) => record.event.occurredAt),
+    ...edges.map((record) => record.edge.occurredAt),
+    ...commits.map((commit) => commit.committedAt),
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .sort();
+  return {
+    from: timestamps[0] ?? createdAt,
+    to: timestamps[timestamps.length - 1] ?? createdAt,
+  };
+}
+
+/**
  * Requires a non-empty string from untrusted request or tool input.
  */
 function requireString(value: unknown, field: string): string {
@@ -2280,6 +2354,8 @@ function toolDescription(name: string): string {
       return "Record local audit events and graph edges with an EvidenceCommit when write tools are enabled.";
     case "veritio.reset_dev_store":
       return "Clear the local development evidence store.";
+    case "veritio.create_export_bundle":
+      return "Emit a portable, verifiable vevb-1 evidence export bundle when write tools are enabled.";
     default:
       return `Read local evidence through ${name}.`;
   }
