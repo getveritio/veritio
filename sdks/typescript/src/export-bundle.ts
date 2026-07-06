@@ -153,11 +153,21 @@ function serializeRecords(records: unknown[]): string {
  * verifiers over the raw inputs and stores their `{ audit, edges, commits }`
  * verdicts as canonical JSON in `verification.json`; hashes every file with
  * {@link sha256Hex}; and binds the file entries with {@link computeRootHash}.
- * Optional annex packs are written to `annex/<packId>.json` (sorted by `packId`)
- * and referenced from `manifest.annex`. The returned bundle is unsigned.
+ * Optional annex packs are written to `annex/<packId>.json` (sorted by `packId`),
+ * listed in `manifest.files` like every other file so they are covered by
+ * `rootHash`, and summarized in `manifest.annex` as `{ packId, version }`. The
+ * returned bundle is unsigned.
  */
 export async function buildExportBundle(input: ExportBundleInput): Promise<ExportBundle> {
   const commits = input.commits ?? [];
+
+  const sortedAnnex = input.annex
+    ? [...input.annex].sort((left, right) => {
+        if (left.packId < right.packId) return -1;
+        if (left.packId > right.packId) return 1;
+        return 0;
+      })
+    : undefined;
 
   const trackedFiles: { path: string; content: string; records: number }[] = [
     { path: "records/audit-events.jsonl", content: serializeRecords(input.events), records: input.events.length },
@@ -172,25 +182,16 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
       }),
       records: 0,
     },
+    ...(sortedAnnex ?? []).map((pack) => ({
+      path: `annex/${pack.packId}.json`,
+      content: canonicalJson(pack),
+      records: pack.entries.length,
+    })),
   ];
 
   const files: Record<string, string> = {};
   for (const file of trackedFiles) {
     files[file.path] = file.content;
-  }
-
-  const sortedAnnex = input.annex
-    ? [...input.annex].sort((left, right) => {
-        if (left.packId < right.packId) return -1;
-        if (left.packId > right.packId) return 1;
-        return 0;
-      })
-    : undefined;
-
-  if (sortedAnnex) {
-    for (const pack of sortedAnnex) {
-      files[`annex/${pack.packId}.json`] = canonicalJson(pack);
-    }
   }
 
   const manifestFiles: ExportBundleFileEntry[] = await Promise.all(

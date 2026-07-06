@@ -41,3 +41,38 @@ test("build is deterministic and lists all fixed paths", async () => {
   expect(one.files["records/audit-events.jsonl"].endsWith("\n")).toBe(true);
   expect(one.manifest.files.find((f) => f.path === "records/audit-events.jsonl")?.records).toBe(2);
 });
+
+test("annex files join manifest.files and files keys map 1:1", async () => {
+  const bundle = await buildExportBundle({
+    ...buildInput,
+    annex: [
+      { packId: "pack_b", version: "1", entries: [{ dutyId: "duty_1", recordIds: ["r1"] }] },
+      {
+        packId: "pack_a",
+        version: "2",
+        entries: [
+          { dutyId: "duty_2", recordIds: ["r2", "r3"] },
+          { dutyId: "duty_3", recordIds: ["r4"] },
+        ],
+      },
+    ],
+  });
+
+  const annexEntry = bundle.manifest.files.find((f) => f.path === "annex/pack_a.json");
+  expect(annexEntry).toBeDefined();
+  expect(annexEntry?.records).toBe(2);
+  expect(annexEntry?.sha256).toMatch(/^[0-9a-f]{64}$/);
+
+  // manifest.annex stays a { packId, version } summary, sorted by packId.
+  expect(bundle.manifest.annex).toEqual([
+    { packId: "pack_a", version: "2" },
+    { packId: "pack_b", version: "1" },
+  ]);
+
+  // Every manifest path has exactly one file entry, and vice versa (1:1).
+  const manifestPaths = bundle.manifest.files.map((f) => f.path).sort();
+  const fileKeys = Object.keys(bundle.files).sort();
+  expect(fileKeys).toEqual(manifestPaths);
+  expect(manifestPaths).toContain("annex/pack_a.json");
+  expect(manifestPaths).toContain("annex/pack_b.json");
+});
