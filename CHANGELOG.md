@@ -6,6 +6,10 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.0] - 2026-07-07
+
 ### Added
 
 - Evidence export bundles (`vevb-1`): a portable, offline-verifiable container
