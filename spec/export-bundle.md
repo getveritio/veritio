@@ -69,7 +69,9 @@ whether any records are present.
 
 **JSONL payload rule.** A `records/*.jsonl` payload is each record serialized as
 its own `veritio-json-v1` line, joined by `\n`, with a single trailing `\n`. A
-record file's `records` count is the number of record lines.
+record file's `records` count is the number of record lines. The builder
+serializes the caller-provided record *objects* with `veritio-json-v1` canonical
+JSON; a record already stored canonically therefore round-trips byte-identically.
 
 **Empty-file rule.** A record file with zero records serializes to the empty
 string `""` (no lone `\n`), and its manifest `records` count is `0`. The file is
