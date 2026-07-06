@@ -1,4 +1,6 @@
+import { join } from "node:path";
 import { expect, test } from "bun:test";
+import type { ExportBundle } from "../export-bundle";
 import {
   buildExportBundle,
   computeRootHash,
@@ -309,4 +311,56 @@ test("a nullish manifest.files entry fails closed instead of throwing", async ()
   expect(report.valid).toBe(false);
   expect(report.checks.integrity).toBe(false);
   expect(report.issues).toContain("rootHash could not be computed");
+});
+
+// Pinned cross-implementation conformance: the golden and tampered fixtures in
+// spec/conformance are committed bytes (never regenerated in CI). The golden
+// bundle is a complete SIGNED vevb-1 container over real record envelopes; the
+// tampered fixture is the same bytes with a single record byte flipped. Both
+// carry the RAW verifying public key as hex (never the private key) so any
+// implementation can reproduce the verdict offline.
+const CONFORMANCE_DIR = join(import.meta.dir, "../../../../spec/conformance");
+
+interface ExportBundleConformanceFixture {
+  publicKeyHex: string;
+  bundle: ExportBundle;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(hex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+async function importFixturePublicKey(hex: string): Promise<CryptoKey> {
+  const bytes = hexToBytes(hex);
+  const buffer = new ArrayBuffer(bytes.length);
+  new Uint8Array(buffer).set(bytes);
+  return crypto.subtle.importKey("raw", buffer, "Ed25519", true, ["verify"]);
+}
+
+async function loadExportBundleFixture(fileName: string): Promise<ExportBundleConformanceFixture> {
+  return (await Bun.file(join(CONFORMANCE_DIR, fileName)).json()) as ExportBundleConformanceFixture;
+}
+
+test("conformance: golden bundle parses and verifies as signed + valid", async () => {
+  const fixture = await loadExportBundleFixture("export-bundle-golden.json");
+  // Prove the pinned bundle survives the container parser, then verify it against
+  // the fixture's own public key imported from raw hex.
+  const bundle = parseExportBundle(serializeExportBundle(fixture.bundle));
+  expect(bundle).toEqual(fixture.bundle);
+
+  const publicKey = await importFixturePublicKey(fixture.publicKeyHex);
+  const report = await verifyExportBundle(bundle, { publicKey });
+  expect(report.checks.signature).toBe("valid");
+  expect(report.valid).toBe(true);
+});
+
+test("conformance: tampered bundle fails verification", async () => {
+  const fixture = await loadExportBundleFixture("export-bundle-tampered.json");
+  const publicKey = await importFixturePublicKey(fixture.publicKeyHex);
+  const report = await verifyExportBundle(fixture.bundle, { publicKey });
+  expect(report.valid).toBe(false);
 });

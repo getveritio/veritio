@@ -134,6 +134,42 @@ MCP read tools are available by default. Write tools such as
 `veritio.record_event`, `veritio.record_edge`, and `veritio.reset_dev_store`
 are hidden unless the CLI is started with `--allow-write-tools`.
 
+## Export bundles
+
+A Veritio Evidence Export Bundle (`vevb-1`) is a portable, offline-verifiable
+container: a signed manifest indexing tamper-evident record files. Build one from
+raw records, optionally sign it with Ed25519, and verify it anywhere without a
+network or authority call. The format is normative in
+[`spec/export-bundle.md`](spec/export-bundle.md), pinned by
+`spec/export-bundle.schema.json` and the golden/tampered conformance fixtures.
+
+```ts
+import { buildExportBundle, signExportBundle, serializeExportBundle } from "@veritio/core";
+
+const bundle = await buildExportBundle({
+  scope: { tenantId: "org_123" },
+  range: { from: "2026-07-01T00:00:00Z", to: "2026-07-02T00:00:00Z" },
+  producer: { authority: "veritio", kind: "principal", type: "service", id: "svc_export" },
+  createdAt: "2026-07-05T00:00:00Z", // caller-supplied: the build reads no clock
+  events: auditRecords,
+  edges: edgeRecords,
+});
+
+const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+await Bun.write("bundle.json", serializeExportBundle(signed));
+```
+
+Verify offline with the CLI, passing the raw Ed25519 public key (raw 32-byte,
+hex, or base64):
+
+```sh
+veritio verify-bundle bundle.json --public-key key.hex --require-signature
+```
+
+It prints per-gate `structure` / `integrity` / `chains` / `signature` results and
+a final `VALID` / `INVALID`, and exits non-zero when the bundle does not verify.
+
 ## Protocol Invariants
 
 The public protocol lives in `spec/` and conformance fixtures live in

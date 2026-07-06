@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://getveritio.com/spec/export-bundle.schema.json",
+  "title": "Veritio Evidence Export Bundle v1 (vevb-1)",
+  "description": "Portable, offline-verifiable export container: a signed manifest indexing tamper-evident record files. See spec/export-bundle.md for the normative construction and verification rules.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bundleVersion", "manifest", "files"],
+  "properties": {
+    "bundleVersion": {
+      "const": "vevb-1"
+    },
+    "manifest": {
+      "$ref": "#/$defs/manifest"
+    },
+    "files": {
+      "type": "object",
+      "description": "Bundle-relative path -> exact serialized file payload. Keys map 1:1 with manifest.files; each value is the exact bytes hashed into that manifest entry.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "signature": {
+      "$ref": "#/$defs/signature"
+    }
+  },
+  "$defs": {
+    "sha256Hex": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "Lowercase-hex SHA-256 (bare, not algorithm-qualified)."
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bundleVersion", "createdAt", "scope", "range", "producer", "files", "rootHash"],
+      "properties": {
+        "bundleVersion": {
+          "const": "vevb-1"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Caller-supplied build timestamp. The builder never reads a clock, so this is deterministic per input."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tenantId"],
+          "properties": {
+            "tenantId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "environment": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "range": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["from", "to"],
+          "properties": {
+            "from": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "to": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "producer": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority", "kind", "type", "id"],
+          "properties": {
+            "authority": {
+              "type": "string",
+              "minLength": 1
+            },
+            "kind": {
+              "const": "principal"
+            },
+            "type": {
+              "type": "string",
+              "enum": ["service", "user"]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "files": {
+          "type": "array",
+          "description": "Every record file in the bundle. Sorted by path (UTF-16 code-unit order) before rootHash is computed.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "sha256", "records"],
+            "properties": {
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Bundle-relative file path and the stable sort key for rootHash."
+              },
+              "sha256": {
+                "$ref": "#/$defs/sha256Hex"
+              },
+              "records": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "rootHash": {
+          "$ref": "#/$defs/sha256Hex",
+          "description": "sha256Hex(canonicalJson(files sorted by path)) — binds the file set, order-insensitively."
+        },
+        "annex": {
+          "type": "array",
+          "description": "Summary of attached evidence packs; each pack also has its own file entry under annex/<packId>.json.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["packId", "version"],
+            "properties": {
+              "packId": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[\\x20-\\x7E]+$",
+                "description": "ASCII printable only. packId is embedded in a file path and participates in path ordering, so its byte space is pinned to ASCII to keep rootHash ordering unambiguous."
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "signaturePublicKeyFingerprint": {
+          "$ref": "#/$defs/sha256Hex",
+          "description": "Present only on a signed bundle. Fingerprint of the signing key; the signature covers this field."
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "publicKeyFingerprint", "signature"],
+      "properties": {
+        "algorithm": {
+          "const": "ed25519"
+        },
+        "publicKeyFingerprint": {
+          "$ref": "#/$defs/sha256Hex",
+          "description": "Lowercase-hex SHA-256 of the raw public key bytes. Must equal manifest.signaturePublicKeyFingerprint."
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+          "description": "Base64 (standard alphabet, with padding) Ed25519 signature over the manifest digest payload."
+        }
+      }
+    }
+  }
+}

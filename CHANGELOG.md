@@ -8,7 +8,25 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 
 ### Added
 
-- Nothing yet.
+- Evidence export bundles (`vevb-1`): a portable, offline-verifiable container
+  that indexes tamper-evident record files under a signed manifest.
+  `@veritio/core` gains `buildExportBundle` (deterministic, clock-free assembly
+  of audit/edge/commit records into fixed `records/*.jsonl` files plus an
+  embedded `verification.json`), `computeRootHash`, `serializeExportBundle` /
+  `parseExportBundle` (canonical single-file container), `signExportBundle`
+  (Ed25519 detached signature over the manifest digest), and
+  `verifyExportBundle` (fail-closed structure/integrity/chains/signature gates).
+- `veritio verify-bundle <file> [--public-key <path>] [--require-signature]
+  [--json]` CLI command: reads a container, runs the offline verifier, prints
+  per-gate results and a `VALID`/`INVALID` verdict, and exits non-zero on
+  failure. Public keys are accepted as raw 32-byte, hex, or base64.
+- MCP `create_export_bundle` now emits a `vevb-1` bundle.
+- Normative format spec `spec/export-bundle.md`, container/manifest/signature
+  JSON Schema `spec/export-bundle.schema.json`, and pinned conformance fixtures
+  `spec/conformance/export-bundle-golden.json` (a complete signed bundle over
+  real record envelopes) and `spec/conformance/export-bundle-tampered.json` (the
+  same bytes with one record byte flipped). Both carry the raw verifying public
+  key as hex so any implementation can reproduce the verdict offline.
 
 ## [0.2.0] - 2026-07-05
 
