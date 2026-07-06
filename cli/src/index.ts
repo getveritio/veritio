@@ -247,6 +247,15 @@ export async function runVerifyBundle(
       }
     }
     write(report.valid ? "VALID" : "INVALID");
+    if (report.valid) {
+      if (report.checks.signature === "absent") {
+        write(
+          "unsigned — integrity verified, authenticity NOT verified; pass --public-key and --require-signature to verify origin",
+        );
+      } else if (report.checks.signature === "skipped") {
+        write("signature present but not checked — pass --public-key to verify origin");
+      }
+    }
   }
 
   return { code: report.valid ? 0 : 1 };

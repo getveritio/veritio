@@ -169,6 +169,8 @@ veritio verify-bundle bundle.json --public-key key.hex --require-signature
 
 It prints per-gate `structure` / `integrity` / `chains` / `signature` results and
 a final `VALID` / `INVALID`, and exits non-zero when the bundle does not verify.
+An unsigned bundle proves internal consistency only; require signatures (a signed
+bundle plus `--public-key` and `--require-signature`) to prove its origin.
 
 ## Protocol Invariants
 

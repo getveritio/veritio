@@ -45,17 +45,16 @@ describe("runVerifyBundle", () => {
     const result = await runVerifyBundle(["verify-bundle", file], { write: (m) => output.push(m) });
     expect(result.code).toBe(0);
     expect(output.join("\n")).toContain("VALID");
+    expect(output.join("\n")).toContain("unsigned — integrity verified, authenticity NOT verified");
   });
 
   test("returns nonzero for a tampered bundle file", async () => {
     const bundle = await buildExportBundle(buildInput);
     const tampered = { ...bundle, manifest: { ...bundle.manifest, rootHash: "0".repeat(64) } };
     const file = await tempFile("bundle.json", serializeExportBundle(tampered));
-    const errors: string[] = [];
     const output: string[] = [];
     const result = await runVerifyBundle(["verify-bundle", file], {
       write: (m) => output.push(m),
-      writeError: (m) => errors.push(m),
     });
     expect(result.code).toBe(1);
     expect(output.join("\n")).toContain("INVALID");
