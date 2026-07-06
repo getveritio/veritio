@@ -148,6 +148,7 @@
         "veritio": "./dist/index.js",
       },
       "dependencies": {
+        "@veritio/core": "workspace:*",
         "@veritio/server": "workspace:*",
       },
     },

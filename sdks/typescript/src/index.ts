@@ -1152,3 +1152,19 @@ export * from "./governed-change.js";
 export * from "./provenance.js";
 export * from "./risk.js";
 export * from "./templates.js";
+export {
+  buildExportBundle,
+  computeRootHash,
+  parseExportBundle,
+  serializeExportBundle,
+  signExportBundle,
+  verifyExportBundle,
+} from "./export-bundle.js";
+export type {
+  ExportBundle,
+  ExportBundleFileEntry,
+  ExportBundleInput,
+  ExportBundleManifest,
+  ExportBundleSignature,
+  ExportBundleVerificationReport,
+} from "./export-bundle.js";

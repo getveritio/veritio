@@ -27,3 +27,6 @@ docs/proof-of-work/
 
 # Compiled example binaries (go build output named after the example dir)
 examples/gin-governed-crud/gin-governed-crud
+
+# Private strategy/brainstorming vault (Obsidian) — never committed
+/strategy/

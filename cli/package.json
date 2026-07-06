@@ -29,6 +29,7 @@
     "test": "bun run --cwd ../sdks/typescript build && bun run --cwd ../server/node build && bun test src"
   },
   "dependencies": {
+    "@veritio/core": "workspace:*",
     "@veritio/server": "workspace:*"
   }
 }

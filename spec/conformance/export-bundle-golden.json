@@ -1,0 +1,63 @@
+{
+  "name": "export-bundle-golden-v1",
+  "description": "A complete SIGNED vevb-1 export bundle over real audit + evidence-edge record envelopes. Pinned bytes: verify offline with publicKeyHex to get valid:true, signature:'valid'. The private key was discarded at generation time.",
+  "bundleVersion": "vevb-1",
+  "publicKeyHex": "483718c301dd68ee2f2b6ddf38a17b8e5d2f062d87e9a5dd7b9089ede3bb69b0",
+  "bundle": {
+    "bundleVersion": "vevb-1",
+    "manifest": {
+      "bundleVersion": "vevb-1",
+      "createdAt": "2026-07-05T00:00:00.000Z",
+      "scope": {
+        "tenantId": "org_export_fixture",
+        "workspaceId": "wks_export_fixture",
+        "environment": "test"
+      },
+      "range": {
+        "from": "2026-07-01T00:00:00.000Z",
+        "to": "2026-07-02T00:00:00.000Z"
+      },
+      "producer": {
+        "authority": "veritio",
+        "kind": "principal",
+        "type": "service",
+        "id": "svc_export_fixture"
+      },
+      "files": [
+        {
+          "path": "records/audit-events.jsonl",
+          "sha256": "4d47d55f6e97d1a6a9dc9b4c754163dade107adfba7f15fe1913982cefd5ce49",
+          "records": 2
+        },
+        {
+          "path": "records/evidence-edges.jsonl",
+          "sha256": "fd3ce6c4f20858297ce64bbd036850b8975cb1343b844de56803f2e248a9a80a",
+          "records": 1
+        },
+        {
+          "path": "records/commits.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "records": 0
+        },
+        {
+          "path": "verification.json",
+          "sha256": "fb2676ef9d83043d1e9e49c8cc57d3774dc385f1e10a7c5c4f08119d9d657361",
+          "records": 0
+        }
+      ],
+      "rootHash": "1b8a06a80fc04e25260ad385628d1a5a66596555929425a6976d1dccdb313f5f",
+      "signaturePublicKeyFingerprint": "df25874b147cd76ec0d0cabcca8ef645b6f6e4a1b87b0e6d8948fdf05eac4469"
+    },
+    "files": {
+      "records/audit-events.jsonl": "{\"appendedAt\":\"2026-07-05T00:00:00.000Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"org.member.invited\",\"actor\":{\"id\":\"usr_fixture_owner\",\"type\":\"user\"},\"id\":\"evt_export_fixture_01\",\"metadata\":{\"role\":\"viewer\"},\"occurredAt\":\"2026-07-01T09:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_export_fixture\",\"workspaceId\":\"wks_export_fixture\"},\"target\":{\"id\":\"org_export_fixture\",\"type\":\"organization\"}},\"hash\":\"ab0461ab43df08e2ebcefdb758b14d3dec519bb0b81321ba5b1ff0df2fe0da2d\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"a8733cb0aa8dd4329d4ec94c96daf563d06d878355448235d1e29af45849fce7\",\"previousHash\":null,\"sequence\":1}\n{\"appendedAt\":\"2026-07-05T00:00:00.000Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"org.member.role.changed\",\"actor\":{\"id\":\"usr_fixture_owner\",\"type\":\"user\"},\"id\":\"evt_export_fixture_02\",\"metadata\":{\"role\":\"admin\"},\"occurredAt\":\"2026-07-01T09:05:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_export_fixture\",\"workspaceId\":\"wks_export_fixture\"},\"target\":{\"id\":\"org_export_fixture\",\"type\":\"organization\"}},\"hash\":\"ff17ab309370264da54c883b766f0b546de1c155a58a098665f26237f4ba57de\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"15538ba5ee88db28b9de30094f265e4b841a831bd3ac26c21a8949e2511ceff9\",\"previousHash\":\"ab0461ab43df08e2ebcefdb758b14d3dec519bb0b81321ba5b1ff0df2fe0da2d\",\"sequence\":2}\n",
+      "records/evidence-edges.jsonl": "{\"appendedAt\":\"2026-07-05T00:00:00.000Z\",\"canonicalization\":\"veritio-json-v1\",\"edge\":{\"from\":{\"id\":\"agt_sess_fixture_01\",\"type\":\"agent_session\"},\"id\":\"edge_export_fixture_01\",\"metadata\":{},\"occurredAt\":\"2026-07-01T09:00:01.000Z\",\"relation\":\"created\",\"schemaVersion\":\"2026-06-13\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_export_fixture\",\"workspaceId\":\"wks_export_fixture\"},\"to\":{\"id\":\"file_fixture_readme\",\"pathHash\":\"sha256:path_fixture_readme\",\"type\":\"file\"}},\"hash\":\"a6ee3a93c093ad185801e50690d509d5e04ab045510a017d014f44d725f94569\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"b968e7f14f29f73c7e9da9e5cc9609c16d8e148aaf6f064d8808966db90f7eb0\",\"previousHash\":null,\"sequence\":1}\n",
+      "records/commits.jsonl": "",
+      "verification.json": "{\"audit\":{\"valid\":true},\"commits\":{\"valid\":true},\"edges\":{\"valid\":true}}"
+    },
+    "signature": {
+      "algorithm": "ed25519",
+      "publicKeyFingerprint": "df25874b147cd76ec0d0cabcca8ef645b6f6e4a1b87b0e6d8948fdf05eac4469",
+      "signature": "yghoYLFt4xz0kR/FUvJ0YegIAbQSQfwOawwHEVzfVWea/uE1QXGcH4xitLh1H8Y0L8LwEZYq/jrRcbP6j+sYAQ=="
+    }
+  }
+}
