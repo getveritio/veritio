@@ -216,3 +216,14 @@ test("a non-object bundle is programmer misuse and throws", async () => {
   await expect(verifyExportBundle(null as never)).rejects.toThrow(/expected an ExportBundle/);
   await expect(verifyExportBundle([] as never)).rejects.toThrow(/expected an ExportBundle/);
 });
+
+test("a nullish manifest.files entry fails closed instead of throwing", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  // A crafted manifest whose files array holds a null entry passes Array.isArray
+  // but makes computeRootHash's comparator dereference `.path` on null.
+  bundle.manifest.files = [...bundle.manifest.files, null as never];
+  const report = await verifyExportBundle(bundle);
+  expect(report.valid).toBe(false);
+  expect(report.checks.integrity).toBe(false);
+  expect(report.issues).toContain("rootHash could not be computed");
+});

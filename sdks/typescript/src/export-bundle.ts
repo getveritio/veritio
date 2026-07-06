@@ -444,10 +444,18 @@ export async function verifyExportBundle(
   // Integrity: recompute every per-file hash and the binding rootHash, and match
   // each record file's declared count to its actual line count.
   let integrity = true;
-  const recomputedRoot = await computeRootHash(manifestFiles);
-  if (recomputedRoot !== manifest.rootHash) {
+  // computeRootHash sorts and canonicalizes the raw manifest entries, so a
+  // malformed entry (e.g. a null in an otherwise array-shaped files list) can
+  // throw. Contain it here — a crafted bundle must fail closed, never escape.
+  try {
+    const recomputedRoot = await computeRootHash(manifestFiles);
+    if (recomputedRoot !== manifest.rootHash) {
+      integrity = false;
+      issues.push("rootHash does not bind the manifest files");
+    }
+  } catch {
     integrity = false;
-    issues.push("rootHash does not bind the manifest files");
+    issues.push("rootHash could not be computed");
   }
   for (const entry of manifestFiles) {
     if (!isPlainObject(entry) || typeof entry.path !== "string") continue;
