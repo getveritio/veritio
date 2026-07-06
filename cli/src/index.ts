@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { parseExportBundle, verifyExportBundle } from "@veritio/core";
 import {
   LocalEvidenceStore,
   runIntegrationScenario,
@@ -6,6 +7,7 @@ import {
   type StartedWorkbenchServer,
   type StartWorkbenchServerOptions,
 } from "@veritio/server";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -85,6 +87,9 @@ export async function runCli(
   args: readonly string[] = process.argv.slice(2),
   dependencies: Partial<CliDependencies> = {},
 ): Promise<CliRunResult> {
+  if (args[0] === "verify-bundle") {
+    return runVerifyBundle(args, dependencies);
+  }
   const write = dependencies.write ?? ((message: string) => process.stdout.write(`${message}\n`));
   try {
     const options = parseCliArgs(args);
@@ -108,6 +113,176 @@ export async function runCli(
     write(message);
     return { code: 1 };
   }
+}
+
+export interface VerifyBundleOptions {
+  command: "verify-bundle";
+  file: string;
+  publicKeyPath?: string;
+  requireSignature: boolean;
+  json: boolean;
+}
+
+export interface VerifyBundleDependencies {
+  write(message: string): void;
+  writeError(message: string): void;
+}
+
+const VERIFY_BUNDLE_USAGE =
+  "Usage: veritio verify-bundle <file> [--public-key <path>] [--require-signature] [--json]";
+
+/**
+ * Parses the `verify-bundle` contract: one positional bundle file plus the
+ * optional `--public-key`, `--require-signature`, and `--json` flags. A missing
+ * file, a second positional, or an unknown option fails closed with the usage
+ * string so a malformed invocation never reaches the offline verifier.
+ */
+export function parseVerifyBundleArgs(args: readonly string[]): VerifyBundleOptions {
+  const options: VerifyBundleOptions = {
+    command: "verify-bundle",
+    file: "",
+    requireSignature: false,
+    json: false,
+  };
+  let file: string | undefined;
+
+  for (let index = 1; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === undefined) {
+      continue;
+    }
+    switch (arg) {
+      case "--public-key":
+        options.publicKeyPath = requireNext(args, ++index, "--public-key");
+        break;
+      case "--require-signature":
+        options.requireSignature = true;
+        break;
+      case "--json":
+        options.json = true;
+        break;
+      default:
+        if (arg.startsWith("--")) {
+          throw new TypeError(`Unknown option: ${arg}\n${VERIFY_BUNDLE_USAGE}`);
+        }
+        if (file !== undefined) {
+          throw new TypeError(`Unexpected argument: ${arg}\n${VERIFY_BUNDLE_USAGE}`);
+        }
+        file = arg;
+        break;
+    }
+  }
+
+  if (!file) {
+    throw new TypeError(VERIFY_BUNDLE_USAGE);
+  }
+  options.file = file;
+  return options;
+}
+
+/**
+ * Runs `veritio verify-bundle`: reads the container file, parses it, runs the
+ * fail-closed offline verifier, and prints either a human summary or the raw
+ * `--json` report. Exit code is 0 iff the report is valid. Every failure path —
+ * unreadable file, malformed container, or bad key file — prints a sanitized
+ * message to stderr and returns 1; stack traces and raw error text never reach
+ * the user.
+ */
+export async function runVerifyBundle(
+  args: readonly string[],
+  dependencies: Partial<VerifyBundleDependencies> = {},
+): Promise<CliRunResult> {
+  const write = dependencies.write ?? ((message: string) => process.stdout.write(`${message}\n`));
+  const writeError = dependencies.writeError ?? ((message: string) => process.stderr.write(`${message}\n`));
+
+  let options: VerifyBundleOptions;
+  try {
+    options = parseVerifyBundleArgs(args);
+  } catch (error) {
+    writeError(error instanceof Error ? error.message : String(error));
+    return { code: 1 };
+  }
+
+  let text: string;
+  try {
+    text = await readFile(options.file, "utf8");
+  } catch {
+    writeError(`verify-bundle: unable to read ${options.file}`);
+    return { code: 1 };
+  }
+
+  let publicKey: CryptoKey | undefined;
+  if (options.publicKeyPath) {
+    try {
+      publicKey = await readEd25519PublicKey(options.publicKeyPath);
+    } catch {
+      writeError(`verify-bundle: unable to read public key ${options.publicKeyPath}`);
+      return { code: 1 };
+    }
+  }
+
+  let report: Awaited<ReturnType<typeof verifyExportBundle>>;
+  try {
+    const bundle = parseExportBundle(text);
+    report = await verifyExportBundle(bundle, {
+      requireSignature: options.requireSignature,
+      ...(publicKey ? { publicKey } : {}),
+    });
+  } catch (error) {
+    writeError(error instanceof Error ? error.message : String(error));
+    return { code: 1 };
+  }
+
+  if (options.json) {
+    write(JSON.stringify(report, null, 2));
+  } else {
+    write(`structure: ${report.checks.structure ? "pass" : "fail"}`);
+    write(`integrity: ${report.checks.integrity ? "pass" : "fail"}`);
+    write(`chains: ${report.checks.chains ? "pass" : "fail"}`);
+    write(`signature: ${report.checks.signature}`);
+    if (report.issues.length > 0) {
+      write("issues:");
+      for (const issue of report.issues) {
+        write(`  - ${issue}`);
+      }
+    }
+    write(report.valid ? "VALID" : "INVALID");
+  }
+
+  return { code: report.valid ? 0 : 1 };
+}
+
+/**
+ * Reads an Ed25519 public key file and imports it as a verifying `CryptoKey`.
+ * Three encodings are accepted: a raw 32-byte binary file, one line of 64-char
+ * hex, or one line of standard base64 over those 32 bytes. The 32-byte length is
+ * the unambiguous discriminator — hex is 64 chars and base64 is 44, so only a raw
+ * key file has exactly 32 bytes. Any other decoded length fails closed before the
+ * key reaches WebCrypto.
+ */
+async function readEd25519PublicKey(path: string): Promise<CryptoKey> {
+  const raw = await readFile(path);
+  const keyBytes = raw.length === 32 ? raw : decodeKeyText(raw.toString("utf8").trim());
+  if (keyBytes.length !== 32) {
+    throw new Error("public key must be 32 raw Ed25519 bytes");
+  }
+  // Copy into a fresh ArrayBuffer so importKey gets a plain-ArrayBuffer BufferSource
+  // (a Buffer/Uint8Array can be backed by SharedArrayBuffer, which WebCrypto rejects).
+  const buffer = new ArrayBuffer(32);
+  new Uint8Array(buffer).set(keyBytes);
+  return crypto.subtle.importKey("raw", buffer, "Ed25519", true, ["verify"]);
+}
+
+/**
+ * Decodes the text form of an Ed25519 public key: 64 hex characters, otherwise
+ * standard base64. Malformed base64 throws, which the caller reports as an
+ * unreadable key file.
+ */
+function decodeKeyText(text: string): Uint8Array {
+  if (/^[0-9a-fA-F]{64}$/.test(text)) {
+    return Uint8Array.from(Buffer.from(text, "hex"));
+  }
+  return Uint8Array.from(Buffer.from(text, "base64"));
 }
 
 /**
