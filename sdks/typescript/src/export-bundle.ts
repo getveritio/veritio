@@ -75,15 +75,17 @@ export async function computeRootHash(files: ExportBundleFileEntry[]): Promise<s
 }
 
 /**
- * A detached signature over an export bundle. `algorithm` names the signing
- * scheme, `publicKeyFingerprint` identifies the signing key (matching the
- * manifest's `signaturePublicKeyFingerprint`), and `signature` carries the
- * encoded signature value. The concrete Ed25519 signing/verification flow that
- * populates this record is added by a later task; {@link buildExportBundle}
- * never signs, so a bundle it produces has no `signature`.
+ * A detached signature over an export bundle. `algorithm` is always `'ed25519'`
+ * (the only scheme vevb-1 signs with). `publicKeyFingerprint` identifies the
+ * signing key (the lowercase-hex SHA-256 of the raw exported public key bytes,
+ * matching the manifest's `signaturePublicKeyFingerprint`), and `signature` is
+ * the base64-encoded Ed25519 signature over the manifest digest. Produced by
+ * {@link signExportBundle} and checked by {@link verifyExportBundle};
+ * {@link buildExportBundle} never signs, so a bundle it produces has no
+ * `signature`.
  */
 export interface ExportBundleSignature {
-  algorithm: string;
+  algorithm: "ed25519";
   publicKeyFingerprint: string;
   signature: string;
 }
@@ -230,6 +232,95 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
 }
 
 /**
+ * Lowercase-hex SHA-256 of raw bytes. Unlike {@link sha256Hex}, which hashes the
+ * UTF-8 encoding of a string, this hashes the given bytes directly — used for the
+ * public-key fingerprint, whose input is binary key material, not text.
+ */
+async function sha256HexOfBytes(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Computes a signing key's fingerprint: the lowercase-hex SHA-256 over the raw
+ * (`'raw'`-format) exported public key bytes. The same public key always yields
+ * the same fingerprint, so it can bind a signature to its verifying key without
+ * carrying the key itself.
+ */
+async function publicKeyFingerprint(publicKey: CryptoKey): Promise<string> {
+  const raw = await crypto.subtle.exportKey("raw", publicKey);
+  return sha256HexOfBytes(raw);
+}
+
+/** Base64-encodes raw bytes (standard alphabet, with padding). */
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** Decodes standard base64 into raw bytes. Throws on malformed input. */
+function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+/**
+ * The exact bytes an export-bundle signature covers: the UTF-8 encoding of
+ * `sha256Hex(canonicalJson(manifest))`. Signing the manifest digest (rather than
+ * the raw manifest) keeps the signed payload a fixed 64-byte hex string while
+ * still binding every manifest field — `createdAt`, `scope`, `rootHash`,
+ * `signaturePublicKeyFingerprint`, and the rest — so any manifest tamper after
+ * signing invalidates the signature. The signer and verifier MUST derive the
+ * payload identically for a signature to check out.
+ */
+async function signedManifestPayload(manifest: ExportBundleManifest): Promise<Uint8Array<ArrayBuffer>> {
+  // Copy through Uint8Array.from so the payload is backed by a plain ArrayBuffer,
+  // which WebCrypto's sign/verify BufferSource parameter requires (TextEncoder's
+  // output is typed over the wider ArrayBufferLike).
+  return Uint8Array.from(new TextEncoder().encode(await sha256Hex(canonicalJson(manifest))));
+}
+
+/**
+ * Signs an export bundle with an Ed25519 key, returning a NEW signed bundle.
+ *
+ * The input `bundle` is never mutated. Signing (1) derives the
+ * {@link publicKeyFingerprint} of `publicKey` and writes it into a fresh
+ * manifest as `signaturePublicKeyFingerprint` — this changes the manifest but not
+ * `rootHash`, which binds only `files`; (2) signs the digest of that new manifest
+ * (see {@link signedManifestPayload}) so the signature covers the fingerprint it
+ * advertises; and (3) returns `{ ...bundle, manifest, signature }` with the
+ * base64 Ed25519 signature. Ed25519 signing is deterministic, so the same bundle
+ * and key always produce byte-identical output. The returned bundle verifies with
+ * {@link verifyExportBundle} when given the matching `publicKey`.
+ */
+export async function signExportBundle(
+  bundle: ExportBundle,
+  privateKey: CryptoKey,
+  publicKey: CryptoKey,
+): Promise<ExportBundle> {
+  const fingerprint = await publicKeyFingerprint(publicKey);
+  const manifest: ExportBundleManifest = { ...bundle.manifest, signaturePublicKeyFingerprint: fingerprint };
+  const payload = await signedManifestPayload(manifest);
+  const signatureBytes = await crypto.subtle.sign("Ed25519", privateKey, payload);
+  return {
+    ...bundle,
+    manifest,
+    signature: {
+      algorithm: "ed25519",
+      publicKeyFingerprint: fingerprint,
+      signature: bytesToBase64(new Uint8Array(signatureBytes)),
+    },
+  };
+}
+
+/**
  * Serializes a full {@link ExportBundle} into its single-file container form:
  * the canonical JSON of the entire bundle. Routing through {@link canonicalJson}
  * (rather than `JSON.stringify`) keeps the container bytes deterministic and
@@ -289,7 +380,8 @@ export function parseExportBundle(text: string): ExportBundle {
  * independent gates — `structure` (manifest↔files shape and required paths),
  * `integrity` (per-file and root-hash recomputation), `chains` (record hash
  * chains re-verified and matched against the embedded report), and `signature`
- * (`'absent'` until Task 5 wires real detached-signature verification). `issues`
+ * (`'valid'`/`'invalid'` when present with a `publicKey`, `'skipped'` when
+ * present without one, `'absent'` when unsigned). `issues`
  * carries sanitized, static failure descriptions — a path or packId may be
  * embedded, but never raw error text or record content.
  */
@@ -329,6 +421,41 @@ function splitRecordLines(payload: string): string[] {
 }
 
 /**
+ * Verifies a present detached signature against a caller-supplied public key,
+ * returning a `'valid'`/`'invalid'` verdict plus an optional sanitized issue.
+ *
+ * Fail-closed: the algorithm must be `'ed25519'`; the fingerprint of `publicKey`
+ * must match both `signature.publicKeyFingerprint` and the manifest's
+ * `signaturePublicKeyFingerprint` (so a bundle cannot advertise one key and be
+ * checked against another); the base64 signature must decode; and the Ed25519
+ * signature must verify over {@link signedManifestPayload} recomputed from the
+ * bundle's CURRENT manifest — any manifest tamper after signing changes that
+ * payload and fails here. Malformed base64 or a throwing WebCrypto call is
+ * caught and reported as `'invalid'` with a static message, never raw error text.
+ */
+async function verifyBundleSignature(
+  bundle: ExportBundle,
+  publicKey: CryptoKey,
+): Promise<{ signature: "valid" | "invalid"; issue?: string }> {
+  const sig = bundle.signature as ExportBundleSignature;
+  if ((sig.algorithm as string) !== "ed25519") {
+    return { signature: "invalid", issue: "unsupported signature algorithm" };
+  }
+  try {
+    const fingerprint = await publicKeyFingerprint(publicKey);
+    if (fingerprint !== sig.publicKeyFingerprint || fingerprint !== bundle.manifest?.signaturePublicKeyFingerprint) {
+      return { signature: "invalid", issue: "signature public key fingerprint mismatch" };
+    }
+    const signatureBytes = base64ToBytes(sig.signature);
+    const payload = await signedManifestPayload(bundle.manifest);
+    const ok = await crypto.subtle.verify("Ed25519", publicKey, signatureBytes, payload);
+    return ok ? { signature: "valid" } : { signature: "invalid", issue: "signature does not verify" };
+  } catch {
+    return { signature: "invalid", issue: "signature verification failed" };
+  }
+}
+
+/**
  * Fail-closed offline verifier for a vevb-1 export bundle.
  *
  * Runs four independent gates over a bundle without any network or authority
@@ -346,9 +473,11 @@ function splitRecordLines(payload: string): string[] {
  * - **chains** — each record file is parsed back and re-run through the shim
  *   chain verifiers, whose `valid` verdicts must equal the embedded
  *   `verification.json`.
- * - **signature** — always `'absent'` in this task; when
- *   `opts.requireSignature` is set and no signature is present the bundle is
- *   invalid. Task 5 extends only this branch with real signature verification.
+ * - **signature** — a present signature is checked against `opts.publicKey`
+ *   (`'valid'`/`'invalid'`) via {@link verifyBundleSignature}; present without a
+ *   key is `'skipped'`; absent is `'absent'` and fails only when
+ *   `opts.requireSignature` is set. Only `'invalid'` (or a required-but-missing
+ *   signature) drives the overall verdict false.
  *
  * Content problems never throw — they land in the report as sanitized issue
  * strings and drive `valid` to false. The function throws only for programmer
@@ -366,17 +495,28 @@ export async function verifyExportBundle(
   const manifest = (bundle as ExportBundle).manifest;
   const files = (bundle as ExportBundle).files;
 
-  // Signature: this task never verifies a signature, so the verdict is always
-  // 'absent' and `signatureSatisfied` is the single gate the overall verdict
-  // reads. Only a required-but-missing signature fails it here; Task 5 extends
-  // this branch to set `signature` to 'valid'/'invalid'/'skipped' and drive
-  // `signatureSatisfied` from real detached-signature verification.
-  const signature: ExportBundleVerificationReport["checks"]["signature"] = "absent";
-  const hasSignature = isPlainObject((bundle as ExportBundle).signature);
+  // Signature: `signatureSatisfied` is the single gate the overall verdict reads.
+  // A present signature is verified only when the caller supplies `publicKey`
+  // ('valid'/'invalid'); present without a key is 'skipped' (satisfied — the
+  // caller opted out); absent is 'absent' and satisfied unless `requireSignature`.
+  let signature: ExportBundleVerificationReport["checks"]["signature"];
   let signatureSatisfied = true;
-  if (opts?.requireSignature && !hasSignature) {
-    signatureSatisfied = false;
-    issues.push("signature required but absent");
+  const hasSignature = isPlainObject((bundle as ExportBundle).signature);
+  if (hasSignature) {
+    if (opts?.publicKey) {
+      const verdict = await verifyBundleSignature(bundle as ExportBundle, opts.publicKey);
+      signature = verdict.signature;
+      if (verdict.issue) issues.push(verdict.issue);
+      signatureSatisfied = signature === "valid";
+    } else {
+      signature = "skipped";
+    }
+  } else {
+    signature = "absent";
+    if (opts?.requireSignature) {
+      signatureSatisfied = false;
+      issues.push("signature required but absent");
+    }
   }
 
   // Structure: prove the shape is safe to iterate before any hashing runs.

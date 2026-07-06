@@ -4,6 +4,7 @@ import {
   computeRootHash,
   parseExportBundle,
   serializeExportBundle,
+  signExportBundle,
   verifyExportBundle,
 } from "../export-bundle";
 import { canonicalJson, sha256Hex } from "../export-bundle-deps";
@@ -210,6 +211,88 @@ test("requireSignature on an unsigned bundle is invalid", async () => {
   expect(report.valid).toBe(false);
   expect(report.checks.signature).toBe("absent");
   expect(report.issues).toContain("signature required but absent");
+});
+
+test("a signed bundle verifies as 'valid' with the matching public key", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  expect(signed.signature?.algorithm).toBe("ed25519");
+  expect(signed.manifest.signaturePublicKeyFingerprint).toBe(signed.signature?.publicKeyFingerprint);
+
+  const report = await verifyExportBundle(signed, { publicKey: keyPair.publicKey });
+  expect(report.checks.signature).toBe("valid");
+  expect(report.valid).toBe(true);
+});
+
+test("a flipped signature byte verifies as 'invalid'", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  const original = signed.signature?.signature ?? "";
+  const flipped = original[0] === "A" ? `B${original.slice(1)}` : `A${original.slice(1)}`;
+  signed.signature = { ...signed.signature!, signature: flipped };
+
+  const report = await verifyExportBundle(signed, { publicKey: keyPair.publicKey });
+  expect(report.checks.signature).toBe("invalid");
+  expect(report.valid).toBe(false);
+});
+
+test("tampering the manifest after signing verifies as 'invalid'", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  signed.manifest.createdAt = "2099-01-01T00:00:00Z";
+
+  const report = await verifyExportBundle(signed, { publicKey: keyPair.publicKey });
+  expect(report.checks.signature).toBe("invalid");
+  expect(report.valid).toBe(false);
+});
+
+test("a signed bundle verified without a public key is 'skipped' and valid", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  const report = await verifyExportBundle(signed);
+  expect(report.checks.signature).toBe("skipped");
+  expect(report.valid).toBe(true);
+});
+
+test("a fingerprint mismatch verifies as 'invalid'", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const otherPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  const report = await verifyExportBundle(signed, { publicKey: otherPair.publicKey });
+  expect(report.checks.signature).toBe("invalid");
+  expect(report.issues).toContain("signature public key fingerprint mismatch");
+});
+
+test("an unsupported signature algorithm verifies as 'invalid'", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  const signed = await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+  signed.signature = { ...signed.signature!, algorithm: "rsa-pss" as never };
+
+  const report = await verifyExportBundle(signed, { publicKey: keyPair.publicKey });
+  expect(report.checks.signature).toBe("invalid");
+  expect(report.issues).toContain("unsupported signature algorithm");
+});
+
+test("signExportBundle does not mutate its input bundle", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const snapshot = JSON.parse(JSON.stringify(bundle));
+  const keyPair = (await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"])) as CryptoKeyPair;
+  await signExportBundle(bundle, keyPair.privateKey, keyPair.publicKey);
+
+  expect(bundle.signature).toBeUndefined();
+  expect(bundle.manifest.signaturePublicKeyFingerprint).toBeUndefined();
+  expect(bundle).toEqual(snapshot);
 });
 
 test("a non-object bundle is programmer misuse and throws", async () => {
