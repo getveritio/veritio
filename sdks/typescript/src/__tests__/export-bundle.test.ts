@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { buildExportBundle, computeRootHash, parseExportBundle, serializeExportBundle } from "../export-bundle";
+import {
+  buildExportBundle,
+  computeRootHash,
+  parseExportBundle,
+  serializeExportBundle,
+  verifyExportBundle,
+} from "../export-bundle";
 import { canonicalJson, sha256Hex } from "../export-bundle-deps";
 
 test("shim: canonical json is key-sorted and stable", () => {
@@ -120,4 +126,93 @@ test("parse rejects a container missing manifest or files", () => {
   expect(() => parseExportBundle(JSON.stringify({ bundleVersion: "vevb-1", manifest: {} }))).toThrow(
     "export bundle: missing manifest or files",
   );
+});
+
+test("a built bundle verifies with every check passing", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const report = await verifyExportBundle(bundle);
+  expect(report.valid).toBe(true);
+  expect(report.checks).toEqual({ structure: true, integrity: true, chains: true, signature: "absent" });
+  expect(report.issues).toEqual([]);
+});
+
+test("tampering one record byte fails integrity", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  bundle.files["records/audit-events.jsonl"] = bundle.files["records/audit-events.jsonl"].replace('"n":1', '"n":9');
+  const report = await verifyExportBundle(bundle);
+  expect(report.valid).toBe(false);
+  expect(report.checks.integrity).toBe(false);
+});
+
+test("an extra files key with no manifest entry fails structure only", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  bundle.files["records/extra.jsonl"] = "x\n";
+  const report = await verifyExportBundle(bundle);
+  expect(report.checks.structure).toBe(false);
+  // The manifest is untouched, so integrity still recomputes cleanly.
+  expect(report.checks.integrity).toBe(true);
+  expect(report.valid).toBe(false);
+});
+
+test("a removed manifest.files entry fails structure", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  bundle.manifest.files = bundle.manifest.files.filter((f) => f.path !== "records/commits.jsonl");
+  const report = await verifyExportBundle(bundle);
+  expect(report.checks.structure).toBe(false);
+  expect(report.valid).toBe(false);
+});
+
+test("a rootHash that does not bind the files fails integrity", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  bundle.manifest.rootHash = "deadbeef".repeat(8);
+  const report = await verifyExportBundle(bundle);
+  expect(report.checks.integrity).toBe(false);
+  // Paths are intact, so structure stays true — this isolates integrity.
+  expect(report.checks.structure).toBe(true);
+  expect(report.valid).toBe(false);
+});
+
+test("an unparseable record line fails chains only", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const badPayload = "not json\n";
+  bundle.files["records/evidence-edges.jsonl"] = badPayload;
+  const entry = bundle.manifest.files.find((f) => f.path === "records/evidence-edges.jsonl");
+  if (!entry) throw new Error("missing edges entry");
+  entry.sha256 = await sha256Hex(badPayload);
+  entry.records = 1;
+  bundle.manifest.rootHash = await computeRootHash(bundle.manifest.files);
+  const report = await verifyExportBundle(bundle);
+  expect(report.checks.integrity).toBe(true);
+  expect(report.checks.chains).toBe(false);
+  expect(report.valid).toBe(false);
+  expect(report.issues).toContain("unparseable record line in records/evidence-edges.jsonl");
+});
+
+test("an embedded verification report that disagrees fails chains", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const embedded = JSON.parse(bundle.files["verification.json"]);
+  embedded.audit.valid = !embedded.audit.valid;
+  const newContent = canonicalJson(embedded);
+  bundle.files["verification.json"] = newContent;
+  const entry = bundle.manifest.files.find((f) => f.path === "verification.json");
+  if (!entry) throw new Error("missing verification entry");
+  entry.sha256 = await sha256Hex(newContent);
+  bundle.manifest.rootHash = await computeRootHash(bundle.manifest.files);
+  const report = await verifyExportBundle(bundle);
+  expect(report.checks.integrity).toBe(true);
+  expect(report.checks.chains).toBe(false);
+  expect(report.issues).toContain("embedded verification report disagrees");
+});
+
+test("requireSignature on an unsigned bundle is invalid", async () => {
+  const bundle = await buildExportBundle(buildInput);
+  const report = await verifyExportBundle(bundle, { requireSignature: true });
+  expect(report.valid).toBe(false);
+  expect(report.checks.signature).toBe("absent");
+  expect(report.issues).toContain("signature required but absent");
+});
+
+test("a non-object bundle is programmer misuse and throws", async () => {
+  await expect(verifyExportBundle(null as never)).rejects.toThrow(/expected an ExportBundle/);
+  await expect(verifyExportBundle([] as never)).rejects.toThrow(/expected an ExportBundle/);
 });
