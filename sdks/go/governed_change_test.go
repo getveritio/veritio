@@ -267,6 +267,30 @@ func TestCreateGovernedActionDraftDerivesIDsHashAndChangedPaths(t *testing.T) {
 	}
 }
 
+func TestCreateGovernedActionDraftTracksMissingToNullFields(t *testing.T) {
+	draft, err := CreateGovernedActionDraft(GovernedActionDraftInput{
+		Scope:          EvidenceScope{TenantID: "org_acme_123"},
+		Entity:         actionEntityDefinition(t),
+		Before:         map[string]any{"id": "42", "quantity": 10},
+		After:          map[string]any{"id": "42", "quantity": 10, "status": nil},
+		ActionType:     "project.updated",
+		ActivityType:   "project.update",
+		InitiatedBy:    EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		PerformedBy:    EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		Producer:       EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		IdempotencyKey: "project:42:null-status",
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedActionDraft returned error: %v", err)
+	}
+	if len(draft.Revision.ChangedPaths) != 1 || draft.Revision.ChangedPaths[0] != "/status" {
+		t.Fatalf("unexpected changed paths: %#v", draft.Revision.ChangedPaths)
+	}
+	if _, ok := draft.Revision.StateCommitment.Fields["status"]; !ok || draft.Revision.StateCommitment.Fields["status"] != nil {
+		t.Fatalf("expected committed null status, got %#v", draft.Revision.StateCommitment.Fields)
+	}
+}
+
 func TestCreateGovernedActionDraftRejectsNoopUpdates(t *testing.T) {
 	_, err := CreateGovernedActionDraft(GovernedActionDraftInput{
 		Scope:          EvidenceScope{TenantID: "org_acme_123"},
