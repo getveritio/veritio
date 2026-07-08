@@ -93,7 +93,7 @@ func (state *demoState) createProject(context *gin.Context) {
 	created := project{ID: projectID, Name: request.Name, Status: "active"}
 	state.projects[projectID] = created
 
-	if err := state.recordProjectMutation(created, "project.created", "created"); err != nil {
+	if err := state.recordProjectMutation(nil, created, "project.created"); err != nil {
 		context.JSON(http.StatusInternalServerError, gin.H{"error": "could not record evidence"})
 		return
 	}
@@ -119,6 +119,7 @@ func (state *demoState) updateProject(context *gin.Context) {
 		context.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
+	before := existing
 	if request.Name != "" {
 		existing.Name = request.Name
 	}
@@ -127,7 +128,7 @@ func (state *demoState) updateProject(context *gin.Context) {
 	}
 	state.projects[projectID] = existing
 
-	if err := state.recordProjectMutation(existing, "project.updated", "modified"); err != nil {
+	if err := state.recordProjectMutation(&before, existing, "project.updated"); err != nil {
 		context.JSON(http.StatusInternalServerError, gin.H{"error": "could not record evidence"})
 		return
 	}
@@ -148,11 +149,12 @@ func (state *demoState) deleteProject(context *gin.Context) {
 		context.JSON(http.StatusNotFound, gin.H{"error": "project not found"})
 		return
 	}
+	before := existing
 	existing.Deleted = true
 	existing.Status = "deleted"
 	state.projects[projectID] = existing
 
-	if err := state.recordProjectMutation(existing, "project.deleted", "deleted"); err != nil {
+	if err := state.recordProjectMutation(&before, existing, "project.deleted"); err != nil {
 		context.JSON(http.StatusInternalServerError, gin.H{"error": "could not record evidence"})
 		return
 	}

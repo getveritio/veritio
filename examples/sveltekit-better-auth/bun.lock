@@ -40,11 +40,11 @@
     },
     "../../sdks/typescript": {
       "name": "@veritio/core",
-      "version": "0.1.1",
+      "version": "0.3.0",
     },
     "../../storage": {
       "name": "@veritio/storage",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "devDependencies": {
         "@veritio/core": "workspace:*",
         "mongodb": "^7.3.0",

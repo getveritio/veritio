@@ -5,7 +5,7 @@ A runnable TanStack Start reference where a **real UI action** becomes a governe
 
 ```
 edit an entry / run the cost agent / roll back
-  → @veritio/core createGovernedChangeDraft        (change.declared + activity + entity.revision)
+  → @veritio/core createGovernedActionDraft        (change.declared + activity + entity.revision)
   → @veritio/storage transactional outbox           (staged with the local mutation)
   → server-to-server POST to Veritio Cloud /api/ingest   (Bearer ingest key — server only, no CORS)
   → appears live in the Cloud's Evidence → Changes / Entities surfaces
@@ -34,7 +34,7 @@ evidence; it does not make an application automatically compliant.
   and a human review approves it. One click populates the Cloud's **Agent
   Sessions, Activity Graph, and Code Changes** surfaces in addition to
   Changes/Entities. Prompts and document contents are hashed, never raw.
-- **Transactional outbox, honestly.** `createGovernedChangeDraft().outboxEntry` is
+- **Transactional outbox, honestly.** `createGovernedActionDraft().outboxEntry` is
   enqueued through `createFileOutboxAdapter` in the same step as the local
   mutation, then drained to hosted ingest by `createHttpOutboxDispatcher` +
   `createHttpIngestTarget` (`@veritio/storage`). The UI shows **Dispatched /

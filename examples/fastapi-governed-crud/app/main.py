@@ -16,7 +16,9 @@ from veritio import (
     create_audit_event,
     create_evidence_commit,
     create_evidence_edge,
+    create_governed_action_draft,
     data_subject_request_created_template,
+    define_entity,
     export_bundle_created_template,
     hash_audit_record,
     hash_evidence_edge_record,
@@ -30,6 +32,15 @@ from veritio import (
 )
 
 CANONICALIZATION = "veritio-json-v1"
+
+PROJECT_ENTITY = define_entity(
+    authority="veritio.example.fastapi",
+    entity_type="project",
+    schema_ref="veritio.example.fastapi/project@1",
+    field_set_ref="project-governed-fields@1",
+    identity=lambda row: row["id"],
+    fields={"name": {"capture": "full"}, "status": {"capture": "full"}},
+)
 
 
 class ProjectCreate(BaseModel):
@@ -55,49 +66,36 @@ class DemoState:
         self.edge_records: list[dict[str, Any]] = []
         self.commit_records: list[dict[str, Any]] = []
 
-    def append_project_evidence(self, action: str, relation: str, project: dict[str, Any], request_id: str) -> None:
-        """Append matching audit and graph records plus one EvidenceCommit for a CRUD action."""
-        audit_event = create_audit_event(
+    def append_project_evidence(self, action: str, before: dict[str, Any] | None, project: dict[str, Any], request_id: str) -> None:
+        """Append a governed-action draft plus one EvidenceCommit for a CRUD action."""
+        draft = create_governed_action_draft(
             {
-                "actor": {"type": "user", "id": self.actor_user_id},
-                "action": action,
-                "target": {"type": "project", "id": project["id"]},
                 "scope": {"tenantId": self.tenant_id, "environment": "reference"},
-                "requestId": request_id,
-                "purpose": "project_governance",
-                "lawfulBasis": "contract",
-                "dataCategories": ["project_metadata"],
-                "retention": "audit_1y",
+                "entity": PROJECT_ENTITY,
+                "before": before,
+                "after": project,
+                "actionType": action,
+                "activityType": action,
+                "initiatedBy": {"authority": "veritio.example.fastapi.auth", "kind": "principal", "type": "user", "id": self.actor_user_id},
+                "performedBy": {"authority": "veritio.example.fastapi.auth", "kind": "principal", "type": "user", "id": self.actor_user_id},
+                "producer": {"authority": "veritio.example.fastapi", "kind": "principal", "type": "service", "id": "fastapi-governed-crud"},
+                "occurredAt": now_iso(),
+                "idempotencyKey": request_id,
                 "metadata": {
-                    "status": project["status"],
                     "projectNameHash": stable_hash(project["name"]),
                     "source": "fastapi-governed-crud",
                 },
             }
         )
-        audit_record = build_audit_record(self.audit_records, audit_event, request_id, self.tenant_id)
-        self.audit_records.append(audit_record)
-
-        edge = create_evidence_edge(
-            {
-                "scope": {"tenantId": self.tenant_id, "environment": "reference"},
-                "from": {"type": "actor", "id": self.actor_user_id, "actorType": "user"},
-                "relation": relation,
-                "to": {"type": "resource", "id": project["id"], "resourceType": "project"},
-                "metadata": {
-                    "action": action,
-                    "requestId": request_id,
-                    "status": project["status"],
-                },
-            }
-        )
-        edge_record = build_edge_record(self.edge_records, edge, request_id, self.tenant_id)
-        self.edge_records.append(edge_record)
+        audit_records = [
+            self.append_template_event(event_input, f"{request_id}:{event_input['id']}") for event_input in draft["events"]
+        ]
+        edge_records = [self.append_edge(edge_input, f"{request_id}:{edge_input['id']}") for edge_input in draft["edges"]]
         self.append_commit(
-            commit_id=f"cmt_{project['id']}_{relation}",
+            commit_id=f"cmt_{draft['changeRef']['id']}",
             stream_id=f"str_{self.tenant_id}_project_mutations",
-            audit_records=[audit_record],
-            edge_records=[edge_record],
+            audit_records=audit_records,
+            edge_records=edge_records,
         )
 
     def append_template_event(self, event_input: dict[str, Any], idempotency_key: str) -> dict[str, Any]:
@@ -317,7 +315,7 @@ def create_app(state: DemoState | None = None) -> FastAPI:
             "status": "active",
         }
         demo_state.projects[project["id"]] = project
-        demo_state.append_project_evidence("project.created", "created", project, f"req_{uuid.uuid4().hex}")
+        demo_state.append_project_evidence("project.created", None, project, f"req_{uuid.uuid4().hex}")
         return project
 
     @app.put("/projects/{project_id}")
@@ -326,8 +324,9 @@ def create_app(state: DemoState | None = None) -> FastAPI:
         project = demo_state.projects.get(project_id)
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
+        before = dict(project)
         project["status"] = input_body.status
-        demo_state.append_project_evidence("project.updated", "modified", project, f"req_{uuid.uuid4().hex}")
+        demo_state.append_project_evidence("project.updated", before, project, f"req_{uuid.uuid4().hex}")
         return project
 
     @app.delete("/projects/{project_id}")
@@ -336,8 +335,9 @@ def create_app(state: DemoState | None = None) -> FastAPI:
         project = demo_state.projects.pop(project_id, None)
         if project is None:
             raise HTTPException(status_code=404, detail="project not found")
+        before = dict(project)
         project["status"] = "deleted"
-        demo_state.append_project_evidence("project.deleted", "deleted", project, f"req_{uuid.uuid4().hex}")
+        demo_state.append_project_evidence("project.deleted", before, project, f"req_{uuid.uuid4().hex}")
         return {"id": project_id, "deleted": True}
 
     @app.get("/evidence")

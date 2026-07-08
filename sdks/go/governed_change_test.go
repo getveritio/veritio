@@ -201,6 +201,197 @@ func minimalEntityDefinition(t *testing.T) GovernedEntityDefinition {
 	return entity
 }
 
+func actionEntityDefinition(t *testing.T) GovernedEntityDefinition {
+	t.Helper()
+	entity, err := DefineEntity(GovernedEntityDefinition{
+		Authority:   "acme.billing",
+		Type:        "project_entry",
+		SchemaRef:   "acme.billing/project_entry@3",
+		FieldSetRef: "project-entry-governed-fields@2",
+		Identity:    func(row map[string]any) string { return row["id"].(string) },
+		Fields: map[string]EntityFieldPolicy{
+			"quantity":       {Capture: "full"},
+			"status":         {Capture: "full"},
+			"customerEmail":  {Capture: "keyed_digest"},
+			"temporaryCache": {Capture: "omit"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("DefineEntity returned error: %v", err)
+	}
+	return entity
+}
+
+func TestCreateGovernedActionDraftDerivesIDsHashAndChangedPaths(t *testing.T) {
+	draft, err := CreateGovernedActionDraft(GovernedActionDraftInput{
+		Scope:          EvidenceScope{TenantID: "org_acme_123", WorkspaceID: "wks_security_456", Environment: "test"},
+		Entity:         actionEntityDefinition(t),
+		Before:         map[string]any{"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+		After:          map[string]any{"id": "42", "quantity": 11, "status": "archived", "customerEmail": "buyer@example.com"},
+		ActionType:     "project.updated",
+		ActivityType:   "project.update",
+		InitiatedBy:    EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		PerformedBy:    EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		Producer:       EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		OccurredAt:     "2026-06-23T10:18:00.000Z",
+		IdempotencyKey: "project:42:v2",
+		Metadata:       map[string]any{"surface": "api"},
+		DigestKeys:     DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedActionDraft returned error: %v", err)
+	}
+	if !strings.HasPrefix(draft.ChangeRef.ID, "chg_project_entry_42_") {
+		t.Fatalf("unexpected change id: %s", draft.ChangeRef.ID)
+	}
+	expectedActivityID := strings.Replace(draft.ChangeRef.ID, "chg_", "act_", 1)
+	if draft.ActivityRef.ID != expectedActivityID {
+		t.Fatalf("expected activity id %s, got %s", expectedActivityID, draft.ActivityRef.ID)
+	}
+	if len(draft.Revision.ChangedPaths) != 2 || draft.Revision.ChangedPaths[0] != "/quantity" || draft.Revision.ChangedPaths[1] != "/status" {
+		t.Fatalf("unexpected changed paths: %#v", draft.Revision.ChangedPaths)
+	}
+	idempotencyKeyHash, err := HashIdempotencyKey("org_acme_123", "project:42:v2")
+	if err != nil {
+		t.Fatalf("HashIdempotencyKey returned error: %v", err)
+	}
+	if draft.Events[0].Metadata["idempotencyKeyHash"] != idempotencyKeyHash {
+		t.Fatalf("unexpected idempotency hash: %#v", draft.Events[0].Metadata["idempotencyKeyHash"])
+	}
+	encoded, err := json.Marshal(draft.OutboxEntry)
+	if err != nil {
+		t.Fatalf("json marshal failed: %v", err)
+	}
+	if strings.Contains(string(encoded), "buyer@example.com") || strings.Contains(string(encoded), "test-hmac-secret") {
+		t.Fatalf("outbox leaked raw governed values: %s", string(encoded))
+	}
+}
+
+func TestCreateGovernedActionDraftRejectsNoopUpdates(t *testing.T) {
+	_, err := CreateGovernedActionDraft(GovernedActionDraftInput{
+		Scope:          EvidenceScope{TenantID: "org_acme_123"},
+		Entity:         actionEntityDefinition(t),
+		Before:         map[string]any{"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+		After:          map[string]any{"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+		ActionType:     "project.updated",
+		ActivityType:   "project.update",
+		InitiatedBy:    EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		PerformedBy:    EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		Producer:       EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		IdempotencyKey: "project:42:no-op",
+		DigestKeys:     DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
+	})
+	if err == nil || err.Error() != "at least one governed field must change" {
+		t.Fatalf("expected no-op error, got %v", err)
+	}
+}
+
+func TestCreateGovernedActionDraftHonorsExplicitChangedPaths(t *testing.T) {
+	draft, err := CreateGovernedActionDraft(GovernedActionDraftInput{
+		Scope:          EvidenceScope{TenantID: "org_acme_123"},
+		Entity:         actionEntityDefinition(t),
+		Before:         map[string]any{"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+		After:          map[string]any{"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+		ChangedPaths:   []string{"/derivedEstimate"},
+		ActionType:     "project.estimate.recalculated",
+		ActivityType:   "project.estimate.recalculation",
+		InitiatedBy:    EvidenceRef{Authority: "auth.acme.internal", Kind: "principal", Type: "user", ID: "usr_123"},
+		PerformedBy:    EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		Producer:       EvidenceRef{Authority: "acme.billing", Kind: "principal", Type: "service", ID: "billing-api"},
+		IdempotencyKey: "project:42:derived",
+		DigestKeys:     DigestKeys{KeyedDigest: &KeyedDigestKey{KeyVersion: "tenant-key-7", Secret: "test-hmac-secret"}},
+	})
+	if err != nil {
+		t.Fatalf("CreateGovernedActionDraft returned error: %v", err)
+	}
+	if len(draft.Revision.ChangedPaths) != 1 || draft.Revision.ChangedPaths[0] != "/derivedEstimate" {
+		t.Fatalf("unexpected changed paths: %#v", draft.Revision.ChangedPaths)
+	}
+}
+
+func TestGovernedActionDraftMatchesConformanceFixture(t *testing.T) {
+	fixture := loadFixture(t, "governed-action-draft.json")
+	cases, ok := fixture["cases"].([]any)
+	if !ok || len(cases) == 0 {
+		t.Fatal("governed-action-draft.json has no cases")
+	}
+	for _, rawCase := range cases {
+		fixtureCase := rawCase.(map[string]any)
+		input := fixtureCase["input"].(map[string]any)
+		entityInput := input["entity"].(map[string]any)
+		fields := map[string]EntityFieldPolicy{}
+		for key, rawPolicy := range entityInput["fields"].(map[string]any) {
+			policy := rawPolicy.(map[string]any)
+			fields[key] = EntityFieldPolicy{Capture: policy["capture"].(string)}
+		}
+		identityField := entityInput["identityField"].(string)
+		entity, err := DefineEntity(GovernedEntityDefinition{
+			Authority:   entityInput["authority"].(string),
+			Type:        entityInput["type"].(string),
+			SchemaRef:   entityInput["schemaRef"].(string),
+			FieldSetRef: entityInput["fieldSetRef"].(string),
+			Identity:    func(row map[string]any) string { return row[identityField].(string) },
+			Fields:      fields,
+		})
+		if err != nil {
+			t.Fatalf("DefineEntity returned error: %v", err)
+		}
+		scopeInput := input["scope"].(map[string]any)
+		digestKeys := DigestKeys{}
+		if rawDigestKeys, ok := input["digestKeys"].(map[string]any); ok {
+			if rawKeyedDigest, ok := rawDigestKeys["keyedDigest"].(map[string]any); ok {
+				digestKeys.KeyedDigest = &KeyedDigestKey{
+					KeyVersion: rawKeyedDigest["keyVersion"].(string),
+					Secret:     rawKeyedDigest["secret"].(string),
+				}
+			}
+		}
+		draft, err := CreateGovernedActionDraft(GovernedActionDraftInput{
+			Scope: EvidenceScope{
+				TenantID:    scopeInput["tenantId"].(string),
+				WorkspaceID: optionalString(scopeInput["workspaceId"]),
+				Environment: optionalString(scopeInput["environment"]),
+			},
+			Entity:         entity,
+			Before:         optionalMap(input["before"]),
+			After:          input["after"].(map[string]any),
+			ActionType:     input["actionType"].(string),
+			ActivityType:   input["activityType"].(string),
+			InitiatedBy:    evidenceRefFromFixture(input["initiatedBy"].(map[string]any)),
+			PerformedBy:    evidenceRefFromFixture(input["performedBy"].(map[string]any)),
+			Producer:       evidenceRefFromFixture(input["producer"].(map[string]any)),
+			OccurredAt:     input["occurredAt"].(string),
+			IdempotencyKey: input["idempotencyKey"].(string),
+			Metadata:       optionalMap(input["metadata"]),
+			Context:        optionalMap(input["context"]),
+			DigestKeys:     digestKeys,
+		})
+		if err != nil {
+			t.Fatalf("%s: CreateGovernedActionDraft returned error: %v", fixtureCase["name"], err)
+		}
+		expected := fixtureCase["expected"].(map[string]any)
+		if draft.ChangeRef.ID != expected["changeId"].(string) || draft.ActivityRef.ID != expected["activityId"].(string) {
+			t.Fatalf("%s: unexpected ids: %s / %s", fixtureCase["name"], draft.ChangeRef.ID, draft.ActivityRef.ID)
+		}
+		if !stringSlicesEqual(draft.Revision.ChangedPaths, stringList(expected["changedPaths"].([]any))) {
+			t.Fatalf("%s: unexpected changed paths: %#v", fixtureCase["name"], draft.Revision.ChangedPaths)
+		}
+		if draft.Events[0].Metadata["idempotencyKeyHash"] != expected["idempotencyKeyHash"].(string) {
+			t.Fatalf("%s: unexpected idempotency hash", fixtureCase["name"])
+		}
+		if !stringSlicesEqual([]string{draft.Events[0].Action, draft.Events[1].Action, draft.Events[2].Action}, stringList(expected["eventActions"].([]any))) {
+			t.Fatalf("%s: unexpected event actions", fixtureCase["name"])
+		}
+		relations := []string{}
+		for _, edge := range draft.Edges {
+			relations = append(relations, edge.Relation)
+		}
+		if !stringSlicesEqual(relations, stringList(expected["edgeRelations"].([]any))) {
+			t.Fatalf("%s: unexpected edge relations: %#v", fixtureCase["name"], relations)
+		}
+	}
+}
+
 func TestCreateGovernedChangeDraftLinksParentOnlyWhenSupplied(t *testing.T) {
 	expectedParent := EvidenceRef{Authority: "veritio", Kind: "revision", Type: "project_entry", ID: "rev_project_entry_42_0a1b2c3d4e5f"}
 	draft, err := CreateGovernedChangeDraft(GovernedChangeDraftInput{
@@ -396,4 +587,50 @@ func TestRollbackToIdenticalStateYieldsDistinctRevisionID(t *testing.T) {
 	if replay.Revision.Ref.ID != first.Revision.Ref.ID {
 		t.Fatal("replaying the same change must yield the same revision id")
 	}
+}
+
+func optionalString(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
+}
+
+func optionalMap(value any) map[string]any {
+	if value == nil {
+		return nil
+	}
+	if mapped, ok := value.(map[string]any); ok {
+		return mapped
+	}
+	return nil
+}
+
+func evidenceRefFromFixture(value map[string]any) EvidenceRef {
+	return EvidenceRef{
+		Authority: value["authority"].(string),
+		Kind:      value["kind"].(string),
+		Type:      value["type"].(string),
+		ID:        value["id"].(string),
+	}
+}
+
+func stringList(values []any) []string {
+	out := make([]string, len(values))
+	for index, value := range values {
+		out[index] = value.(string)
+	}
+	return out
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
 }

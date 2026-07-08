@@ -16,7 +16,7 @@ import { DispatchBadge } from "./_components/dispatch-badge";
 export const dynamic = "force-dynamic";
 
 /**
- * The flagship governed-change demo on the Next.js App Router. This is a server
+ * The flagship governed-action demo on the Next.js App Router. This is a server
  * component: it reads the current governed snapshot (entries, change feed, cloud
  * status) directly from the server-only engine — no fetch, no API route. A real
  * UI action (edit an entry, run the cost agent, roll back) is sent through the
@@ -106,7 +106,7 @@ function Intro({ cloud }: Readonly<{ cloud: CloudPublicConfig }>) {
       <CardContent className="space-y-2 p-5 text-sm text-muted-foreground">
         <p className="text-foreground">
           A real UI action becomes a governed <span className="font-medium">Change</span>: captured by{" "}
-          <code className="font-mono text-xs">createGovernedChangeDraft</code>, staged in a transactional outbox, and
+          <code className="font-mono text-xs">createGovernedActionDraft</code>, staged in a transactional outbox, and
           dispatched to the hosted Cloud ingest — all inside an App Router server action. Tenant and the ingest key stay
           on the server; the browser never sees them.
         </p>

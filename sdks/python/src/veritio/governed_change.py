@@ -5,7 +5,7 @@ import hmac
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from .event import _normalize_json, canonical_json
+from .event import _normalize_json, canonical_json, hash_idempotency_key
 
 RESERVED_CONTEXT_KEYS = [
     "authSessionId",
@@ -241,6 +241,62 @@ def create_governed_change_draft(input_change: dict[str, Any]) -> dict[str, Any]
     }
 
 
+def create_governed_action_draft(input_action: dict[str, Any]) -> dict[str, Any]:
+    """Create a governed-change draft from a natural host mutation boundary.
+
+    This DX helper derives stable change/activity ids, tenant-scoped idempotency
+    hashes, and changed paths before delegating to create_governed_change_draft,
+    which remains the owner of protocol event and edge semantics.
+    """
+    scope = input_action["scope"]
+    _assert_non_empty(scope.get("tenantId"), "scope.tenantId")
+    _assert_non_empty(input_action.get("actionType"), "actionType")
+    _assert_non_empty(input_action.get("activityType"), "activityType")
+    _assert_non_empty(input_action.get("idempotencyKey"), "idempotencyKey")
+    _assert_ref(input_action["initiatedBy"])
+    _assert_ref(input_action["performedBy"])
+    _assert_ref(input_action["producer"])
+
+    entity = input_action["entity"]
+    after = input_action["after"]
+    entity_ref = _entity_ref(entity, after)
+    id_seed = _stable_action_digest(scope["tenantId"], input_action["idempotencyKey"])
+    changed_paths = input_action.get("changedPaths")
+    if changed_paths is None:
+        changed_paths = _infer_changed_paths(entity, input_action.get("before"), after)
+    if len(changed_paths) == 0:
+        raise TypeError("at least one governed field must change")
+
+    return create_governed_change_draft(
+        {
+            "scope": scope,
+            "entity": entity,
+            "before": input_action.get("before"),
+            "after": after,
+            "changedPaths": changed_paths,
+            "change": {
+                "id": input_action.get("changeId") or f"chg_{entity['type']}_{entity_ref['id']}_{id_seed}",
+                "type": input_action["actionType"],
+                "initiatedBy": input_action["initiatedBy"],
+            },
+            "activity": {
+                "id": input_action.get("activityId") or f"act_{entity['type']}_{entity_ref['id']}_{id_seed}",
+                "type": input_action["activityType"],
+                "performedBy": input_action["performedBy"],
+            },
+            "producer": input_action["producer"],
+            "occurredAt": input_action.get("occurredAt") or datetime.now(timezone.utc),
+            "idempotencyKeyHash": hash_idempotency_key(scope["tenantId"], input_action["idempotencyKey"]),
+            "context": input_action.get("context"),
+            "metadata": input_action.get("metadata"),
+            "capturePolicyRef": input_action.get("capturePolicyRef"),
+            "expectedParentRevisionRef": input_action.get("expectedParentRevisionRef"),
+            "mutationBinding": input_action.get("mutationBinding"),
+            "digestKeys": input_action.get("digestKeys"),
+        }
+    )
+
+
 def _state_commitment(entity: dict[str, Any], row: dict[str, Any], digest_keys: dict[str, Any]) -> dict[str, Any]:
     """Apply field capture policy before evidence leaves the host process."""
     fields: dict[str, Any] = {}
@@ -334,6 +390,28 @@ def _normalize_datetime(value: str | datetime) -> str:
 def _stable_id(value: str) -> str:
     """Produce a short deterministic ID token for generated edge IDs."""
     return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16]
+
+
+def _stable_action_digest(tenant_id: str, idempotency_key: str) -> str:
+    """Derive the short governed-action id suffix from the public DX seed."""
+    return hashlib.sha256(f"{tenant_id}:{idempotency_key}".encode("utf-8")).hexdigest()[:16]
+
+
+def _infer_changed_paths(entity: dict[str, Any], before: dict[str, Any] | None, after: dict[str, Any]) -> list[str]:
+    """Infer changed JSON Pointer paths from the governed field policy."""
+    paths: list[str] = []
+    for key in sorted(entity["fields"].keys()):
+        policy = entity["fields"][key]
+        if policy.get("capture") == "omit" or key not in after:
+            continue
+        if before is None or canonical_json(before.get(key)) != canonical_json(after[key]):
+            paths.append(f"/{_escape_json_pointer_segment(key)}")
+    return paths
+
+
+def _escape_json_pointer_segment(value: str) -> str:
+    """Escape one changedPaths segment with JSON Pointer rules."""
+    return value.replace("~", "~0").replace("/", "~1")
 
 
 def _prefixed_sha256(value: str) -> str:

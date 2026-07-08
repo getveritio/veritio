@@ -9,70 +9,67 @@ import (
 	veritio "github.com/getveritio/veritio/sdks/go"
 )
 
-// recordProjectMutation appends protocol audit and graph records plus one
-// EvidenceCommit in one locked state transition so the demo's chains and commit
-// stream stay in request order.
-func (state *demoState) recordProjectMutation(value project, action string, relation string) error {
-	event, err := veritio.CreateAuditEvent(veritio.AuditEventInput{
-		ID:         fmt.Sprintf("evt_%s_%s", value.ID, relation),
-		OccurredAt: occurredAtForSequence(len(state.auditRecords) + 1),
-		Actor:      demoActor(),
-		Action:     action,
-		Target: veritio.Resource{
-			Type: "project",
-			ID:   value.ID,
-		},
-		Scope:          demoScope(),
-		Purpose:        "governed CRUD example",
-		LawfulBasis:    "contract",
-		DataCategories: []string{"project_record"},
-		Retention:      "demo-retention",
-		Metadata: map[string]any{
-			"logSurface":      "api",
-			"projectNameHash": stableHash(value.Name),
-			"status":          value.Status,
+// recordProjectMutation appends a governed-action draft plus one EvidenceCommit
+// in one locked state transition so the demo's chains and commit stream stay in
+// request order.
+func (state *demoState) recordProjectMutation(before *project, value project, action string) error {
+	var beforeRow map[string]any
+	if before != nil {
+		beforeRow = projectEvidenceRow(*before)
+	}
+	idempotencyKey := fmt.Sprintf("project:%s:%s:%d", value.ID, action, len(state.auditRecords)+1)
+	entity, err := veritio.DefineEntity(veritio.GovernedEntityDefinition{
+		Authority:   "veritio.example.gin",
+		Type:        "project",
+		SchemaRef:   "veritio.example.gin/project@1",
+		FieldSetRef: "project-governed-fields@1",
+		Identity:    func(row map[string]any) string { return row["id"].(string) },
+		Fields: map[string]veritio.EntityFieldPolicy{
+			"name":   {Capture: "full"},
+			"status": {Capture: "full"},
 		},
 	})
 	if err != nil {
 		return err
 	}
-	auditRecord, err := state.appendAuditRecord(event, relation)
-	if err != nil {
-		return err
-	}
-
-	edge, err := veritio.CreateEvidenceEdge(veritio.EvidenceEdgeInput{
-		ID:         fmt.Sprintf("edge_%s_%s", value.ID, relation),
-		OccurredAt: occurredAtForSequence(len(state.edgeRecords) + 1),
-		Scope:      demoScope(),
-		From: veritio.EvidenceEntity{
-			Type:      "actor",
-			ID:        demoUserID,
-			ActorType: "user",
-		},
-		Relation: relation,
-		To: veritio.EvidenceEntity{
-			Type:         "resource",
-			ID:           value.ID,
-			ResourceType: "project",
-		},
-		Metadata: map[string]any{
-			"auditEventId": event.ID,
-			"logSurface":   "api",
-		},
+	draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput{
+		Scope:          *demoScope(),
+		Entity:         entity,
+		Before:         beforeRow,
+		After:          projectEvidenceRow(value),
+		ActionType:     action,
+		ActivityType:   action,
+		InitiatedBy:    veritio.EvidenceRef{Authority: "veritio.example.gin.auth", Kind: "principal", Type: "user", ID: demoUserID},
+		PerformedBy:    veritio.EvidenceRef{Authority: "veritio.example.gin.auth", Kind: "principal", Type: "user", ID: demoUserID},
+		Producer:       veritio.EvidenceRef{Authority: "veritio.example.gin", Kind: "principal", Type: "service", ID: "gin-governed-crud"},
+		OccurredAt:     occurredAtForSequence(len(state.auditRecords) + 1),
+		IdempotencyKey: idempotencyKey,
+		Metadata:       map[string]any{"logSurface": "api", "projectNameHash": stableHash(value.Name)},
 	})
 	if err != nil {
 		return err
 	}
-	edgeRecord, err := state.appendEdgeRecord(edge, relation)
-	if err != nil {
-		return err
+	auditRecords := []veritio.AuditRecord{}
+	for _, eventInput := range draft.Events {
+		record, err := state.recordTemplateEvent(eventInput)
+		if err != nil {
+			return err
+		}
+		auditRecords = append(auditRecords, record)
+	}
+	edgeRecords := []veritio.EvidenceEdgeRecord{}
+	for _, edgeInput := range draft.Edges {
+		record, err := state.recordScenarioEdge(edgeInput)
+		if err != nil {
+			return err
+		}
+		edgeRecords = append(edgeRecords, record)
 	}
 	_, err = state.appendCommit(
-		fmt.Sprintf("cmt_%s_%s", value.ID, relation),
+		"cmt_"+draft.ChangeRef.ID,
 		"str_"+demoTenantID+"_project_mutations",
-		[]veritio.AuditRecord{auditRecord},
-		[]veritio.EvidenceEdgeRecord{edgeRecord},
+		auditRecords,
+		edgeRecords,
 	)
 	return err
 }
@@ -290,6 +287,13 @@ func (state *demoState) recordGovernedLifecycleScenario() (map[string]any, error
 		"edgeVerification":   verifyEdgeRecords(state.edgeRecords),
 		"commitVerification": veritio.VerifyEvidenceCommits(state.commitRecords),
 	}, nil
+}
+
+// projectEvidenceRow maps the demo transport struct into the governed row shape
+// declared for the SDK helper, keeping deleted as status rather than a separate
+// protocol field.
+func projectEvidenceRow(value project) map[string]any {
+	return map[string]any{"id": value.ID, "name": value.Name, "status": value.Status}
 }
 
 // recordTemplateEvent appends a helper-built audit input using the example's

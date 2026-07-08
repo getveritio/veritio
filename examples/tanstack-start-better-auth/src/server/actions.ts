@@ -5,7 +5,7 @@ import type { AgentSessionResult, AgentSessionView } from "@/server/governed-ses
 
 /**
  * Server functions are the typed RPC boundary between the browser UI and the
- * server-owned governed-change engine. The handlers dynamically import the
+ * server-owned governed-action engine. The handlers dynamically import the
  * server module so its Node-only code (file outbox, env, transport) never enters
  * the client bundle; the UI imports only these callables and the result types.
  */

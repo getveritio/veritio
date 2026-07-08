@@ -23,7 +23,7 @@ never sees them.
   capture, the transactional-outbox enqueue, and the server-to-server dispatch to
   hosted ingest, then `revalidatePath("/")` so the new revision renders.
 - `src/server/governed-entries.ts` builds each governed `Change` with
-  `createGovernedChangeDraft`, applies the local mutation and enqueues the outbox
+  `createGovernedActionDraft`, applies the local mutation and enqueues the outbox
   entry together, and bumps a monotonic `version` field so a rollback is a
   genuinely new revision with a distinct state digest. `customerEmail` is captured
   as a tenant-keyed HMAC digest, never raw.
@@ -50,7 +50,7 @@ never sees them.
 - `app/_components/agent-sessions.tsx` — client trigger + recent agent-sessions list.
 - `app/_components/dispatch-badge.tsx` — shared dispatch-status pill.
 - `app/actions/governed.ts` — server actions that record + dispatch (mutation + agent session).
-- `src/server/governed-entries.ts` — the governed-change engine and in-memory store.
+- `src/server/governed-entries.ts` — the governed-action engine and in-memory store.
 - `src/server/governed-session.ts` — the agent-session engine (provenance recorder).
 - `src/server/cloud-ingest.ts` — env-at-boundary cloud config + outbox/batch dispatchers.
 - `src/veritio/server.ts` — Better Auth recorder, store, and reference session.

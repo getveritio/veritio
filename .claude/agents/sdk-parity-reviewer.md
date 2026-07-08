@@ -20,7 +20,10 @@ You review SDK parity across:
 3. Redaction rules match across languages.
 4. Date/time normalization is consistent enough for cross-language evidence.
 5. Optional fields are omitted consistently.
-6. Any intentional language-specific behavior is documented.
+6. Governed-action helpers derive the same change/activity IDs,
+   tenant-scoped idempotency hash, changed paths, revision evidence, event
+   actions, edge relations, and outbox shape.
+7. Any intentional language-specific behavior is documented.
 
 ## Useful Commands
 

@@ -15,7 +15,11 @@ Use this when working in the Veritio repository on actionable implementation tas
 4. Keep `spec/` as the language-neutral source of truth.
 5. Keep TypeScript, Python, and Go SDKs semantically aligned.
 6. Keep adapters thin and injected.
-7. Run the strongest feasible check, usually `bun run verify`.
+7. For server-side entity mutations, prefer the governed-action helper
+   (`createGovernedActionDraft` / `create_governed_action_draft` /
+   `CreateGovernedActionDraft`) over hand-wiring change/activity IDs,
+   changed paths, and idempotency hashes.
+8. Run the strongest feasible check, usually `bun run verify`.
 
 ## Guardrails
 
@@ -23,3 +27,5 @@ Use this when working in the Veritio repository on actionable implementation tas
 - No raw secrets or unnecessary personal data in event metadata.
 - No framework-specific fields in the core event protocol.
 - No hosted-provider requirement for OSS SDK usage.
+- Record governed actions at the host application's server mutation boundary,
+  not in browser form state or framework adapters.

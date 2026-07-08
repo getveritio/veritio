@@ -22,6 +22,44 @@ event, err := veritio.CreateAuditEvent(veritio.AuditEventInput{
 hash, err := veritio.HashAuditEvent(event, nil) // previous hash chains records
 ```
 
+## Governed Action Drafts
+
+Use `DefineEntity` + `CreateGovernedActionDraft` inside Gin handlers, service
+methods, or workers that already own authorization, tenant scope, before/after
+rows, and storage. The helper derives stable change/activity ids, tenant-scoped
+idempotency hashes, and changed paths before delegating to the lower-level
+governed-change builder.
+
+```go
+draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput{
+    Scope: veritio.EvidenceScope{TenantID: "org_123", Environment: "production"},
+    Entity: veritio.DefineEntity(veritio.GovernedEntityDefinition{
+        Authority: "app.example",
+        Type: "project_entry",
+        SchemaRef: "app.example/project-entry@1",
+        FieldSetRef: "project-entry-governed-fields@1",
+        Identity: func(row map[string]any) string { return row["id"].(string) },
+        Fields: map[string]veritio.FieldCapturePolicy{
+            "status": {Capture: "full"},
+            "customerEmail": {Capture: "keyed_digest"},
+        },
+    }),
+    Before: before,
+    After: after,
+    ActionType: "project_entry.updated",
+    ActivityType: "project_entry.updated",
+    InitiatedBy: veritio.EvidenceRef{Authority: "app.example.auth", Kind: "principal", Type: "user", ID: "usr_123"},
+    PerformedBy: veritio.EvidenceRef{Authority: "app.example.auth", Kind: "principal", Type: "user", ID: "usr_123"},
+    Producer: veritio.EvidenceRef{Authority: "app.example", Kind: "principal", Type: "service", ID: "api"},
+    IdempotencyKey: fmt.Sprintf("project_entry:%s:v%d", after["id"], after["version"]),
+    MutationBinding: "transactional_outbox",
+    DigestKeys: veritio.DigestKeys{KeyedDigest: &veritio.KeyedDigestInput{KeyVersion: "email-v1", Secret: tenantDigestSecret}},
+})
+```
+
+See `docs/integrations.md` and `examples/gin-governed-crud` for a complete
+route and local evidence-chain example.
+
 ## Risk Scoring
 
 Deterministic, explainable risk math (`veritio.reference.v1` policy):
@@ -81,4 +119,5 @@ go test ./...
 ```
 
 The suite consumes the shared `spec/conformance` fixtures, so a green run
-proves cross-language parity for events, hashing, redaction, and risk scoring.
+proves cross-language parity for events, hashing, redaction, governed-action
+drafts, and risk scoring.

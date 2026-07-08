@@ -12,6 +12,8 @@ regulation or framework.
 - `../README.md`: root product and developer overview.
 - `architecture.md`: protocol, SDK, storage, server, Workbench, MCP, and export
   architecture.
+- `integrations.md`: primary integration guide for simple audit events,
+  governed actions, transactional outbox, and optional hosted ingest.
 - `ai-integration.md`: guidance for AI agents, provenance capture, privacy, and
   MCP usage.
 - `repo-map.md`: ownership map for `veritio`, `veritio-website`, and

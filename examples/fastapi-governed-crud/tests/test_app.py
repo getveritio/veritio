@@ -22,18 +22,41 @@ class FastAPIGovernedCrudTests(unittest.TestCase):
         evidence = client.get("/evidence").json()
         self.assertEqual(
             [record["event"]["action"] for record in evidence["auditRecords"]],
-            ["project.created", "project.updated", "project.deleted"],
+            [
+                "change.declared",
+                "activity.recorded",
+                "entity.revision.created",
+                "change.declared",
+                "activity.recorded",
+                "entity.revision.created",
+                "change.declared",
+                "activity.recorded",
+                "entity.revision.created",
+            ],
         )
         self.assertEqual(
             [edge["edge"]["relation"] for edge in evidence["edgeRecords"]],
-            ["created", "modified", "deleted"],
+            [
+                "has_activity",
+                "has_output",
+                "performed_by",
+                "generated",
+                "has_activity",
+                "has_output",
+                "performed_by",
+                "generated",
+                "has_activity",
+                "has_output",
+                "performed_by",
+                "generated",
+            ],
         )
         self.assertEqual(evidence["auditVerification"], {"ok": True})
         self.assertEqual(evidence["edgeVerification"], {"ok": True})
         self.assertEqual(evidence["commitVerification"], {"ok": True})
-        self.assertEqual([commit["recordCount"] for commit in evidence["commitRecords"]], [2, 2, 2])
+        self.assertEqual([commit["recordCount"] for commit in evidence["commitRecords"]], [7, 7, 7])
         self.assertEqual(evidence["auditRecords"][0]["event"]["scope"]["tenantId"], "tenant_demo")
-        self.assertEqual(evidence["auditRecords"][0]["event"]["actor"]["id"], "user_demo")
+        self.assertEqual(evidence["auditRecords"][0]["event"]["actor"]["id"], "veritio.example.fastapi.auth:user_demo")
         self.assertEqual(evidence["auditRecords"][0]["event"]["metadata"]["projectNameHash"].startswith("sha256:"), True)
 
     def test_governed_lifecycle_scenario_records_broad_helper_driven_graph(self) -> None:

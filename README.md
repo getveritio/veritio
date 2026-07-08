@@ -18,7 +18,8 @@ with GDPR, EAA, SOC 2, HIPAA, DORA, NIS2, or any other framework.
 - Append-only audit and edge record envelopes with canonical JSON, SHA-256
   hashes, previous-hash links, and tenant-scoped idempotency.
 - TypeScript, Python, and Go SDKs for event/edge creation, canonicalization,
-  hashing, redaction, and shared audit templates.
+  hashing, redaction, shared audit templates, and governed-action drafts for
+  server-side create/update/delete flows.
 - TypeScript-only audit storage and provenance helpers, including the
   `createProvenanceRecorder` agent/change recorder.
 - Public JavaScript packages for Better Auth, Next.js, TanStack Start,
@@ -113,6 +114,52 @@ const edge = createEvidenceEdge({
 const edgeHash = hashEvidenceEdge(edge, record.hash);
 ```
 
+## Governed Action Quick Start
+
+Use `createGovernedActionDraft` when a server action or API route mutates a
+governed entity. The helper derives tenant-scoped idempotency hashes,
+change/activity ids, changed paths, revision evidence, and outbox-ready event
+and edge inputs. It is available as `createGovernedActionDraft` in TypeScript,
+`create_governed_action_draft` in Python, and `CreateGovernedActionDraft` in
+Go.
+
+```ts
+import { createGovernedActionDraft, defineEntity } from "@veritio/core";
+
+const ProjectEntry = defineEntity({
+  authority: "app.example",
+  type: "project_entry",
+  schemaRef: "app.example/project-entry@1",
+  fieldSetRef: "project-entry-governed-fields@1",
+  identity: (row: { id: string }) => row.id,
+  fields: {
+    status: { capture: "full" },
+    customerEmail: { capture: "keyed_digest" },
+    privateNotes: { capture: "omit" },
+  },
+});
+
+const draft = createGovernedActionDraft({
+  scope: { tenantId: "org_123", environment: "production" },
+  entity: ProjectEntry,
+  before,
+  after,
+  actionType: "project_entry.updated",
+  activityType: "project_entry.updated",
+  initiatedBy: { authority: "app.example.auth", kind: "principal", type: "user", id: "usr_123" },
+  performedBy: { authority: "app.example.auth", kind: "principal", type: "user", id: "usr_123" },
+  producer: { authority: "app.example", kind: "principal", type: "service", id: "api" },
+  idempotencyKey: `project_entry:${after.id}:v${after.version}`,
+  mutationBinding: "transactional_outbox",
+  digestKeys: { keyedDigest: { keyVersion: "email-v1", secret: tenantDigestSecret } },
+});
+```
+
+Record governed actions at the server-side business mutation boundary, not
+inside browser form state. See [`docs/integrations.md`](docs/integrations.md)
+for TypeScript, FastAPI, Gin, framework, hosted-ingest, and transactional
+outbox recipes.
+
 ## Local Workbench
 
 Run the OSS local Workbench and MCP endpoint without a hosted account:
@@ -183,7 +230,7 @@ The public protocol lives in `spec/` and conformance fixtures live in
 | `spec/edge.schema.json` | Evidence graph edge payload, schema version `2026-06-13`. |
 | `spec/audit-record.schema.json` | Append-only record envelope for events. |
 | `spec/edge-record.schema.json` | Append-only record envelope for edges. |
-| `spec/conformance/*.json` | Cross-language vectors for canonical JSON, hashing, redaction, event creation, and edge creation. |
+| `spec/conformance/*.json` | Cross-language vectors for canonical JSON, hashing, redaction, event creation, edge creation, and governed-action drafts. |
 
 Protocol-sensitive behavior:
 

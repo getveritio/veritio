@@ -8,7 +8,7 @@ import type {
   JsonValue,
   Principal,
 } from "./index.js";
-import { canonicalJson } from "./index.js";
+import { canonicalJson, hashIdempotencyKey } from "./index.js";
 
 export type EvidenceRefKind =
   | "principal"
@@ -154,6 +154,29 @@ export interface GovernedChangeDraft {
     records: AuditEventInput[];
     edges: EvidenceEdgeInput[];
   };
+}
+
+export interface GovernedActionDraftInput<Row extends Record<string, unknown>> {
+  scope: EvidenceScope & { tenantId: string };
+  entity: GovernedEntity<Row>;
+  before?: Row;
+  after: Row;
+  actionType: string;
+  activityType: string;
+  initiatedBy: EvidenceRef;
+  performedBy: EvidenceRef;
+  producer: EvidenceRef;
+  occurredAt?: string | Date;
+  idempotencyKey: string;
+  changeId?: string;
+  activityId?: string;
+  changedPaths?: string[];
+  context?: VeritioContextMetadata;
+  metadata?: Record<string, unknown>;
+  capturePolicyRef?: CapturePolicyRef;
+  expectedParentRevisionRef?: EvidenceRef;
+  mutationBinding?: "same_transaction" | "not_transaction_bound" | "best_effort";
+  digestKeys?: GovernedChangeDraftInput<Row>["digestKeys"];
 }
 
 const RESERVED_CONTEXT_KEYS = [
@@ -417,6 +440,74 @@ export function createGovernedChangeDraft<Row extends Record<string, unknown>>(
 }
 
 /**
+ * Creates a governed-change draft from the host application's natural mutation
+ * boundary. This DX helper derives stable change/activity ids, tenant-scoped
+ * idempotency hashes, and changed paths before delegating to the lower-level
+ * draft builder that owns protocol event and edge semantics.
+ */
+export function createGovernedActionDraft<Row extends Record<string, unknown>>(
+  input: GovernedActionDraftInput<Row>,
+): GovernedChangeDraft {
+  assertNonEmpty(input.scope.tenantId, "scope.tenantId");
+  assertNonEmpty(input.actionType, "actionType");
+  assertNonEmpty(input.activityType, "activityType");
+  assertNonEmpty(input.idempotencyKey, "idempotencyKey");
+  assertRef(input.initiatedBy);
+  assertRef(input.performedBy);
+  assertRef(input.producer);
+
+  const entityRef = input.entity.ref(input.after);
+  const idSeed = stableActionDigest(input.scope.tenantId, input.idempotencyKey);
+  const changedPaths = input.changedPaths ?? inferChangedPaths(input.entity, input.before, input.after);
+  if (changedPaths.length === 0) {
+    throw new TypeError("at least one governed field must change");
+  }
+
+  const draftInput: GovernedChangeDraftInput<Row> = {
+    scope: input.scope,
+    entity: input.entity,
+    after: input.after,
+    changedPaths,
+    change: {
+      id: input.changeId ?? `chg_${input.entity.type}_${entityRef.id}_${idSeed}`,
+      type: input.actionType,
+      initiatedBy: input.initiatedBy,
+    },
+    activity: {
+      id: input.activityId ?? `act_${input.entity.type}_${entityRef.id}_${idSeed}`,
+      type: input.activityType,
+      performedBy: input.performedBy,
+    },
+    producer: input.producer,
+    occurredAt: input.occurredAt ?? new Date(),
+    idempotencyKeyHash: hashIdempotencyKey(input.scope.tenantId, input.idempotencyKey),
+  };
+  if (input.before !== undefined) {
+    draftInput.before = input.before;
+  }
+  if (input.context !== undefined) {
+    draftInput.context = input.context;
+  }
+  if (input.metadata !== undefined) {
+    draftInput.metadata = input.metadata;
+  }
+  if (input.capturePolicyRef !== undefined) {
+    draftInput.capturePolicyRef = input.capturePolicyRef;
+  }
+  if (input.expectedParentRevisionRef !== undefined) {
+    draftInput.expectedParentRevisionRef = input.expectedParentRevisionRef;
+  }
+  if (input.mutationBinding !== undefined) {
+    draftInput.mutationBinding = input.mutationBinding;
+  }
+  if (input.digestKeys !== undefined) {
+    draftInput.digestKeys = input.digestKeys;
+  }
+
+  return createGovernedChangeDraft(draftInput);
+}
+
+/**
  * Builds the revision state commitment after applying the entity field policy.
  * Default handling intentionally stores no undeclared fields so the outbox cannot
  * become a raw copy of application rows.
@@ -602,6 +693,14 @@ function stableId(value: string): string {
 }
 
 /**
+ * Derives the short action id suffix from the public DX seed specified for the
+ * governed-action helper, distinct from tenant-scoped idempotency hashing.
+ */
+function stableActionDigest(tenantId: string, idempotencyKey: string): string {
+  return createHash("sha256").update(`${tenantId}:${idempotencyKey}`, "utf8").digest("hex").slice(0, 16);
+}
+
+/**
  * Computes the public digest string used in revision commitments.
  */
 function prefixedSha256(value: string): string {
@@ -633,4 +732,37 @@ function assertNonEmpty(value: unknown, field: string): asserts value is string 
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${field} is required`);
   }
+}
+
+/**
+ * Infers JSON-pointer changed paths from the governed field policy. Only fields
+ * captured by the entity definition can become governed change paths.
+ */
+function inferChangedPaths<Row extends Record<string, unknown>>(
+  entity: GovernedEntity<Row>,
+  before: Row | undefined,
+  after: Row,
+): string[] {
+  const paths: string[] = [];
+  for (const key of Object.keys(entity.fields).sort()) {
+    const policy = entity.fields[key];
+    if (!policy || policy.capture === "omit" || after[key] === undefined) {
+      continue;
+    }
+    if (before === undefined || before[key] === undefined) {
+      paths.push(`/${escapeJsonPointerSegment(key)}`);
+      continue;
+    }
+    if (canonicalJson(toJsonValue(before[key])) !== canonicalJson(toJsonValue(after[key]))) {
+      paths.push(`/${escapeJsonPointerSegment(key)}`);
+    }
+  }
+  return paths;
+}
+
+/**
+ * Escapes governed field names into JSON Pointer path segments for changedPaths.
+ */
+function escapeJsonPointerSegment(value: string): string {
+  return value.replace(/~/g, "~0").replace(/\//g, "~1");
 }

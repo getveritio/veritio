@@ -2,7 +2,7 @@
 
 Runnable Vite + Vue 3 SPA backed by an Express server. A real UI action — edit an
 entry, run the cost agent, or roll back — becomes a governed **Change**: it is
-captured through the SDK's `createGovernedChangeDraft`, staged in a transactional
+captured through the SDK's `createGovernedActionDraft`, staged in a transactional
 outbox, and dispatched server-to-server to the hosted Veritio Cloud, where it
 appears live under **Evidence → Changes**.
 
@@ -33,8 +33,8 @@ strings — so the rendered result matches the product and the React example.
   populates the Cloud's **Agent Sessions, Activity Graph, and Code Changes**
   surfaces in addition to Changes/Entities. Prompts and document contents are
   hashed, never raw.
-- Each action resolves before/after rows, builds a governed-change draft with
-  `createGovernedChangeDraft`, applies the local mutation AND enqueues the
+- Each action resolves before/after rows, builds a governed-action draft with
+  `createGovernedActionDraft`, applies the local mutation AND enqueues the
   evidence draft in one transactional-outbox step, then dispatches the outbox.
 - Every revision carries a monotonic `version` field, so even a rollback that
   restores prior business values is a genuinely new revision with a distinct
@@ -86,7 +86,7 @@ through the outbox, while its governed re-estimations still flow through it.
   `VERITIO_CLOUD_*` environment config and both drains the outbox and posts
   agent-session batches (`dispatchBatchToCloud`) to hosted ingest via
   `@veritio/storage`. It is the only place the ingest token is read.
-- `server/governed-entries.ts` is the governed-change engine: `defineEntity`, the
+- `server/governed-entries.ts` is the governed-action engine: `defineEntity`, the
   in-memory entry/feed stores, the file-backed outbox, a per-process run id so a
   restart's reset in-memory store never collides with evidence already in the
   Cloud, and `runGovernedAction`.

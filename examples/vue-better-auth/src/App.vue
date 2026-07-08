@@ -17,7 +17,7 @@ import AgentSessions from "./components/AgentSessions.vue";
 import EntryCard from "./components/EntryCard.vue";
 
 /**
- * The flagship governed-change demo, in a Vue 3 SPA. A real UI action (edit an
+ * The flagship governed-action demo, in a Vue 3 SPA. A real UI action (edit an
  * entry, run the cost agent, roll back) is POSTed to this app's OWN Express
  * server, which captures it through the SDK, stages it in a transactional
  * outbox, and dispatches server-to-server to the hosted Veritio Cloud — where it
@@ -168,7 +168,7 @@ function dispatchVariant(dispatch: GovernedActionResult["dispatch"]): "success" 
         <CardContent class="space-y-2 p-5 text-sm text-muted-foreground">
           <p class="text-foreground">
             A real UI action becomes a governed <span class="font-medium">Change</span>: captured by
-            <code class="font-mono text-xs">createGovernedChangeDraft</code>, staged in a transactional outbox, and
+            <code class="font-mono text-xs">createGovernedActionDraft</code>, staged in a transactional outbox, and
             dispatched to the hosted Cloud ingest. Tenant and the ingest key stay on the Express server; the browser
             never sees them.
           </p>

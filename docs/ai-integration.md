@@ -10,7 +10,8 @@ private host data.
 - `spec/edge.schema.json`: language-neutral evidence graph edge contract.
 - `spec/audit-record.schema.json`: append-only audit record envelope.
 - `spec/edge-record.schema.json`: append-only edge record envelope.
-- `spec/conformance/`: canonical JSON, hashing, redaction, and creation vectors.
+- `spec/conformance/`: canonical JSON, hashing, redaction, creation vectors,
+  and governed-action draft parity fixtures.
 - `sdks/typescript/src/index.ts`: TypeScript SDK entrypoint.
 - `sdks/typescript/src/provenance.ts`: TS-only agent/change provenance recorder.
 - `sdks/python/src/veritio/__init__.py`: Python SDK entrypoint.
@@ -23,6 +24,10 @@ private host data.
 ## Agent Rules
 
 - Keep protocol semantics in `spec/` and SDKs, not in a framework adapter.
+- For form/API mutations, use `createGovernedActionDraft`,
+  `create_governed_action_draft`, or `CreateGovernedActionDraft` at the
+  server-side business mutation boundary. Do not record governed changes from
+  browser form state.
 - Do not send secrets, raw tokens, passwords, API keys, cookies, authorization
   headers, raw prompts, raw tool inputs, command output, file contents, or diffs
   into event metadata.

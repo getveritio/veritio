@@ -3,7 +3,7 @@ import "server-only";
 import { MemoryAuditStore, createAuditRecorder, type AuditRecorder } from "@veritio/core";
 
 /**
- * Better Auth support boundary for the example. The governed-change demo (entry
+ * Better Auth support boundary for the example. The governed-action demo (entry
  * cards → server action → outbox → hosted ingest) lives in `src/server/`; this
  * module exists only so the Better Auth lifecycle hooks have a Veritio recorder
  * and a server-owned session/tenant boundary.

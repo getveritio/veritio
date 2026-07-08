@@ -12,6 +12,11 @@
     languages, pinned by `spec/conformance` fixtures
   - `security.risk` assertion builders, with `hashAssertionRecord` parity with
     `hashAuditRecord`
+  - governed-action draft helpers: `createGovernedActionDraft`,
+    `create_governed_action_draft`, and `CreateGovernedActionDraft` must derive
+    the same change/activity IDs, tenant-scoped idempotency hash, changed paths,
+    revision evidence, event actions, edge relations, and outbox shape, pinned
+    by `spec/conformance/governed-action-draft.json`
 - If a feature lands in one SDK only, document it as experimental or add parity tasks before handoff.
 - Prefer standard libraries in core SDKs.
 - Do not read environment variables in SDK core.

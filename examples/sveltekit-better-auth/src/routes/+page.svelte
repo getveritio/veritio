@@ -17,7 +17,7 @@ import DispatchBadge from "./DispatchBadge.svelte";
 import EntryCard from "./EntryCard.svelte";
 
 /**
- * The flagship governed-change demo in a SvelteKit app. A real UI action (edit
+ * The flagship governed-action demo in a SvelteKit app. A real UI action (edit
  * an entry, run the cost agent, roll back) is POSTed to this app's OWN server
  * endpoint (`/api/governed`), which captures it through the SDK, stages it in a
  * transactional outbox, and dispatches server-to-server to the hosted Veritio
@@ -147,7 +147,7 @@ async function runSession() {
         <CardContent class="space-y-2 p-5 text-sm text-muted-foreground">
           <p class="text-foreground">
             A real UI action becomes a governed <span class="font-medium">Change</span>: captured by
-            <code class="font-mono text-xs">createGovernedChangeDraft</code>, staged in a transactional outbox, and
+            <code class="font-mono text-xs">createGovernedActionDraft</code>, staged in a transactional outbox, and
             dispatched to the hosted Cloud ingest. Tenant and the ingest key stay on the SvelteKit server; the browser
             never sees them.
           </p>

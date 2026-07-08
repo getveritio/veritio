@@ -28,12 +28,35 @@ func TestProjectCRUDRecordsAuditEventsAndGraphEdges(t *testing.T) {
 	auditRecords := evidence["auditRecords"].([]any)
 	edgeRecords := evidence["edgeRecords"].([]any)
 
-	assertAuditActions(t, auditRecords, []string{"project.created", "project.updated", "project.deleted"})
-	assertEdgeRelations(t, edgeRecords, []string{"created", "modified", "deleted"})
+	assertAuditActions(t, auditRecords, []string{
+		"change.declared",
+		"activity.recorded",
+		"entity.revision.created",
+		"change.declared",
+		"activity.recorded",
+		"entity.revision.created",
+		"change.declared",
+		"activity.recorded",
+		"entity.revision.created",
+	})
+	assertEdgeRelations(t, edgeRecords, []string{
+		"has_activity",
+		"has_output",
+		"performed_by",
+		"generated",
+		"has_activity",
+		"has_output",
+		"performed_by",
+		"generated",
+		"has_activity",
+		"has_output",
+		"performed_by",
+		"generated",
+	})
 	assertVerificationOK(t, evidence["auditVerification"])
 	assertVerificationOK(t, evidence["edgeVerification"])
 	assertVerificationOK(t, evidence["commitVerification"])
-	assertCommitCounts(t, evidence["commitRecords"].([]any), []float64{2, 2, 2})
+	assertCommitCounts(t, evidence["commitRecords"].([]any), []float64{7, 7, 7})
 }
 
 func TestGovernedLifecycleScenarioRecordsBroadHelperDrivenGraph(t *testing.T) {

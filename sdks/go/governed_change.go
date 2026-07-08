@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -44,12 +45,12 @@ type EntityFieldPolicy struct {
 }
 
 type GovernedEntityDefinition struct {
-	Authority     string
-	Type          string
-	SchemaRef     string
-	FieldSetRef   string
-	Identity      func(map[string]any) string
-	Fields map[string]EntityFieldPolicy
+	Authority   string
+	Type        string
+	SchemaRef   string
+	FieldSetRef string
+	Identity    func(map[string]any) string
+	Fields      map[string]EntityFieldPolicy
 	// LineagePolicy is RESERVED, not yet enforced ("linear" or "dag"). No SDK
 	// or reference-store branch reads it today; host-side enforcement lands
 	// with the host-assigned revision-ordinal design (docs/review-backlog.md
@@ -88,6 +89,33 @@ type GovernedChangeDraftInput struct {
 	Producer                  EvidenceRef
 	OccurredAt                string
 	IdempotencyKeyHash        string
+	Context                   map[string]any
+	Metadata                  map[string]any
+	CapturePolicyRef          *CapturePolicyRef
+	ExpectedParentRevisionRef *EvidenceRef
+	MutationBinding           string
+	DigestKeys                DigestKeys
+}
+
+// GovernedActionDraftInput is the ergonomic host-facing input for a governed
+// mutation. It lets applications provide raw action context while the SDK
+// derives deterministic ids, idempotency hashes, and changed paths before
+// delegating to CreateGovernedChangeDraft.
+type GovernedActionDraftInput struct {
+	Scope                     EvidenceScope
+	Entity                    GovernedEntityDefinition
+	Before                    map[string]any
+	After                     map[string]any
+	ActionType                string
+	ActivityType              string
+	InitiatedBy               EvidenceRef
+	PerformedBy               EvidenceRef
+	Producer                  EvidenceRef
+	OccurredAt                string
+	IdempotencyKey            string
+	ChangeID                  string
+	ActivityID                string
+	ChangedPaths              []string
 	Context                   map[string]any
 	Metadata                  map[string]any
 	CapturePolicyRef          *CapturePolicyRef
@@ -403,6 +431,87 @@ func CreateGovernedChangeDraft(input GovernedChangeDraftInput) (GovernedChangeDr
 }
 
 /*
+CreateGovernedActionDraft creates a governed-change draft from the host
+application's natural mutation boundary. It derives stable change/activity ids,
+tenant-scoped idempotency hashes, and changed paths before delegating to the
+lower-level draft builder that owns protocol event and edge semantics.
+*/
+func CreateGovernedActionDraft(input GovernedActionDraftInput) (GovernedChangeDraft, error) {
+	if input.Scope.TenantID == "" {
+		return GovernedChangeDraft{}, errors.New("scope.tenantId is required")
+	}
+	if input.ActionType == "" {
+		return GovernedChangeDraft{}, errors.New("actionType is required")
+	}
+	if input.ActivityType == "" {
+		return GovernedChangeDraft{}, errors.New("activityType is required")
+	}
+	if input.IdempotencyKey == "" {
+		return GovernedChangeDraft{}, errors.New("idempotencyKey is required")
+	}
+	if err := assertEvidenceRef(input.InitiatedBy); err != nil {
+		return GovernedChangeDraft{}, err
+	}
+	if err := assertEvidenceRef(input.PerformedBy); err != nil {
+		return GovernedChangeDraft{}, err
+	}
+	if err := assertEvidenceRef(input.Producer); err != nil {
+		return GovernedChangeDraft{}, err
+	}
+	entityRef, err := entityRefFromRow(input.Entity, input.After)
+	if err != nil {
+		return GovernedChangeDraft{}, err
+	}
+	idSeed := stableActionDigest(input.Scope.TenantID, input.IdempotencyKey)
+	changedPaths := input.ChangedPaths
+	if changedPaths == nil {
+		changedPaths, err = inferChangedPaths(input.Entity, input.Before, input.After)
+		if err != nil {
+			return GovernedChangeDraft{}, err
+		}
+	}
+	if len(changedPaths) == 0 {
+		return GovernedChangeDraft{}, errors.New("at least one governed field must change")
+	}
+
+	changeID := input.ChangeID
+	if changeID == "" {
+		changeID = fmt.Sprintf("chg_%s_%s_%s", input.Entity.Type, entityRef.ID, idSeed)
+	}
+	activityID := input.ActivityID
+	if activityID == "" {
+		activityID = fmt.Sprintf("act_%s_%s_%s", input.Entity.Type, entityRef.ID, idSeed)
+	}
+	occurredAt := input.OccurredAt
+	if occurredAt == "" {
+		occurredAt = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	idempotencyKeyHash, err := HashIdempotencyKey(input.Scope.TenantID, input.IdempotencyKey)
+	if err != nil {
+		return GovernedChangeDraft{}, err
+	}
+
+	return CreateGovernedChangeDraft(GovernedChangeDraftInput{
+		Scope:                     input.Scope,
+		Entity:                    input.Entity,
+		Before:                    input.Before,
+		After:                     input.After,
+		ChangedPaths:              changedPaths,
+		Change:                    GovernedChangeDeclaration{ID: changeID, Type: input.ActionType, InitiatedBy: input.InitiatedBy},
+		Activity:                  GovernedActivityDeclaration{ID: activityID, Type: input.ActivityType, PerformedBy: input.PerformedBy},
+		Producer:                  input.Producer,
+		OccurredAt:                occurredAt,
+		IdempotencyKeyHash:        idempotencyKeyHash,
+		Context:                   input.Context,
+		Metadata:                  input.Metadata,
+		CapturePolicyRef:          input.CapturePolicyRef,
+		ExpectedParentRevisionRef: input.ExpectedParentRevisionRef,
+		MutationBinding:           input.MutationBinding,
+		DigestKeys:                input.DigestKeys,
+	})
+}
+
+/*
 createStateCommitment applies the entity capture policy before evidence leaves
 the host mutation boundary.
 */
@@ -654,6 +763,57 @@ stableID produces a short deterministic token for generated draft edge IDs.
 func stableID(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+/*
+stableActionDigest derives the short governed-action id suffix from the public
+DX seed specified for cross-language helper parity.
+*/
+func stableActionDigest(tenantID string, idempotencyKey string) string {
+	sum := sha256.Sum256([]byte(tenantID + ":" + idempotencyKey))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+/*
+inferChangedPaths derives JSON Pointer paths from captured governed fields.
+*/
+func inferChangedPaths(entity GovernedEntityDefinition, before map[string]any, after map[string]any) ([]string, error) {
+	paths := []string{}
+	keys := make([]string, 0, len(entity.Fields))
+	for key := range entity.Fields {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		policy := entity.Fields[key]
+		afterValue, ok := after[key]
+		if !ok || policy.Capture == "omit" {
+			continue
+		}
+		if before == nil {
+			paths = append(paths, "/"+escapeJSONPointerSegment(key))
+			continue
+		}
+		beforeCanonical, err := CanonicalJSON(before[key])
+		if err != nil {
+			return nil, err
+		}
+		afterCanonical, err := CanonicalJSON(afterValue)
+		if err != nil {
+			return nil, err
+		}
+		if beforeCanonical != afterCanonical {
+			paths = append(paths, "/"+escapeJSONPointerSegment(key))
+		}
+	}
+	return paths, nil
+}
+
+/*
+escapeJSONPointerSegment escapes one changedPaths segment with JSON Pointer rules.
+*/
+func escapeJSONPointerSegment(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "~", "~0"), "/", "~1")
 }
 
 /*

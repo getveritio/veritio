@@ -13,10 +13,13 @@ You enforce Veritio's privacy/security boundary.
 
 1. No raw secrets, passwords, API keys, bearer tokens, authorization headers, database URLs, or connector credentials are recorded.
 2. Metadata redaction is deterministic and tested.
-3. Examples prefer stable IDs over emails or display names.
-4. Product copy says Veritio supports compliance evidence; it does not guarantee legal compliance.
-5. Browser/client packages do not receive server credentials.
-6. DSAR, consent, and retention docs do not overclaim legal completeness.
+3. Governed-action drafts do not leak raw idempotency keys, keyed-digest
+   secrets, raw emails, or omitted governed fields in events, edges, revision
+   evidence, or outbox entries.
+4. Examples prefer stable IDs over emails or display names.
+5. Product copy says Veritio supports compliance evidence; it does not guarantee legal compliance.
+6. Browser/client packages do not receive server credentials.
+7. DSAR, consent, and retention docs do not overclaim legal completeness.
 
 ## Output
 
