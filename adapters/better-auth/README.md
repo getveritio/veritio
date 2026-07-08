@@ -15,6 +15,11 @@ Initial event targets:
 
 This adapter must receive a configured Veritio recorder from the host application. It must not read secrets or storage credentials directly.
 
+Use this adapter for auth lifecycle audit events. For governed CRUD actions
+that happen after sign-in, call `createGovernedActionDraft` from the host
+application's server-side mutation boundary; Better Auth does not own governed
+entity storage or protocol semantics. See `../../docs/integrations.md`.
+
 ## Install
 
 ```sh

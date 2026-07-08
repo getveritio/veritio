@@ -2,7 +2,7 @@
 
 Runnable Vite + React SPA backed by an Express server. A real UI action — edit an
 entry, run the cost agent, or roll back — becomes a governed **Change**: it is
-captured through the SDK's `createGovernedChangeDraft`, staged in a transactional
+captured through the SDK's `createGovernedActionDraft`, staged in a transactional
 outbox, and dispatched server-to-server to the hosted Veritio Cloud, where it
 appears live under **Evidence → Changes**.
 
@@ -18,8 +18,8 @@ Express server. The browser never sees the token.
 - `POST /api/governed/action` runs one governed action (`create`, `update`,
   `agent_recalc`, `rollback`). The body is validated and fails closed before it
   can affect an entry id, actor id, or rollback target.
-- Each action resolves before/after rows, builds a governed-change draft with
-  `createGovernedChangeDraft`, applies the local mutation AND enqueues the
+- Each action resolves before/after rows, builds a governed-action draft with
+  `createGovernedActionDraft`, applies the local mutation AND enqueues the
   evidence draft in one transactional-outbox step, then dispatches the outbox.
 - Every revision carries a monotonic `version` field, so even a rollback that
   restores prior business values is a genuinely new revision with a distinct
@@ -57,7 +57,7 @@ captured locally only.
 - `server/cloud-ingest.ts` is the process-boundary module: it reads the
   `VERITIO_CLOUD_*` environment config and drains the outbox to hosted ingest via
   `@veritio/storage`. It is the only place the ingest token is read.
-- `server/governed-entries.ts` is the governed-change engine: `defineEntity`, the
+- `server/governed-entries.ts` is the governed-action engine: `defineEntity`, the
   in-memory entry/feed stores, the file-backed outbox, and `runGovernedAction`.
 - `server/auth.ts` / `auth-events.ts` / `server/veritio.ts` are the Better Auth
   and reference-audit wiring (a runnable reference, not the shipped product).

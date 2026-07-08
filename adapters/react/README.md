@@ -35,6 +35,11 @@ export function ExportButton() {
 The returned object is frozen and contains only the `data-veritio-*` strings.
 `createVeritioAttributes` is exported as a shorter alias.
 
+For governed create/update/delete flows, submit form/API intent to a server
+boundary and call `createGovernedActionDraft` from `@veritio/core` there. React
+attributes are only browser-visible hints; they do not carry tenant scope,
+storage, idempotency, or protocol semantics. See `../../docs/integrations.md`.
+
 ## Server-only keys are rejected
 
 Because these attributes render into the DOM, the builder **fails closed**

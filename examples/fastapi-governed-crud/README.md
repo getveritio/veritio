@@ -1,16 +1,16 @@
 # FastAPI Governed CRUD Showcase
 
 This example shows how a Python FastAPI service can turn normal CRUD mechanics
-into Veritio audit records and activity-graph edges. It is a local proof of
+into Veritio governed-action drafts. It is a local proof of
 concept: tenant and actor identity are resolved on the server as `tenant_demo`
 and `user_demo`, and records are kept in memory so the example runs without a
 hosted Veritio account.
 
 ## What It Shows
 
-- `POST /projects` records `project.created` and a `created` graph edge.
-- `PUT /projects/{id}` records `project.updated` and a `modified` graph edge.
-- `DELETE /projects/{id}` records `project.deleted` and a `deleted` graph edge.
+- `POST /projects` records `project.created` as a governed action.
+- `PUT /projects/{id}` records `project.updated` as a governed action.
+- `DELETE /projects/{id}` records `project.deleted` as a governed action.
 - `POST /scenarios/governed-lifecycle` records a larger helper-driven scenario:
   auth session with country/region context, organization bootstrap, membership,
   consent, data-subject request, export bundle, retention policy, and processor
@@ -26,11 +26,11 @@ scope.
 
 FastAPI validates request bodies, but the application owns tenant and actor
 resolution. Each mutation calls `append_project_evidence`, which creates a
-Veritio audit event, appends a hash-chained audit-record envelope, creates an
-evidence edge, appends a separate edge-record envelope, then binds both records
-in an EvidenceCommit. `GET /evidence` verifies the audit, edge, and commit
-chains so readers can inspect the audit trail, activity graph, and commit
-membership together.
+governed-action draft with `create_governed_action_draft`, appends the returned
+audit and edge inputs to local hash-chained records, then binds those records in
+an EvidenceCommit. `GET /evidence` verifies the audit, edge, and commit chains
+so readers can inspect the audit trail, activity graph, and commit membership
+together.
 
 ## Run Locally
 

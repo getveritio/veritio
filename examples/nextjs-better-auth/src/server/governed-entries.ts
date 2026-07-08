@@ -3,7 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGovernedChangeDraft, defineEntity, type EvidenceRef, type GovernedEntity } from "@veritio/core";
+import { createGovernedActionDraft, defineEntity, type EvidenceRef, type GovernedEntity } from "@veritio/core";
 import { createFileOutboxAdapter, type OutboxAdapter } from "@veritio/storage";
 import {
   cloudPublicConfig,
@@ -14,12 +14,13 @@ import {
 } from "./cloud-ingest";
 
 /**
- * The governed-change engine for the example. A real UI action (create, edit,
+ * The governed-action engine for the example. A real UI action (create, edit,
  * run cost agent, roll back) is turned into a governed `Change` here: the SDK
- * `createGovernedChangeDraft` produces the `change.declared` / `activity.recorded`
- * / `entity.revision.created` records the Cloud Changes surface projects, the
- * draft is enqueued into a transactional outbox in the same step as the local
- * mutation, and the outbox is then dispatched server-to-server to hosted ingest.
+ * `createGovernedActionDraft` derives the repetitive ids, changed paths, and
+ * idempotency hash, then delegates to the lower-level governed-change builder
+ * that produces records for the Cloud Changes surface. The draft is enqueued
+ * into a transactional outbox in the same step as the local mutation, and the
+ * outbox is then dispatched server-to-server to hosted ingest.
  *
  * Every revision carries a monotonic `version` governed field, so even a
  * rollback that restores prior business values is a genuinely new revision with
@@ -226,7 +227,7 @@ export function cloudStatus(): CloudPublicConfig {
 
 /**
  * Runs one governed action end to end: resolve before/after rows, build the
- * governed-change draft, apply the local mutation AND enqueue the outbox entry
+ * governed-action draft, apply the local mutation AND enqueue the outbox entry
  * together, then dispatch the outbox to hosted ingest. Returns the new entry
  * state plus the dispatch outcome for live UI feedback.
  */
@@ -250,21 +251,21 @@ export async function runGovernedAction(input: GovernedActionInput): Promise<Gov
   const isAgent = input.kind === "agent_recalc" || input.kind === "agent_reestimate";
   const actor = isAgent ? COST_AGENT : userRef(input.actorId ?? "usr_pricing_admin");
   const changeType = changeTypeFor(input.kind);
-  const changeId = `chg_${input.entryId}_${runId()}_v${after.version}`;
-  const activityId = `act_${input.entryId}_${runId()}_v${after.version}`;
   const occurredAt = new Date().toISOString();
+  const idempotencyKey = `project:${input.entryId}:${runId()}:v${after.version}:${input.kind}`;
 
-  const draft = createGovernedChangeDraft<EntryRow>({
+  const draft = createGovernedActionDraft<EntryRow>({
     scope: { tenantId: cloudTenantId(), environment: "reference" },
     entity: projectEntry,
     before,
     after,
-    changedPaths: changedPaths.length > 0 ? changedPaths : ["/name"],
-    change: { id: changeId, type: changeType, initiatedBy: userRef(input.actorId ?? "usr_pricing_admin") },
-    activity: { id: activityId, type: activityTypeFor(input.kind), performedBy: actor },
+    actionType: changeType,
+    activityType: activityTypeFor(input.kind),
+    initiatedBy: userRef(input.actorId ?? "usr_pricing_admin"),
+    performedBy: actor,
     producer: PRODUCER,
     occurredAt,
-    idempotencyKeyHash: `sha256:${changeId}`,
+    idempotencyKey,
     mutationBinding: "same_transaction",
     expectedParentRevisionRef: existing ? existing.revisionRef : undefined,
     ...(input.sessionId ? { metadata: { sessionId: input.sessionId } } : {}),
@@ -278,7 +279,7 @@ export async function runGovernedAction(input: GovernedActionInput): Promise<Gov
   // Applying the revision first would half-advance the entry, so the retry would
   // see "no governed fields changed".
   await outbox().transaction(async (tx) => {
-    await tx.enqueue({ id: changeId, tenantId: cloudTenantId(), payload: draft.outboxEntry });
+    await tx.enqueue({ id: draft.changeRef.id, tenantId: cloudTenantId(), payload: draft.outboxEntry });
   });
   const view = applyRevision(after, draft.revision.ref, {
     revisionId: draft.revision.ref.id,
@@ -286,7 +287,7 @@ export async function runGovernedAction(input: GovernedActionInput): Promise<Gov
     quantity: after.quantity,
     monthlyPrice: after.monthlyPrice,
     status: after.status,
-    changeId,
+    changeId: draft.changeRef.id,
     changeType,
     actorLabel: actorLabel(actor),
     occurredAt,
@@ -294,7 +295,7 @@ export async function runGovernedAction(input: GovernedActionInput): Promise<Gov
 
   const dispatch = await dispatchOutboxToCloud(outbox(), cloudTenantId());
   changeFeed().unshift({
-    changeId,
+    changeId: draft.changeRef.id,
     changeType,
     entryId: input.entryId,
     entryName: after.name,
@@ -303,7 +304,7 @@ export async function runGovernedAction(input: GovernedActionInput): Promise<Gov
     dispatch,
   });
 
-  return { changeId, changeType, entry: view, dispatch, cloud: cloudPublicConfig() };
+  return { changeId: draft.changeRef.id, changeType, entry: view, dispatch, cloud: cloudPublicConfig() };
 }
 
 /** Strips the view-only fields back to the governed row for the SDK. */

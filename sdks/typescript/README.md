@@ -278,11 +278,14 @@ automatically; see `examples/claude-code-capture`.
 
 ## Governed Change Capture
 
-`defineEntity` + `createGovernedChangeDraft` capture entity mutations with
-per-field policies (`full`, `keyed_digest`, `omit`) so revision evidence is
+`defineEntity` + `createGovernedActionDraft` are the default server-side DX for
+forms, server actions, API routes, and worker mutations. The helper derives
+stable change/activity ids, tenant-scoped idempotency hashes, and changed paths,
+then delegates to `createGovernedChangeDraft` for the protocol event and edge
+shape. Field policies (`full`, `keyed_digest`, `omit`) keep revision evidence
 minimized by construction — a customer email can be proven changed without the
-value ever entering evidence. See the `*-better-auth` examples for the full
-draft → outbox → read-model flow.
+value ever entering evidence. See `docs/integrations.md` and the
+`*-better-auth` examples for the full draft → outbox → read-model flow.
 
 ## Cross-Language Parity
 

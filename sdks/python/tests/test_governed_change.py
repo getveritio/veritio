@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 
 from veritio import (
     create_audit_event,
+    create_governed_action_draft,
     create_governed_change_draft,
     define_entity,
     governed_revision_id,
+    hash_idempotency_key,
     merge_veritio_metadata,
     ref_key,
 )
@@ -260,9 +262,113 @@ class GovernedChangeTests(unittest.TestCase):
             )
 
 
-if __name__ == "__main__":
-    unittest.main()
+class GovernedActionDraftTests(unittest.TestCase):
+    def project_entry(self):
+        return define_entity(
+            authority="acme.billing",
+            entity_type="project_entry",
+            schema_ref="acme.billing/project_entry@3",
+            field_set_ref="project-entry-governed-fields@2",
+            identity=lambda row: row["id"],
+            fields={
+                "quantity": {"capture": "full"},
+                "status": {"capture": "full"},
+                "customerEmail": {"capture": "keyed_digest"},
+                "temporaryCache": {"capture": "omit"},
+            },
+        )
 
+    def test_create_governed_action_draft_derives_ids_hash_and_changed_paths(self):
+        draft = create_governed_action_draft(
+            {
+                "scope": SCOPE,
+                "entity": self.project_entry(),
+                "before": {"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+                "after": {"id": "42", "quantity": 11, "status": "archived", "customerEmail": "buyer@example.com"},
+                "actionType": "project.updated",
+                "activityType": "project.update",
+                "initiatedBy": INITIATED_BY,
+                "performedBy": PRODUCER,
+                "producer": PRODUCER,
+                "occurredAt": "2026-06-23T10:18:00.000Z",
+                "idempotencyKey": "project:42:v2",
+                "metadata": {"surface": "api"},
+                "digestKeys": {"keyedDigest": {"keyVersion": "tenant-key-7", "secret": "test-hmac-secret"}},
+            }
+        )
+
+        self.assertRegex(draft["changeRef"]["id"], r"^chg_project_entry_42_[a-f0-9]{16}$")
+        self.assertEqual(draft["activityRef"]["id"], draft["changeRef"]["id"].replace("chg_", "act_", 1))
+        self.assertEqual(draft["revision"]["changedPaths"], ["/quantity", "/status"])
+        self.assertEqual(draft["events"][0]["metadata"]["idempotencyKeyHash"], hash_idempotency_key(SCOPE["tenantId"], "project:42:v2"))
+        encoded = json.dumps(draft["outboxEntry"])
+        self.assertNotIn("buyer@example.com", encoded)
+        self.assertNotIn("test-hmac-secret", encoded)
+
+    def test_create_governed_action_draft_rejects_noop_updates(self):
+        with self.assertRaisesRegex(TypeError, "at least one governed field must change"):
+            create_governed_action_draft(
+                {
+                    "scope": SCOPE,
+                    "entity": self.project_entry(),
+                    "before": {"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+                    "after": {"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+                    "actionType": "project.updated",
+                    "activityType": "project.update",
+                    "initiatedBy": INITIATED_BY,
+                    "performedBy": PRODUCER,
+                    "producer": PRODUCER,
+                    "idempotencyKey": "project:42:no-op",
+                    "digestKeys": {"keyedDigest": {"keyVersion": "tenant-key-7", "secret": "test-hmac-secret"}},
+                }
+            )
+
+    def test_create_governed_action_draft_honors_explicit_changed_paths(self):
+        draft = create_governed_action_draft(
+            {
+                "scope": SCOPE,
+                "entity": self.project_entry(),
+                "before": {"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+                "after": {"id": "42", "quantity": 10, "status": "active", "customerEmail": "buyer@example.com"},
+                "changedPaths": ["/derivedEstimate"],
+                "actionType": "project.estimate.recalculated",
+                "activityType": "project.estimate.recalculation",
+                "initiatedBy": INITIATED_BY,
+                "performedBy": PRODUCER,
+                "producer": PRODUCER,
+                "idempotencyKey": "project:42:derived",
+                "digestKeys": {"keyedDigest": {"keyVersion": "tenant-key-7", "secret": "test-hmac-secret"}},
+            }
+        )
+
+        self.assertEqual(draft["revision"]["changedPaths"], ["/derivedEstimate"])
+
+    def test_matches_the_cross_language_governed_action_fixture(self):
+        from pathlib import Path
+
+        fixture = json.loads(
+            (Path(__file__).resolve().parents[3] / "spec" / "conformance" / "governed-action-draft.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        for case in fixture["cases"]:
+            with self.subTest(case["name"]):
+                entity_input = case["input"]["entity"]
+                entity = define_entity(
+                    authority=entity_input["authority"],
+                    entity_type=entity_input["type"],
+                    schema_ref=entity_input["schemaRef"],
+                    field_set_ref=entity_input["fieldSetRef"],
+                    identity=lambda row, field=entity_input["identityField"]: row[field],
+                    fields=entity_input["fields"],
+                )
+                draft = create_governed_action_draft({**case["input"], "entity": entity})
+                self.assertEqual(draft["changeRef"]["id"], case["expected"]["changeId"])
+                self.assertEqual(draft["activityRef"]["id"], case["expected"]["activityId"])
+                self.assertEqual(draft["revision"]["changedPaths"], case["expected"]["changedPaths"])
+                self.assertEqual(draft["events"][0]["metadata"]["idempotencyKeyHash"], case["expected"]["idempotencyKeyHash"])
+                self.assertEqual([event["action"] for event in draft["events"]], case["expected"]["eventActions"])
+                self.assertEqual([edge["relation"] for edge in draft["edges"]], case["expected"]["edgeRelations"])
 
 class GovernedRevisionIdTests(unittest.TestCase):
     def test_matches_the_cross_language_conformance_fixture(self):
@@ -322,3 +428,7 @@ class GovernedRevisionIdTests(unittest.TestCase):
         self.assertNotEqual(rollback["revision"]["ref"]["id"], first["revision"]["ref"]["id"])
         # Replaying the same change stays idempotent.
         self.assertEqual(replay["revision"]["ref"]["id"], first["revision"]["ref"]["id"])
+
+
+if __name__ == "__main__":
+    unittest.main()

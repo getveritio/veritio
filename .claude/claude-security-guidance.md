@@ -53,6 +53,10 @@ Redaction must run before persistence/transport and must be provable.
   boundary entry modules in `server/`/`cli/` may read env).
 - SDK core stays framework-agnostic. Flag React/Vue/Svelte or server-framework imports in
   `sdks/**`.
+- Governed-action helpers must keep raw idempotency keys at the capture
+  boundary and emit only the tenant-scoped idempotency hash. Flag any
+  `outboxEntry`, event metadata, edge metadata, or revision evidence that leaks
+  raw idempotency keys or keyed-digest secrets.
 
 ## 5. Storage & adapter boundaries
 
@@ -62,6 +66,10 @@ Redaction must run before persistence/transport and must be provable.
 - Adapters are translators, not protocol owners. They receive configured recorders/clients
   from the host app. Flag adapters that re-implement hashing, canonical JSON, or redaction
   instead of calling an SDK.
+- Governed create/update/delete evidence must be recorded from the host
+  application's server-side mutation boundary with the SDK governed-action
+  helper. Flag browser form state or framework adapters that compute changed
+  paths, idempotency hashes, revision IDs, or storage writes themselves.
 - Hosted-provider code must remain optional and must not block self-hosted OSS usage.
 
 ## 6. Compliance-claim safety

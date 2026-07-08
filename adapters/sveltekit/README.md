@@ -62,6 +62,12 @@ Per-call `idempotencyKey` and `append` options pass through to the store;
 `purpose`, `lawfulBasis`, `dataCategories`, and `retention` stay
 host-controlled.
 
+For governed create/update/delete flows, prefer `@veritio/core`
+`createGovernedActionDraft` inside the action or endpoint that owns the database
+mutation. This adapter can provide request context for simple audit events, but
+it does not own governed-change storage or protocol semantics. See
+`../../docs/integrations.md`.
+
 ## Boundary
 
 - The recorder (and any storage credentials behind it) stays server-side; never

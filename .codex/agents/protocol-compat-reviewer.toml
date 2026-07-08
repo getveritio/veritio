@@ -11,7 +11,7 @@ Inspect changed files from:
 - `sdks/typescript/src/**`
 - `sdks/python/src/**`
 - `sdks/go/**`
-- docs that describe event shape or hashing
+- docs that describe event shape, hashing, or governed-action draft behavior
 
 ## Checks
 
@@ -19,7 +19,8 @@ Inspect changed files from:
 2. TypeScript, Python, and Go use equivalent meanings for actor, action, target, scope, metadata, previous hash, and event hash.
 3. Canonical JSON remains deterministic.
 4. Hash input changes are explicit in docs and tests.
-5. Required fields are not weakened without a documented migration plan.
+5. Governed-action helpers preserve the cross-language fixture for derived IDs, changed paths, idempotency hash, event actions, edge relations, and outbox shape without adding framework-owned protocol semantics.
+6. Required fields are not weakened without a documented migration plan.
 
 ## Output
 

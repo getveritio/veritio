@@ -44,6 +44,47 @@ portable filters for internal/external/partner/system logs and
 api/app/worker/cli/webhook surfaces. They only use metadata keys
 (`logVisibility`, `logSurface`); they are not protocol fields.
 
+## Governed Action Drafts
+
+Use `define_entity` + `create_governed_action_draft` inside FastAPI routes,
+service methods, or workers that already own authorization, tenant scope,
+before/after rows, and storage. The helper derives stable change/activity ids,
+tenant-scoped idempotency hashes, and changed paths before delegating to the
+lower-level governed-change builder.
+
+```python
+from veritio import create_governed_action_draft, define_entity
+
+project_entity = define_entity(
+    authority="app.example",
+    entity_type="project_entry",
+    schema_ref="app.example/project-entry@1",
+    field_set_ref="project-entry-governed-fields@1",
+    identity=lambda row: row["id"],
+    fields={"status": {"capture": "full"}, "customerEmail": {"capture": "keyed_digest"}},
+)
+
+draft = create_governed_action_draft(
+    {
+        "scope": {"tenantId": "org_123", "environment": "production"},
+        "entity": project_entity,
+        "before": before,
+        "after": after,
+        "actionType": "project_entry.updated",
+        "activityType": "project_entry.updated",
+        "initiatedBy": {"authority": "app.example.auth", "kind": "principal", "type": "user", "id": "usr_123"},
+        "performedBy": {"authority": "app.example.auth", "kind": "principal", "type": "user", "id": "usr_123"},
+        "producer": {"authority": "app.example", "kind": "principal", "type": "service", "id": "api"},
+        "idempotencyKey": f"project_entry:{after['id']}:v{after['version']}",
+        "mutationBinding": "transactional_outbox",
+        "digestKeys": {"keyedDigest": {"keyVersion": "email-v1", "secret": tenant_digest_secret}},
+    }
+)
+```
+
+See `docs/integrations.md` and `examples/fastapi-governed-crud` for a complete
+route and local evidence-chain example.
+
 ## Risk Scoring
 
 Deterministic, explainable risk math pinned by cross-language conformance

@@ -1,0 +1,84 @@
+{
+  "cases": [
+    {
+      "name": "derive ids, idempotency hash, changed paths, and outbox shape",
+      "input": {
+        "scope": {
+          "tenantId": "org_acme_123",
+          "workspaceId": "wks_security_456",
+          "environment": "test"
+        },
+        "entity": {
+          "authority": "acme.billing",
+          "type": "project_entry",
+          "schemaRef": "acme.billing/project_entry@3",
+          "fieldSetRef": "project-entry-governed-fields@2",
+          "identityField": "id",
+          "fields": {
+            "quantity": { "capture": "full" },
+            "status": { "capture": "full" },
+            "customerEmail": { "capture": "keyed_digest" },
+            "temporaryCache": { "capture": "omit" }
+          }
+        },
+        "before": {
+          "id": "42",
+          "quantity": 10,
+          "status": "active",
+          "customerEmail": "buyer@example.com",
+          "temporaryCache": "hot"
+        },
+        "after": {
+          "id": "42",
+          "quantity": 11,
+          "status": "archived",
+          "customerEmail": "buyer@example.com",
+          "temporaryCache": "warm"
+        },
+        "actionType": "project.updated",
+        "activityType": "project.update",
+        "initiatedBy": {
+          "authority": "auth.acme.internal",
+          "kind": "principal",
+          "type": "user",
+          "id": "usr_123"
+        },
+        "performedBy": {
+          "authority": "acme.billing",
+          "kind": "principal",
+          "type": "service",
+          "id": "billing-api"
+        },
+        "producer": {
+          "authority": "acme.billing",
+          "kind": "principal",
+          "type": "service",
+          "id": "billing-api"
+        },
+        "occurredAt": "2026-06-23T10:18:00.000Z",
+        "idempotencyKey": "project:42:v2",
+        "metadata": {
+          "surface": "api"
+        },
+        "context": {
+          "traceId": "trc_01jz_estimate",
+          "collectionSource": "fixture"
+        },
+        "digestKeys": {
+          "keyedDigest": {
+            "keyVersion": "tenant-key-7",
+            "secret": "test-hmac-secret"
+          }
+        }
+      },
+      "expected": {
+        "changeId": "chg_project_entry_42_793ab4fe174f23da",
+        "activityId": "act_project_entry_42_793ab4fe174f23da",
+        "changedPaths": ["/quantity", "/status"],
+        "idempotencyKeyHash": "0d4ecff2c8b41e5db4c3f3523e06ddb72512aba23b6c0576524a1af991881aaf",
+        "eventActions": ["change.declared", "activity.recorded", "entity.revision.created"],
+        "edgeRelations": ["has_activity", "has_output", "performed_by", "generated"]
+      }
+    }
+  ]
+}

@@ -18,7 +18,7 @@ interface GovernedSnapshot {
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 /**
- * The flagship governed-change demo, in a React SPA. A real UI action (edit an
+ * The flagship governed-action demo, in a React SPA. A real UI action (edit an
  * entry, run the cost agent, roll back) is POSTed to this app's OWN Express
  * server, which captures it through the SDK, stages it in a transactional
  * outbox, and dispatches server-to-server to the hosted Veritio Cloud — where it
@@ -190,7 +190,7 @@ function Intro({ cloud }: Readonly<{ cloud: CloudPublicConfig }>) {
       <CardContent className="space-y-2 p-5 text-sm text-muted-foreground">
         <p className="text-foreground">
           A real UI action becomes a governed <span className="font-medium">Change</span>: captured by{" "}
-          <code className="font-mono text-xs">createGovernedChangeDraft</code>, staged in a transactional outbox, and
+          <code className="font-mono text-xs">createGovernedActionDraft</code>, staged in a transactional outbox, and
           dispatched to the hosted Cloud ingest. Tenant and the ingest key stay on the Express server; the browser never
           sees them.
         </p>

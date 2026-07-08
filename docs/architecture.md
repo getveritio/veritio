@@ -24,6 +24,10 @@ regulation or framework.
    - TypeScript, Python, and Go SDKs create normalized events and edges, redact
      metadata, canonicalize JSON, hash payloads, and verify record chains where
      implemented.
+   - All three SDKs expose governed-action draft helpers for server-side entity
+     mutations. These helpers derive change/activity IDs, changed paths,
+     tenant-scoped idempotency hashes, revision evidence, and outbox-ready event
+     and edge inputs without adding a new protocol schema.
    - Core SDKs do not read process environment variables, framework globals, or
      storage credentials.
    - All three SDKs expose a deterministic, language-neutral risk-signal scoring
@@ -40,6 +44,9 @@ regulation or framework.
      request ID, and metadata inputs.
    - Better Auth, Next.js, TanStack Start, and SvelteKit adapters record only
      through injected Veritio recorders.
+   - Governed CRUD actions stay in host mutation code via the SDK
+     governed-action helper; framework adapters may provide context, but do not
+     own storage, changed-path, idempotency, or protocol semantics.
    - React, Vue, and Svelte packages are UI intent helpers. They annotate UI
      intent and must not record audit events from the browser.
    - Claude Code capture is an agent adapter: hooks write redacted local evidence
@@ -74,6 +81,8 @@ regulation or framework.
      source.
    - They must keep tenant and actor resolution on the server side, prefer stable
      IDs over personal data, and avoid implying automatic regulatory coverage.
+   - Form and API examples record governed actions at the server-side business
+     mutation boundary, not inside browser form state.
 
 ## Protocol Payloads
 

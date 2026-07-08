@@ -34,6 +34,11 @@ const attrs = createVueVeritioAttrs({
 The returned object is frozen and contains only the `data-veritio-*` strings.
 `createVeritioAttrs` is exported as a shorter alias.
 
+For governed create/update/delete flows, submit form/API intent to a server
+boundary and call `createGovernedActionDraft` from `@veritio/core` there. Vue
+attrs are only browser-visible hints; they do not carry tenant scope, storage,
+idempotency, or protocol semantics. See `../../docs/integrations.md`.
+
 ## Server-only keys are rejected
 
 Because these attrs render into the DOM, the builder **fails closed** with a

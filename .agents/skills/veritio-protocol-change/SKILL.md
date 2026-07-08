@@ -11,9 +11,10 @@ Protocol work must preserve cross-language clarity.
 ## Checklist
 
 1. Start at `spec/event.schema.json` or the relevant spec file.
-2. Update TypeScript, Python, and Go SDKs together when the core event contract changes.
+2. Update TypeScript, Python, and Go SDKs together when the core event contract
+   or governed-action draft behavior changes.
 3. Add equivalent tests in each affected SDK.
-4. Update docs that show event examples.
+4. Update docs that show event, governed-action, or integration examples.
 5. Run `bun run verify`.
 
 ## Guardrails

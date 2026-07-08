@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   createAuditEvent,
+  createGovernedActionDraft,
   createGovernedChangeDraft,
   defineEntity,
   type EvidenceRef,
+  hashIdempotencyKey,
   governedRevisionId,
   mergeVeritioMetadata,
   refKey,
@@ -318,6 +320,152 @@ describe("createGovernedChangeDraft", () => {
         idempotencyKeyHash: "sha256:unsupported-capture",
       }),
     ).toThrow("capture mode reference is not supported by the current governed-change draft helper");
+  });
+});
+
+describe("createGovernedActionDraft", () => {
+  const projectEntry = defineEntity<{
+    id: string;
+    quantity: number;
+    status: string;
+    customerEmail: string;
+    temporaryCache?: string;
+  }>({
+    authority: "acme.billing",
+    type: "project_entry",
+    schemaRef: "acme.billing/project_entry@3",
+    fieldSetRef: "project-entry-governed-fields@2",
+    identity: (row) => row.id,
+    fields: {
+      quantity: { capture: "full" },
+      status: { capture: "full" },
+      customerEmail: { capture: "keyed_digest" },
+      temporaryCache: { capture: "omit" },
+    },
+  });
+
+  test("derives ids, idempotency hash, and changed paths before delegating", () => {
+    const draft = createGovernedActionDraft({
+      scope,
+      entity: projectEntry,
+      before: { id: "42", quantity: 10, status: "active", customerEmail: "buyer@example.com" },
+      after: { id: "42", quantity: 11, status: "archived", customerEmail: "buyer@example.com" },
+      actionType: "project.updated",
+      activityType: "project.update",
+      initiatedBy,
+      performedBy: producer,
+      producer,
+      occurredAt: "2026-06-23T10:18:00.000Z",
+      idempotencyKey: "project:42:v2",
+      metadata: { surface: "api" },
+      digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "test-hmac-secret" } },
+    });
+
+    expect(draft.changeRef.id).toMatch(/^chg_project_entry_42_[a-f0-9]{16}$/);
+    expect(draft.activityRef.id).toBe(draft.changeRef.id.replace(/^chg_/, "act_"));
+    expect(draft.revision.changedPaths).toEqual(["/quantity", "/status"]);
+    expect(draft.events[0]?.metadata.idempotencyKeyHash).toBe(hashIdempotencyKey(scope.tenantId, "project:42:v2"));
+    expect(JSON.stringify(draft.outboxEntry)).not.toContain("buyer@example.com");
+    expect(JSON.stringify(draft.outboxEntry)).not.toContain("test-hmac-secret");
+  });
+
+  test("fails closed when an update changes no governed fields", () => {
+    expect(() =>
+      createGovernedActionDraft({
+        scope,
+        entity: projectEntry,
+        before: { id: "42", quantity: 10, status: "active", customerEmail: "buyer@example.com" },
+        after: { id: "42", quantity: 10, status: "active", customerEmail: "buyer@example.com" },
+        actionType: "project.updated",
+        activityType: "project.update",
+        initiatedBy,
+        performedBy: producer,
+        producer,
+        idempotencyKey: "project:42:no-op",
+        digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "test-hmac-secret" } },
+      }),
+    ).toThrow("at least one governed field must change");
+  });
+
+  test("honors explicit changed paths for host-defined derived mutations", () => {
+    const draft = createGovernedActionDraft({
+      scope,
+      entity: projectEntry,
+      before: { id: "42", quantity: 10, status: "active", customerEmail: "buyer@example.com" },
+      after: { id: "42", quantity: 10, status: "active", customerEmail: "buyer@example.com" },
+      changedPaths: ["/derivedEstimate"],
+      actionType: "project.estimate.recalculated",
+      activityType: "project.estimate.recalculation",
+      initiatedBy,
+      performedBy: producer,
+      producer,
+      idempotencyKey: "project:42:derived",
+      digestKeys: { keyedDigest: { keyVersion: "tenant-key-7", secret: "test-hmac-secret" } },
+    });
+
+    expect(draft.revision.changedPaths).toEqual(["/derivedEstimate"]);
+  });
+
+  test("matches the cross-language governed action conformance fixture", async () => {
+    const fixture = (await Bun.file(
+      new URL("../../../../spec/conformance/governed-action-draft.json", import.meta.url).pathname,
+    ).json()) as {
+      cases: {
+        name: string;
+        input: {
+          scope: typeof scope;
+          entity: {
+            authority: string;
+            type: string;
+            schemaRef: string;
+            fieldSetRef: string;
+            identityField: string;
+            fields: Record<string, { capture: "full" | "keyed_digest" | "omit" | "content_digest" }>;
+          };
+          before?: Record<string, unknown>;
+          after: Record<string, unknown>;
+          actionType: string;
+          activityType: string;
+          initiatedBy: EvidenceRef;
+          performedBy: EvidenceRef;
+          producer: EvidenceRef;
+          occurredAt: string;
+          idempotencyKey: string;
+          metadata?: Record<string, unknown>;
+          context?: Record<string, string>;
+          digestKeys?: { keyedDigest?: { keyVersion: string; secret: string } };
+        };
+        expected: {
+          changeId: string;
+          activityId: string;
+          changedPaths: string[];
+          idempotencyKeyHash: string;
+          eventActions: string[];
+          edgeRelations: string[];
+        };
+      }[];
+    };
+
+    for (const conformanceCase of fixture.cases) {
+      const entity = defineEntity<Record<string, unknown>>({
+        authority: conformanceCase.input.entity.authority,
+        type: conformanceCase.input.entity.type,
+        schemaRef: conformanceCase.input.entity.schemaRef,
+        fieldSetRef: conformanceCase.input.entity.fieldSetRef,
+        identity: (row) => String(row[conformanceCase.input.entity.identityField]),
+        fields: conformanceCase.input.entity.fields,
+      });
+      const draft = createGovernedActionDraft({
+        ...conformanceCase.input,
+        entity,
+      });
+      expect(draft.changeRef.id).toBe(conformanceCase.expected.changeId);
+      expect(draft.activityRef.id).toBe(conformanceCase.expected.activityId);
+      expect(draft.revision.changedPaths).toEqual(conformanceCase.expected.changedPaths);
+      expect(draft.events[0]?.metadata.idempotencyKeyHash).toBe(conformanceCase.expected.idempotencyKeyHash);
+      expect(draft.events.map((event) => event.action)).toEqual(conformanceCase.expected.eventActions);
+      expect(draft.edges.map((edge) => edge.relation)).toEqual(conformanceCase.expected.edgeRelations);
+    }
   });
 });
 

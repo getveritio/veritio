@@ -13,34 +13,36 @@ The examples keep Veritio setup on the server side, use stable IDs instead of
 personal data, and require host applications to provide tenant scope before
 recording. They are evidence-support examples for audit trails and data subject
 workflows; they do not provide legal advice or automatic regulatory coverage.
+The main copy-paste integration guide is `../docs/integrations.md`; templates
+live in `../docs/templates/`.
 
 ## Better Auth Governed CRUD Showcases
 
 - `nextjs-better-auth` shows Next.js App Router server actions and route
-  handlers with Better Auth lifecycle hooks, CRUD audit events, graph edges, and
-  a broader helper-driven lifecycle scenario.
+  handlers with Better Auth lifecycle hooks, governed-action CRUD drafts, graph
+  edges, and a broader helper-driven lifecycle scenario.
 - `tanstack-start-better-auth` shows TanStack Start server routes with Better
-  Auth mounted at `/api/auth/$`, CRUD audit events, graph edges, and the broader
-  lifecycle scenario and a governed-change Change/Entity/Explain/Diff browser
-  smoke path.
+  Auth mounted at `/api/auth/$`, governed-action CRUD drafts, graph edges, the
+  broader lifecycle scenario, and a governed-change Change/Entity/Explain/Diff
+  browser smoke path.
 - `react-better-auth` shows a Vite React client with an Express Better Auth
-  server, CRUD audit events, graph edges, and a broader helper-driven lifecycle
-  scenario.
+  server, governed-action CRUD drafts, graph edges, and a broader helper-driven
+  lifecycle scenario.
 - `vue-better-auth` shows the same Express-hosted Better Auth and governed CRUD
   flow from a Vite Vue client, including the broader lifecycle scenario.
 - `sveltekit-better-auth` shows SvelteKit hooks and route handlers with Better
-  Auth lifecycle hooks, CRUD audit events, graph edges, and the broader
-  lifecycle scenario.
+  Auth lifecycle hooks, governed-action CRUD drafts, graph edges, and the
+  broader lifecycle scenario.
 
 ## Python and Go Governed CRUD Showcases
 
 - `fastapi-governed-crud` shows Python FastAPI CRUD routes that append Veritio
-  audit events, activity-graph edges, and EvidenceCommit envelopes from a
-  server-owned tenant/actor boundary, plus a broader helper-driven lifecycle
-  scenario.
+  governed-action drafts, activity-graph edges, and EvidenceCommit envelopes
+  from a server-owned tenant/actor boundary, plus a broader helper-driven
+  lifecycle scenario.
 - `gin-governed-crud` shows the same governed CRUD flow in Go Gin using the Go
-  SDK and `httptest`, including EvidenceCommit verification for CRUD mutations
-  and the broader helper-driven lifecycle scenario.
+  SDK helper and `httptest`, including EvidenceCommit verification for CRUD
+  mutations and the broader helper-driven lifecycle scenario.
 
 Both examples include Dockerfiles and local test suites. They run without a
 hosted account; hosted Veritio Cloud wiring is documented as an optional

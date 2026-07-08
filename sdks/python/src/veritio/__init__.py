@@ -17,6 +17,7 @@ from .event import (
     verify_evidence_commits,
 )
 from .governed_change import (
+    create_governed_action_draft,
     create_governed_change_draft,
     define_entity,
     governed_revision_id,
@@ -87,6 +88,7 @@ __all__ = [
     "hash_evidence_edge_record",
     "hash_idempotency_key",
     "verify_evidence_commits",
+    "create_governed_action_draft",
     "create_governed_change_draft",
     "define_entity",
     "governed_revision_id",

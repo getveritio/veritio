@@ -1,7 +1,7 @@
 # Gin Governed CRUD Showcase
 
-This example shows a small Gin API that records Veritio audit events and
-evidence graph edges for project CRUD mutations.
+This example shows a small Gin API that records Veritio governed-action drafts
+for project CRUD mutations.
 
 The demo is fully local:
 
@@ -17,9 +17,9 @@ evidence chains at `GET /evidence`.
 
 ## What It Shows
 
-- `POST /projects` records `project.created` and a `created` graph edge.
-- `PUT /projects/{id}` records `project.updated` and a `modified` graph edge.
-- `DELETE /projects/{id}` records `project.deleted` and a `deleted` graph edge.
+- `POST /projects` records `project.created` as a governed action.
+- `PUT /projects/{id}` records `project.updated` as a governed action.
+- `DELETE /projects/{id}` records `project.deleted` as a governed action.
 - `POST /scenarios/governed-lifecycle` records a larger helper-driven scenario:
   auth session with country/region context, organization bootstrap, membership,
   consent, data-subject request, export bundle, retention policy, and processor
@@ -34,12 +34,12 @@ server-owned identifiers, statuses, hashes, and tenant scope.
 ## Why It Works
 
 The Gin handlers are only the transport layer. Each mutation calls
-`recordProjectMutation`, which builds a Veritio audit event, appends an audit
-record envelope, builds an evidence edge, appends an edge-record envelope, then
-creates an EvidenceCommit over both record hashes. The audit, graph, and commit
-chains are verified independently so readers can see the chronological audit
-trail, the activity graph that links actor to resource, and the committed record
-membership.
+`recordProjectMutation`, which uses `CreateGovernedActionDraft` to derive
+change/activity ids, changed paths, tenant-scoped idempotency hashes, audit
+inputs, graph edges, and an outbox-ready shape. The example appends the returned
+records locally, then creates an EvidenceCommit over their hashes. The audit,
+graph, and commit chains are verified independently so readers can see the
+chronological audit trail, activity graph, and committed record membership.
 
 ## Run Locally
 
