@@ -39,7 +39,7 @@ async def update_project_entry(entry_id: str, body: dict, actor=Depends(require_
             "producer": {"authority": "app.example", "kind": "principal", "type": "service", "id": "api"},
             "idempotencyKey": f"project_entry:{entry_id}:v{after['version']}",
             "expectedParentRevisionRef": before.get("revisionRef"),
-            "mutationBinding": "transactional_outbox",
+            "mutationBinding": "same_transaction",
             "digestKeys": {"keyedDigest": {"keyVersion": "actor-v1", "secret": actor.tenant_digest_secret}},
         }
     )

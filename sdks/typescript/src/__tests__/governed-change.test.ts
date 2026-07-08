@@ -369,6 +369,24 @@ describe("createGovernedActionDraft", () => {
     expect(JSON.stringify(draft.outboxEntry)).not.toContain("test-hmac-secret");
   });
 
+  test("tracks missing-to-null governed fields as updates", () => {
+    const draft = createGovernedActionDraft({
+      scope,
+      entity: projectEntry,
+      before: { id: "42", quantity: 10 },
+      after: { id: "42", quantity: 10, status: null },
+      actionType: "project.updated",
+      activityType: "project.update",
+      initiatedBy,
+      performedBy: producer,
+      producer,
+      idempotencyKey: "project:42:null-status",
+    });
+
+    expect(draft.revision.changedPaths).toEqual(["/status"]);
+    expect(draft.revision.stateCommitment.fields.status).toBeNull();
+  });
+
   test("fails closed when an update changes no governed fields", () => {
     expect(() =>
       createGovernedActionDraft({

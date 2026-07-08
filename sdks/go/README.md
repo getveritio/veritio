@@ -31,19 +31,24 @@ idempotency hashes, and changed paths before delegating to the lower-level
 governed-change builder.
 
 ```go
+projectEntry, err := veritio.DefineEntity(veritio.GovernedEntityDefinition{
+    Authority: "app.example",
+    Type: "project_entry",
+    SchemaRef: "app.example/project-entry@1",
+    FieldSetRef: "project-entry-governed-fields@1",
+    Identity: func(row map[string]any) string { return row["id"].(string) },
+    Fields: map[string]veritio.EntityFieldPolicy{
+        "status": {Capture: "full"},
+        "customerEmail": {Capture: "keyed_digest"},
+    },
+})
+if err != nil {
+    return err
+}
+
 draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput{
     Scope: veritio.EvidenceScope{TenantID: "org_123", Environment: "production"},
-    Entity: veritio.DefineEntity(veritio.GovernedEntityDefinition{
-        Authority: "app.example",
-        Type: "project_entry",
-        SchemaRef: "app.example/project-entry@1",
-        FieldSetRef: "project-entry-governed-fields@1",
-        Identity: func(row map[string]any) string { return row["id"].(string) },
-        Fields: map[string]veritio.FieldCapturePolicy{
-            "status": {Capture: "full"},
-            "customerEmail": {Capture: "keyed_digest"},
-        },
-    }),
+    Entity: projectEntry,
     Before: before,
     After: after,
     ActionType: "project_entry.updated",
@@ -52,8 +57,8 @@ draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput
     PerformedBy: veritio.EvidenceRef{Authority: "app.example.auth", Kind: "principal", Type: "user", ID: "usr_123"},
     Producer: veritio.EvidenceRef{Authority: "app.example", Kind: "principal", Type: "service", ID: "api"},
     IdempotencyKey: fmt.Sprintf("project_entry:%s:v%d", after["id"], after["version"]),
-    MutationBinding: "transactional_outbox",
-    DigestKeys: veritio.DigestKeys{KeyedDigest: &veritio.KeyedDigestInput{KeyVersion: "email-v1", Secret: tenantDigestSecret}},
+    MutationBinding: "same_transaction",
+    DigestKeys: veritio.DigestKeys{KeyedDigest: &veritio.KeyedDigestKey{KeyVersion: "email-v1", Secret: tenantDigestSecret}},
 })
 ```
 

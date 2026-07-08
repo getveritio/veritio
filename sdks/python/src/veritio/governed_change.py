@@ -404,7 +404,7 @@ def _infer_changed_paths(entity: dict[str, Any], before: dict[str, Any] | None, 
         policy = entity["fields"][key]
         if policy.get("capture") == "omit" or key not in after:
             continue
-        if before is None or canonical_json(before.get(key)) != canonical_json(after[key]):
+        if before is None or key not in before or canonical_json(before[key]) != canonical_json(after[key]):
             paths.append(f"/{_escape_json_pointer_segment(key)}")
     return paths
 
