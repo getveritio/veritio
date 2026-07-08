@@ -17,23 +17,23 @@
     },
     "../../adapters/claude-code": {
       "name": "@veritio/claude-code",
-      "version": "0.2.0",
+      "version": "0.4.0",
       "bin": {
         "veritio-claude-code-hook": "dist/hook.js",
         "veritio-claude-code-mcp": "dist/mcp.js",
       },
       "dependencies": {
-        "@veritio/core": "0.2.0",
-        "@veritio/storage": "0.2.0",
+        "@veritio/core": "0.4.0",
+        "@veritio/storage": "0.4.0",
       },
     },
     "../../sdks/typescript": {
       "name": "@veritio/core",
-      "version": "0.3.0",
+      "version": "0.4.0",
     },
     "../../storage": {
       "name": "@veritio/storage",
-      "version": "0.2.0",
+      "version": "0.4.0",
       "devDependencies": {
         "@veritio/core": "workspace:*",
         "mongodb": "^7.3.0",
@@ -135,7 +135,5 @@
     "whatwg-url": ["whatwg-url@14.2.0", "", { "dependencies": { "tr46": "^5.1.0", "webidl-conversions": "^7.0.0" } }, "sha512-De72GdQZzNTUBBChsXueQUnPKDkg/5A5zp7pFDuQAj5UFoENpiACU0wlCvzpAGnTkj++ihpKwKyYewn/XNUbKw=="],
 
     "xtend": ["xtend@4.0.2", "", {}, "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="],
-
-    "@veritio/claude-code/@veritio/core": ["@veritio/core@0.2.0", "", {}, "sha512-ZioCT4mKFHIQutCR9gdvrmwvm+1CHnpTulWl9YO/VyDbTL6/dl9u4G1hSSpaXenlqYiZrZnLKYdVDbTtO3Y3XQ=="],
   }
 }
