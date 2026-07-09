@@ -17,7 +17,7 @@ import {
   verifyAuditRecords,
   verifyEvidenceCommits,
   verifyEvidenceEdgeRecords,
-} from "./index";
+} from "./index.js";
 
 /**
  * Protocol canonical JSON: key-sorted, undefined object fields omitted, array
