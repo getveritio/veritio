@@ -33,7 +33,7 @@ export async function PUT(request: Request, context: { params: { id: string } })
     producer: { authority: "app.example", kind: "principal", type: "service", id: "api" },
     idempotencyKey: request.headers.get("idempotency-key") ?? `project_entry:${after.id}:v${after.version}`,
     expectedParentRevisionRef: before.revisionRef,
-    mutationBinding: "transactional_outbox",
+    mutationBinding: "same_transaction",
     digestKeys: { keyedDigest: { keyVersion: "actor-v1", secret: actor.tenantDigestSecret } },
   });
 

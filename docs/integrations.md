@@ -60,7 +60,7 @@ export async function updateProjectEntry(formData: FormData) {
     producer: { authority: "app.example", kind: "principal", type: "service", id: "web" },
     idempotencyKey: `project_entry:${after.id}:v${after.version}`,
     expectedParentRevisionRef: before.revisionRef,
-    mutationBinding: "transactional_outbox",
+    mutationBinding: "same_transaction",
     digestKeys: { keyedDigest: { keyVersion: "tenant-email-v1", secret: actor.tenantDigestSecret } },
     metadata: { requestId: actor.requestId },
   });
@@ -114,7 +114,7 @@ async def update_project_entry(entry_id: str, body: dict, actor=Depends(require_
             "producer": {"authority": "app.example", "kind": "principal", "type": "service", "id": "api"},
             "idempotencyKey": f"project_entry:{entry_id}:v{after['version']}",
             "expectedParentRevisionRef": before.get("revisionRef"),
-            "mutationBinding": "transactional_outbox",
+            "mutationBinding": "same_transaction",
         }
     )
 
@@ -135,19 +135,25 @@ func updateProjectEntry(c *gin.Context) {
     after.Status = c.PostForm("status")
     after.Version++
 
+    projectEntity, err := veritio.DefineEntity(veritio.GovernedEntityDefinition{
+        Authority: "app.example",
+        Type: "project_entry",
+        SchemaRef: "app.example/project-entry@1",
+        FieldSetRef: "project-entry-governed-fields@1",
+        Identity: func(row map[string]any) string { return row["id"].(string) },
+        Fields: map[string]veritio.EntityFieldPolicy{
+            "title": {Capture: "full"},
+            "status": {Capture: "full"},
+        },
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "evidence policy unavailable"})
+        return
+    }
+
     draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput{
         Scope: veritio.EvidenceScope{TenantID: actor.OrgID, Environment: "production"},
-        Entity: veritio.DefineEntity(veritio.GovernedEntityDefinition{
-            Authority: "app.example",
-            Type: "project_entry",
-            SchemaRef: "app.example/project-entry@1",
-            FieldSetRef: "project-entry-governed-fields@1",
-            Identity: func(row map[string]any) string { return row["id"].(string) },
-            Fields: map[string]veritio.FieldCapturePolicy{
-                "title": {Capture: "full"},
-                "status": {Capture: "full"},
-            },
-        }),
+        Entity: projectEntity,
         Before: projectEntryRow(before),
         After: projectEntryRow(after),
         ActionType: "project_entry.updated",
@@ -156,7 +162,7 @@ func updateProjectEntry(c *gin.Context) {
         PerformedBy: veritio.EvidenceRef{Authority: "app.example.auth", Kind: "principal", Type: "user", ID: actor.ID},
         Producer: veritio.EvidenceRef{Authority: "app.example", Kind: "principal", Type: "service", ID: "api"},
         IdempotencyKey: fmt.Sprintf("project_entry:%s:v%d", after.ID, after.Version),
-        MutationBinding: "transactional_outbox",
+        MutationBinding: "same_transaction",
     })
     if err != nil {
         c.JSON(http.StatusConflict, gin.H{"error": err.Error()})

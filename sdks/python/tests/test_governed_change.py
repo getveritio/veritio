@@ -305,6 +305,25 @@ class GovernedActionDraftTests(unittest.TestCase):
         self.assertNotIn("buyer@example.com", encoded)
         self.assertNotIn("test-hmac-secret", encoded)
 
+    def test_create_governed_action_draft_tracks_missing_to_null_fields(self):
+        draft = create_governed_action_draft(
+            {
+                "scope": SCOPE,
+                "entity": self.project_entry(),
+                "before": {"id": "42", "quantity": 10},
+                "after": {"id": "42", "quantity": 10, "status": None},
+                "actionType": "project.updated",
+                "activityType": "project.update",
+                "initiatedBy": INITIATED_BY,
+                "performedBy": PRODUCER,
+                "producer": PRODUCER,
+                "idempotencyKey": "project:42:null-status",
+            }
+        )
+
+        self.assertEqual(draft["revision"]["changedPaths"], ["/status"])
+        self.assertIsNone(draft["revision"]["stateCommitment"]["fields"]["status"])
+
     def test_create_governed_action_draft_rejects_noop_updates(self):
         with self.assertRaisesRegex(TypeError, "at least one governed field must change"):
             create_governed_action_draft(

@@ -8,6 +8,15 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 
 _Nothing yet._
 
+## [0.4.1] - 2026-07-09
+
+### Fixed
+
+- Published Node-compatible ESM specifiers for `@veritio/core` export-bundle
+  helpers. `@veritio/core`, `@veritio/storage`, and `@veritio/claude-code`
+  were released together; `@veritio/claude-code` now pins the `0.4.1` core and
+  storage packages.
+
 ## [0.3.0] - 2026-07-07
 
 ### Added

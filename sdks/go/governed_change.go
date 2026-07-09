@@ -794,7 +794,12 @@ func inferChangedPaths(entity GovernedEntityDefinition, before map[string]any, a
 			paths = append(paths, "/"+escapeJSONPointerSegment(key))
 			continue
 		}
-		beforeCanonical, err := CanonicalJSON(before[key])
+		beforeValue, ok := before[key]
+		if !ok {
+			paths = append(paths, "/"+escapeJSONPointerSegment(key))
+			continue
+		}
+		beforeCanonical, err := CanonicalJSON(beforeValue)
 		if err != nil {
 			return nil, err
 		}

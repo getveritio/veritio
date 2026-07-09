@@ -76,7 +76,7 @@ draft = create_governed_action_draft(
         "performedBy": {"authority": "app.example.auth", "kind": "principal", "type": "user", "id": "usr_123"},
         "producer": {"authority": "app.example", "kind": "principal", "type": "service", "id": "api"},
         "idempotencyKey": f"project_entry:{after['id']}:v{after['version']}",
-        "mutationBinding": "transactional_outbox",
+        "mutationBinding": "same_transaction",
         "digestKeys": {"keyedDigest": {"keyVersion": "email-v1", "secret": tenant_digest_secret}},
     }
 )

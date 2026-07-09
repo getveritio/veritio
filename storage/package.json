@@ -1,6 +1,6 @@
 {
   "name": "@veritio/storage",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Host-injected storage adapters for Veritio audit trail evidence.",
   "license": "Apache-2.0",
   "repository": {

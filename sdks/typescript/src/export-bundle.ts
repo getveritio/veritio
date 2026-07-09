@@ -10,7 +10,7 @@
  * the protocol, so all hashing routes through the export-bundle-deps shim.
  */
 
-import { canonicalJson, sha256Hex, verifyAuditChain, verifyCommitChain, verifyEdgeChain } from "./export-bundle-deps";
+import { canonicalJson, sha256Hex, verifyAuditChain, verifyCommitChain, verifyEdgeChain } from "./export-bundle-deps.js";
 
 /**
  * One record file inside an export bundle. `path` is the bundle-relative file

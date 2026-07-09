@@ -15,19 +15,25 @@ func updateProjectEntry(c *gin.Context) {
     after.Status = c.PostForm("status")
     after.Version++
 
+    projectEntity, err := veritio.DefineEntity(veritio.GovernedEntityDefinition{
+        Authority: "app.example",
+        Type: "project_entry",
+        SchemaRef: "app.example/project-entry@1",
+        FieldSetRef: "project-entry-governed-fields@1",
+        Identity: func(row map[string]any) string { return row["id"].(string) },
+        Fields: map[string]veritio.EntityFieldPolicy{
+            "status": {Capture: "full"},
+            "updatedBy": {Capture: "keyed_digest"},
+        },
+    })
+    if err != nil {
+        c.JSON(http.StatusInternalServerError, gin.H{"error": "evidence policy unavailable"})
+        return
+    }
+
     draft, err := veritio.CreateGovernedActionDraft(veritio.GovernedActionDraftInput{
         Scope: veritio.EvidenceScope{TenantID: actor.OrgID, Environment: "production"},
-        Entity: veritio.DefineEntity(veritio.GovernedEntityDefinition{
-            Authority: "app.example",
-            Type: "project_entry",
-            SchemaRef: "app.example/project-entry@1",
-            FieldSetRef: "project-entry-governed-fields@1",
-            Identity: func(row map[string]any) string { return row["id"].(string) },
-            Fields: map[string]veritio.FieldCapturePolicy{
-                "status": {Capture: "full"},
-                "updatedBy": {Capture: "keyed_digest"},
-            },
-        }),
+        Entity: projectEntity,
         Before: projectEntryRow(before),
         After: projectEntryRow(after),
         ActionType: "project_entry.updated",
@@ -36,8 +42,8 @@ func updateProjectEntry(c *gin.Context) {
         PerformedBy: veritio.EvidenceRef{Authority: "app.example.auth", Kind: "principal", Type: "user", ID: actor.ID},
         Producer: veritio.EvidenceRef{Authority: "app.example", Kind: "principal", Type: "service", ID: "api"},
         IdempotencyKey: fmt.Sprintf("project_entry:%s:v%d", after.ID, after.Version),
-        MutationBinding: "transactional_outbox",
-        DigestKeys: veritio.DigestKeys{KeyedDigest: &veritio.KeyedDigestInput{KeyVersion: "actor-v1", Secret: actor.TenantDigestSecret}},
+        MutationBinding: "same_transaction",
+        DigestKeys: veritio.DigestKeys{KeyedDigest: &veritio.KeyedDigestKey{KeyVersion: "actor-v1", Secret: actor.TenantDigestSecret}},
     })
     if err != nil {
         c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
