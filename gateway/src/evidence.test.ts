@@ -40,8 +40,7 @@ const ALLOWED_METADATA_KEYS = new Set([
   "latencyMs",
   "policyDecision",
   "denyReason",
-  "inputTokens",
-  "outputTokens",
+  "usage",
   "costBasis",
   "costMicroUsd",
   "requestBodyHash",
@@ -90,7 +89,7 @@ describe("buildOutcomeEvent", () => {
     expect(input.target).toEqual({ type: "provider", id: "anthropic" });
     const metadata = input.metadata ?? {};
     expect(metadata.denyReason).toBe("unknown_key");
-    expect("inputTokens" in metadata).toBe(false);
+    expect("usage" in metadata).toBe(false);
     expect("model" in metadata).toBe(false);
   });
 
@@ -103,7 +102,7 @@ describe("buildOutcomeEvent", () => {
   test("usage omitted entirely when provider reported nothing", () => {
     const input = buildOutcomeEvent(completedOutcome({ usage: null, costMicroUsd: null }), CFG);
     const metadata = input.metadata ?? {};
-    expect("inputTokens" in metadata).toBe(false);
+    expect("usage" in metadata).toBe(false);
     expect("costBasis" in metadata).toBe(false);
     expect("costMicroUsd" in metadata).toBe(false);
   });

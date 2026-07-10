@@ -77,8 +77,10 @@ export function buildOutcomeEvent(outcome: RequestOutcome, cfg: GatewayEvidenceC
   if (outcome.model !== null) metadata.model = outcome.model;
   if (outcome.denyReason !== undefined) metadata.denyReason = outcome.denyReason;
   if (outcome.usage != null) {
-    metadata.inputTokens = outcome.usage.inputTokens;
-    metadata.outputTokens = outcome.usage.outputTokens;
+    // Key naming constraint: core's deterministic redaction replaces any
+    // metadata key matching /token/i, so "inputTokens" would persist as
+    // "[redacted]". Usage therefore nests under redaction-neutral keys.
+    metadata.usage = { input: outcome.usage.inputTokens, output: outcome.usage.outputTokens };
     metadata.costBasis = "provider_reported";
   }
   if (outcome.costMicroUsd != null) metadata.costMicroUsd = outcome.costMicroUsd;
@@ -97,6 +99,22 @@ export function buildOutcomeEvent(outcome: RequestOutcome, cfg: GatewayEvidenceC
     occurredAt: outcome.occurredAt,
     scope: { tenantId: cfg.tenantId },
     metadata,
+  };
+}
+
+/**
+ * Marker event recorded after a degrade-mode evidence outage: the queue
+ * overflowed and `droppedOutcomes` request outcomes were lost. Recording
+ * the gap itself keeps the chain honest — an auditor sees the outage
+ * instead of an unexplained silence.
+ */
+export function buildGapMarkerEvent(cfg: GatewayEvidenceConfig, droppedOutcomes: number): AuditEventInput {
+  return {
+    action: "ai.gateway.evidence.gap",
+    actor: { type: "system", id: cfg.gatewayId },
+    target: { type: "gateway", id: cfg.gatewayId },
+    scope: { tenantId: cfg.tenantId },
+    metadata: { gatewayId: cfg.gatewayId, droppedOutcomes },
   };
 }
 

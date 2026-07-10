@@ -34,8 +34,7 @@ describe("gateway handler — streaming", () => {
     const metadata = h.events[0]!.metadata ?? {};
     expect(h.events[0]!.action).toBe("ai.request.completed");
     expect(metadata.stream).toBe(true);
-    expect(metadata.inputTokens).toBe(412);
-    expect(metadata.outputTokens).toBe(57);
+    expect(metadata.usage).toEqual({ input: 412, output: 57 });
     expect(metadata.costMicroUsd).toBe(2091);
     expect(typeof metadata.responseBodyHash).toBe("string");
   });
@@ -67,8 +66,7 @@ describe("gateway handler — streaming", () => {
     expect(forwarded.stream_options).toEqual({ include_usage: true });
     const metadata = h.events[0]!.metadata ?? {};
     expect(metadata.mutatedRequest).toBe("inject_stream_usage");
-    expect(metadata.inputTokens).toBe(88);
-    expect(metadata.outputTokens).toBe(41);
+    expect(metadata.usage).toEqual({ input: 88, output: 41 });
   });
 
   test("openai injection is skipped when the flag is off or stream_options present", async () => {
@@ -113,7 +111,7 @@ describe("gateway handler — streaming", () => {
     await h.settle();
     const metadata = h.events[0]!.metadata ?? {};
     expect(h.events[0]!.action).toBe("ai.request.completed");
-    expect("inputTokens" in metadata).toBe(false);
+    expect("usage" in metadata).toBe(false);
     expect("costMicroUsd" in metadata).toBe(false);
   });
 

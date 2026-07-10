@@ -70,8 +70,7 @@ describe("gateway handler — non-streaming forward", () => {
     expect(event.action).toBe("ai.request.completed");
     expect(event.target).toEqual({ type: "model", id: "anthropic:claude-sonnet-5" });
     const metadata = event.metadata ?? {};
-    expect(metadata.inputTokens).toBe(412);
-    expect(metadata.outputTokens).toBe(57);
+    expect(metadata.usage).toEqual({ input: 412, output: 57 });
     // 412×3.0 + 57×15.0 μUSD/tok = 1236 + 855
     expect(metadata.costMicroUsd).toBe(2091);
     expect(metadata.costBasis).toBe("provider_reported");
