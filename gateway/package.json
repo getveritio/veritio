@@ -1,0 +1,45 @@
+{
+  "name": "@veritio/gateway",
+  "version": "0.0.1",
+  "description": "Self-hosted AI governance gateway: transparent Anthropic/OpenAI passthrough proxy with virtual keys, enforced allowlist policy, provider-reported metering, and hash-chained Veritio evidence.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "gateway"
+  },
+  "keywords": [
+    "ai-gateway",
+    "llm-proxy",
+    "audit-trail",
+    "evidence",
+    "governance",
+    "anthropic",
+    "openai"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "pricing",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun run --cwd ../storage build && node ../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "bun run --cwd ../storage build && node ../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run --cwd ../storage build && bun test src"
+  },
+  "dependencies": {
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*"
+  }
+}
