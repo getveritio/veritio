@@ -62,12 +62,18 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
   const configPath = options.configPath ?? process.env.VERITIO_GATEWAY_CONFIG ?? "./veritio-gateway.json";
   const port = options.port ?? Number(process.env.VERITIO_GATEWAY_PORT ?? 8790);
 
+  // ONE health state outlives config reloads: pending evidence captured
+  // before a reload must survive it, and a reload must never lift the
+  // fail-closed 503 gate while outcomes are still unrecorded. The failure
+  // mode is read through this box so reloads still apply mode changes.
+  let failureMode: "block" | "degrade" = "block";
+  const health = createHealthState({ mode: () => failureMode });
+
   /** Builds one immutable wiring generation; reload swaps the whole generation atomically. */
   async function buildWiring(): Promise<Wiring> {
     const { config, catalog } = await loadWiringInputs(configPath);
     const store = createFileEvidenceStore(config.evidenceDir);
     const evidence = createGatewayEvidence(store, { tenantId: config.tenantId, gatewayId: config.gatewayId });
-    const health = createHealthState({ mode: config.evidenceFailureMode });
     const handler = createGatewayHandler({
       config,
       catalog,
@@ -79,15 +85,17 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
   }
 
   let current = await buildWiring();
+  failureMode = current.config.evidenceFailureMode;
 
   const retryTimer = setInterval(async () => {
     const generation = current;
-    await generation.health.retryPending((outcome) => generation.evidence.record(outcome));
-    const dropped = generation.health.takeDroppedCount();
-    if (dropped > 0 && generation.health.pendingCount() === 0) {
-      // The gap marker goes through the same chain so the outage is itself
-      // evidence. Marker failure only logs: the drop count was already
-      // consumed and re-queueing a marker would loop.
+    await health.retryPending((outcome) => generation.evidence.record(outcome));
+    // Emit the gap marker only once the sink demonstrably works again
+    // (pending drained), and consume the count only after the marker
+    // actually recorded — consuming on read would zero it while the sink
+    // is still down and the marker cannot be written.
+    const dropped = health.droppedCount();
+    if (dropped > 0 && health.pendingCount() === 0) {
       try {
         await generation.store.recordEvent(
           buildGapMarkerEvent(
@@ -95,8 +103,9 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
             dropped,
           ),
         );
+        health.consumeDropped(dropped);
       } catch {
-        console.error("veritio-gateway: failed to record evidence gap marker");
+        console.error("veritio-gateway: failed to record evidence gap marker; will retry");
       }
     }
   }, options.retryIntervalMs ?? 5000);
@@ -123,6 +132,7 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
   async function reload(): Promise<void> {
     try {
       current = await buildWiring();
+      failureMode = current.config.evidenceFailureMode;
       console.error("veritio-gateway: config reloaded");
     } catch (error) {
       const field =

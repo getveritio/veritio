@@ -149,6 +149,25 @@ describe("gateway handler — non-streaming forward", () => {
     expect((await res.json()).error.type).toBe("evidence_unavailable");
     expect(h.calls).toHaveLength(0);
   });
+
+  test("already-aborted request signal aborts the upstream fetch (no missed-abort race)", async () => {
+    const h = harness();
+    const abort = new AbortController();
+    abort.abort();
+    const res = await h.handle(
+      new Request("https://gateway.test/v1/messages", {
+        method: "POST",
+        headers: { "x-api-key": PRESENTED_KEY },
+        body: JSON.stringify({ model: "claude-sonnet-5" }),
+        signal: abort.signal,
+      }),
+    );
+    // The fake fetch throws AbortError on an aborted signal, like real fetch.
+    expect(res.status).toBe(499);
+    expect(h.events).toHaveLength(1);
+    expect(h.events[0]!.action).toBe("ai.request.failed");
+    expect(h.events[0]!.metadata?.status).toBe("aborted");
+  });
 });
 
 describe("gateway handler — openai surface", () => {

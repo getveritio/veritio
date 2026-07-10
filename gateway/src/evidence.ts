@@ -32,7 +32,7 @@ export interface RequestOutcome {
   stream: boolean;
   status: number | "aborted";
   latencyMs: number;
-  policyDecision: "allow" | "deny";
+  policyDecision: "allow" | "deny" | "none";
   denyReason?: string;
   usage?: Usage | null;
   costMicroUsd?: number | null;

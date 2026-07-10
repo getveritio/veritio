@@ -42,7 +42,9 @@ describe("gateway handler — streaming", () => {
   test("anthropic streaming request body is forwarded unmodified (no injection)", async () => {
     const h = harness({ respond: () => sseResponse(anthropicStream) });
     const body = { model: "claude-sonnet-5", stream: true, max_tokens: 64 };
-    await h.handle(anthropicRequest(body));
+    // Evidence records as the client consumes (backpressure-preserving
+    // observed passthrough), so drain the body before settling.
+    await (await h.handle(anthropicRequest(body))).text();
     await h.settle();
     expect(h.calls[0]!.bodyText).toBe(JSON.stringify(body));
     expect("mutatedRequest" in (h.events[0]!.metadata ?? {})).toBe(false);

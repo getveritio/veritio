@@ -43,7 +43,9 @@ export interface PolicyConfig {
 /**
  * A scoped, revocable virtual key. Only the sha256 hash of the presented key
  * string is stored; the gateway never persists or logs presented key values.
- * `keyId`/`team`/`app` are stable non-PII identifiers that flow into evidence.
+ * `keyId` is the stable non-PII identifier that flows into evidence as the
+ * actor id; `team`/`app`/`environment` are operator labels for config hygiene
+ * and are NOT emitted into events.
  */
 export interface VirtualKeyConfig {
   keyId: string;

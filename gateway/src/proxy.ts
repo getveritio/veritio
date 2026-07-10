@@ -3,8 +3,9 @@
  *
  * The pipeline per request: health gate → virtual-key resolution → policy
  * decision → forward to the pinned provider base URL with the real key →
- * stream the response back verbatim while a tee'd branch extracts
- * provider-reported usage → record exactly one evidence outcome.
+ * stream the response back verbatim while observing chunks in-line (at the
+ * client's pace, preserving backpressure) to extract provider-reported
+ * usage → record exactly one evidence outcome.
  *
  * Invariants this module protects:
  * - Bytes pass through untouched. The single documented exception is
@@ -91,6 +92,7 @@ const STRIPPED_HEADERS = new Set([
   "upgrade",
   "content-length",
   "content-encoding",
+  "accept-encoding",
   "host",
   "authorization",
   "x-api-key",
@@ -178,7 +180,21 @@ export function createGatewayHandler(deps: ProxyDeps): (req: Request) => Promise
     if (!resolution.ok) return deny(401, resolution.reason);
     base.keyId = resolution.key.keyId;
 
-    const bodyBytes = new Uint8Array(await req.arrayBuffer());
+    let bodyBytes: Uint8Array<ArrayBuffer>;
+    try {
+      bodyBytes = new Uint8Array(await req.arrayBuffer());
+    } catch {
+      // Client aborted or broke the connection mid-upload: nothing was
+      // forwarded, policy never ran ("none"), still exactly one event.
+      await record({
+        ...base,
+        kind: "failed",
+        status: "aborted",
+        policyDecision: "none",
+        latencyMs: now() - startedAt,
+      });
+      return errorResponse(499, "client_aborted");
+    }
     let parsedBody: Record<string, unknown> | null = null;
     try {
       const parsed: unknown = JSON.parse(new TextDecoder().decode(bodyBytes));
@@ -218,6 +234,9 @@ export function createGatewayHandler(deps: ProxyDeps): (req: Request) => Promise
 
     const upstreamController = new AbortController();
     req.signal.addEventListener("abort", () => upstreamController.abort());
+    // The signal may have fired before the listener registered (e.g. during
+    // body buffering); "abort" does not re-dispatch, so check explicitly.
+    if (req.signal.aborted) upstreamController.abort();
 
     let upstream: Response;
     try {
@@ -265,45 +284,84 @@ export function createGatewayHandler(deps: ProxyDeps): (req: Request) => Promise
       return new Response(responseBytes, { status: upstream.status, headers: responseHeaders });
     }
 
-    const [clientBranch, meterBranch] = upstream.body.tee();
+    // Observed passthrough instead of tee(): chunks are hashed/metered as
+    // the CLIENT pulls them, so client backpressure propagates to the
+    // upstream connection and nothing buffers beyond one chunk. (A tee'd
+    // meter branch reading eagerly would force the client branch's queue to
+    // hold the entire un-consumed response for slow clients.)
     const accumulator = createSseUsageAccumulator(route.provider);
     const responseHash = config.captureContentHashes ? createHash("sha256") : null;
     const decoder = new TextDecoder();
-    const metering = (async () => {
-      let outcome: RequestOutcome;
+    const upstreamReader = upstream.body.getReader();
+    let settled = false;
+    let resolveMetering: () => void = () => {};
+    const meteringDone = new Promise<void>((resolve) => {
+      resolveMetering = resolve;
+    });
+    const settle = async (outcome: RequestOutcome): Promise<void> => {
+      // Exactly one outcome per request, whichever of close/error/cancel wins.
+      if (settled) return;
+      settled = true;
       try {
-        const reader = meterBranch.getReader();
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          responseHash?.update(value);
-          accumulator.feed(decoder.decode(value, { stream: true }));
+        await record(outcome);
+      } finally {
+        resolveMetering();
+      }
+    };
+    const streamedOutcome = (): RequestOutcome => {
+      accumulator.feed(decoder.decode());
+      const usage = accumulator.usage();
+      return {
+        ...base,
+        kind: upstream.ok ? "completed" : "failed",
+        status: upstream.status,
+        policyDecision: "allow",
+        latencyMs: now() - startedAt,
+        usage,
+        costMicroUsd: usage !== null && base.model !== null ? computeCostMicroUsd(usage, base.model, catalog) : null,
+        ...(responseHash === null ? {} : { responseBodyHash: responseHash.digest("hex") }),
+      };
+    };
+    const body = new ReadableStream<Uint8Array>({
+      pull: async (controller) => {
+        let result: Awaited<ReturnType<typeof upstreamReader.read>>;
+        try {
+          result = await upstreamReader.read();
+        } catch {
+          controller.error(new Error("upstream stream failed"));
+          await settle({
+            ...base,
+            kind: "failed",
+            status: req.signal.aborted ? "aborted" : upstream.status,
+            policyDecision: "allow",
+            latencyMs: now() - startedAt,
+          });
+          return;
         }
-        accumulator.feed(decoder.decode());
-        const usage = accumulator.usage();
-        outcome = {
-          ...base,
-          kind: upstream.ok ? "completed" : "failed",
-          status: upstream.status,
-          policyDecision: "allow",
-          latencyMs: now() - startedAt,
-          usage,
-          costMicroUsd: usage !== null && base.model !== null ? computeCostMicroUsd(usage, base.model, catalog) : null,
-          ...(responseHash === null ? {} : { responseBodyHash: responseHash.digest("hex") }),
-        };
-      } catch {
-        outcome = {
+        if (result.done) {
+          controller.close();
+          await settle(streamedOutcome());
+          return;
+        }
+        responseHash?.update(result.value);
+        accumulator.feed(decoder.decode(result.value, { stream: true }));
+        controller.enqueue(result.value);
+      },
+      cancel: async (reason) => {
+        // Client went away: release the upstream connection and evidence it.
+        await upstreamReader.cancel(reason).catch(() => {});
+        upstreamController.abort();
+        await settle({
           ...base,
           kind: "failed",
-          status: req.signal.aborted ? "aborted" : upstream.status,
+          status: "aborted",
           policyDecision: "allow",
           latencyMs: now() - startedAt,
-        };
-      }
-      await record(outcome);
-    })();
-    deps.waitUntil?.(metering);
+        });
+      },
+    });
+    deps.waitUntil?.(meteringDone);
 
-    return new Response(clientBranch, { status: upstream.status, headers: responseHeaders });
+    return new Response(body, { status: upstream.status, headers: responseHeaders });
   };
 }

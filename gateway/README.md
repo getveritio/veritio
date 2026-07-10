@@ -6,7 +6,8 @@ turns your organization's AI traffic into governed, evidenced traffic.
 - **Virtual keys** — real provider keys live only in the gateway config; teams get scoped,
   revocable keys with model allowlists attached.
 - **Enforced policy** — provider / model / endpoint allowlists, decided before any byte leaves
-  your network. Deny is enforced, not advisory. Provider base-URL pinning covers residency.
+  your network. Deny is enforced, not advisory. Provider base-URL pinning expresses residency routing
+  (e.g. EU endpoints); it does not by itself guarantee residency compliance.
 - **Metering** — provider-reported token usage costed in integer micro-USD from a versioned
   pricing catalog.
 - **Evidence** — every request outcome becomes a hash-chained Veritio audit event
@@ -106,6 +107,8 @@ console.log(verifyAuditRecords(records)); // { ok: true } or the first broken li
 - OpenAI streaming: the gateway injects `stream_options.include_usage` when absent so usage is
   reported (recorded as `mutatedRequest` in evidence; disable with `injectStreamUsage: false`).
 - Config keys never appear in logs, errors, or evidence.
+- Transparent passthrough means the gateway does not inject `anthropic-version`; clients keep
+  setting provider-required headers themselves.
 
 ## Embedding in your own host
 

@@ -134,5 +134,9 @@ describe("createGatewayEvidence", () => {
       "ai.request.denied",
       "ai.request.failed",
     ]);
+    // Guards the spec's metadata naming constraint END TO END: if a future
+    // key matched core's redaction pattern (e.g. anything containing
+    // "token"), its value would persist as "[redacted]" and this fails.
+    expect(JSON.stringify(records)).not.toContain("[redacted]");
   });
 });

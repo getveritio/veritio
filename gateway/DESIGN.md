@@ -29,7 +29,9 @@ client (official SDK, base_url swap, virtual key)
   → forward to pinned provider baseUrl with the real key
       (single permitted mutation: OpenAI stream_options.include_usage injection, recorded)
   → non-stream: buffer, extract usage, hash, respond verbatim
-    stream: tee(); client branch verbatim; meter branch → SSE usage + running sha256
+    stream: observed passthrough (NOT tee — an eagerly-read meter branch would
+    buffer the whole response for slow clients); chunks hash/meter as the
+    client pulls, so backpressure reaches the upstream connection
   → exactly one evidence outcome (completed/failed) with usage/cost/latency
 ```
 
@@ -43,7 +45,9 @@ client (official SDK, base_url swap, virtual key)
   in `spec/ai-gateway-capture.md`; regression: e2e chain test reads persisted (post-redaction)
   records.
 - Evidence durability: block mode refuses traffic when the store is down; degrade mode records
-  an `ai.gateway.evidence.gap` marker for dropped outcomes.
+  an `ai.gateway.evidence.gap` marker for dropped outcomes (drop counts are consumed only after
+  the marker actually records). ONE health state outlives config reloads, so pending evidence
+  and the fail-closed gate survive SIGHUP.
 - Client abort cancels the upstream fetch and records `status: "aborted"`.
 
 ## Testing layout

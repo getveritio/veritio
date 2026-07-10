@@ -14,6 +14,14 @@
  *
  * The pending queue is bounded (`maxPending`); overflow drops the OLDEST
  * outcome and counts it, so memory stays bounded during long sink outages.
+ * Dropped counts are read non-destructively (`droppedCount`) and consumed
+ * (`consumeDropped`) only after a gap marker actually recorded — consuming
+ * on read would silently zero the count whenever marker emission is not yet
+ * possible.
+ *
+ * One health state instance outlives config reloads (the failure mode is a
+ * getter for that reason): pending evidence captured before a reload must
+ * survive the reload, and a reload must never lift the fail-closed gate.
  */
 import type { RequestOutcome } from "./evidence";
 
@@ -25,12 +33,14 @@ export interface HealthState {
   /** Drains pending outcomes through `record`; restores health when everything lands. */
   retryPending(record: (outcome: RequestOutcome) => Promise<unknown>): Promise<void>;
   pendingCount(): number;
-  /** Dropped-outcome count for the gap marker; reset after a marker is emitted. */
-  takeDroppedCount(): number;
+  /** Non-destructive read of the dropped-outcome count. */
+  droppedCount(): number;
+  /** Subtracts `count` after a gap marker covering that many drops recorded. */
+  consumeDropped(count: number): void;
 }
 
-/** Creates the per-process health state for the configured failure mode. */
-export function createHealthState(options: { mode: "block" | "degrade"; maxPending?: number }): HealthState {
+/** Creates the process-wide health state; `mode` is read per call so config reloads apply. */
+export function createHealthState(options: { mode: () => "block" | "degrade"; maxPending?: number }): HealthState {
   const maxPending = options.maxPending ?? 1000;
   const pending: RequestOutcome[] = [];
   let healthy = true;
@@ -38,7 +48,7 @@ export function createHealthState(options: { mode: "block" | "degrade"; maxPendi
 
   return {
     ok() {
-      return options.mode === "degrade" ? true : healthy;
+      return options.mode() === "degrade" ? true : healthy;
     },
     reportEvidenceFailure(outcome) {
       healthy = false;
@@ -67,10 +77,11 @@ export function createHealthState(options: { mode: "block" | "degrade"; maxPendi
     pendingCount() {
       return pending.length;
     },
-    takeDroppedCount() {
-      const count = dropped;
-      dropped = 0;
-      return count;
+    droppedCount() {
+      return dropped;
+    },
+    consumeDropped(count) {
+      dropped = Math.max(0, dropped - count);
     },
   };
 }
