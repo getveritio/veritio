@@ -110,6 +110,23 @@ console.log(verifyAuditRecords(records)); // { ok: true } or the first broken li
 - Transparent passthrough means the gateway does not inject `anthropic-version`; clients keep
   setting provider-required headers themselves.
 
+## Ship evidence to Veritio Cloud (optional)
+
+Add an `ingest` block to the config to mirror every recorded event to a Veritio ingest
+endpoint (hosted Veritio Cloud or your own):
+
+```jsonc
+{
+  "ingest": { "url": "https://console.getveritio.com", "key": "vrt_…" }
+}
+```
+
+`key` is a scoped ingest key created in the console. Semantics: the local evidence store
+stays authoritative; delivery is asynchronous through a durable outbox under
+`<evidenceDir>/outbox` (retryable failures stay queued, the server re-redacts and
+deduplicates by record id); a cloud outage never affects proxied traffic. The gateway is
+fully usable without this block — no Veritio account required.
+
 ## Embedding in your own host
 
 `startGateway` is the batteries-included entry. For custom hosts (own HTTP server, DB-backed

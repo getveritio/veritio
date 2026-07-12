@@ -11,12 +11,19 @@
  */
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createFileEvidenceStore } from "@veritio/storage";
+import {
+  createFileEvidenceStore,
+  createFileOutboxAdapter,
+  createHttpIngestTarget,
+  createHttpOutboxDispatcher,
+  type OutboxDispatcher,
+} from "@veritio/storage";
 import { parseGatewayConfig, type GatewayConfig } from "./config";
 import { buildGapMarkerEvent, createGatewayEvidence, type GatewayEvidence, type GatewayEvidenceSink } from "./evidence";
 import { createHealthState, type HealthState } from "./health";
 import { parsePricingCatalog, type PricingCatalog } from "./pricing";
 import { createGatewayHandler } from "./proxy";
+import { createShipOutSink } from "./shipout";
 
 /** Handle returned by `startGateway`; hosts and tests drive lifecycle through it. */
 export interface StartedGateway {
@@ -42,6 +49,8 @@ interface Wiring {
   evidence: GatewayEvidence;
   store: GatewayEvidenceSink;
   config: GatewayConfig;
+  /** Present only when `config.ingest` is set: drains the ship-out outbox to the cloud. */
+  ingestDispatcher?: OutboxDispatcher;
 }
 
 /** Loads and validates config + pricing catalog from disk (fail closed on both). */
@@ -72,7 +81,21 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
   /** Builds one immutable wiring generation; reload swaps the whole generation atomically. */
   async function buildWiring(): Promise<Wiring> {
     const { config, catalog } = await loadWiringInputs(configPath);
-    const store = createFileEvidenceStore(config.evidenceDir);
+    const localStore = createFileEvidenceStore(config.evidenceDir);
+    // With `ingest` configured, every locally committed event (including gap
+    // markers, which record through the same sink) is mirrored into a file
+    // outbox and drained asynchronously — local store stays authoritative,
+    // cloud outages only grow the outbox, traffic is never blocked.
+    let store: GatewayEvidenceSink = localStore;
+    let ingestDispatcher: OutboxDispatcher | undefined;
+    if (config.ingest !== undefined) {
+      const outbox = createFileOutboxAdapter(join(config.evidenceDir, "outbox"));
+      store = createShipOutSink(localStore, { outbox, tenantId: config.tenantId });
+      ingestDispatcher = createHttpOutboxDispatcher({
+        adapter: outbox,
+        target: createHttpIngestTarget({ baseUrl: config.ingest.url, key: config.ingest.key }),
+      });
+    }
     const evidence = createGatewayEvidence(store, { tenantId: config.tenantId, gatewayId: config.gatewayId });
     const handler = createGatewayHandler({
       config,
@@ -81,7 +104,14 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
       health,
       ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
     });
-    return { handler, health, evidence, store, config };
+    return {
+      handler,
+      health,
+      evidence,
+      store,
+      config,
+      ...(ingestDispatcher === undefined ? {} : { ingestDispatcher }),
+    };
   }
 
   let current = await buildWiring();
@@ -107,6 +137,13 @@ export async function startGateway(options: StartGatewayOptions = {}): Promise<S
       } catch {
         console.error("veritio-gateway: failed to record evidence gap marker; will retry");
       }
+    }
+    // Drain the cloud ship-out outbox last; per-entry failures are handled
+    // inside the dispatcher (retryable stays pending, 4xx dead-letters).
+    try {
+      await generation.ingestDispatcher?.dispatchBatch();
+    } catch {
+      console.error("veritio-gateway: cloud ingest dispatch pass failed; will retry");
     }
   }, options.retryIntervalMs ?? 5000);
 
