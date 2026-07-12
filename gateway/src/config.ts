@@ -58,6 +58,20 @@ export interface VirtualKeyConfig {
 }
 
 /**
+ * Optional ship-out of recorded evidence to a Veritio ingest endpoint
+ * (hosted Veritio Cloud or a self-hosted ingest). Strictly additive: the
+ * local evidence store stays authoritative, delivery is async via a local
+ * outbox, and an unreachable endpoint never affects proxied traffic. `key`
+ * is a scoped ingest credential (`vrt_…`) — server-side config only, never
+ * logged or echoed. The gateway stays fully usable without this block
+ * (hosted-provider features must not gate OSS usage).
+ */
+export interface IngestConfig {
+  url: string;
+  key: string;
+}
+
+/**
  * Full gateway deployment configuration. One deployment serves one tenant
  * (`scope.tenantId` on every evidence event). `evidenceFailureMode: "block"`
  * is the fail-closed default: if evidence cannot be persisted locally the
@@ -71,6 +85,7 @@ export interface GatewayConfig {
   captureContentHashes: boolean;
   injectStreamUsage: boolean;
   pricingCatalogPath?: string;
+  ingest?: IngestConfig;
   providers: Partial<Record<GatewayProvider, ProviderConfig>>;
   policies: Record<string, PolicyConfig>;
   keys: VirtualKeyConfig[];
@@ -142,6 +157,15 @@ export function parseGatewayConfig(raw: unknown): GatewayConfig {
   const injectStreamUsage = optionalBoolean(root.injectStreamUsage, "injectStreamUsage", true);
   const pricingCatalogPath =
     root.pricingCatalogPath === undefined ? undefined : requireString(root.pricingCatalogPath, "pricingCatalogPath");
+
+  let ingest: IngestConfig | undefined;
+  if (root.ingest !== undefined) {
+    const entry = requireObject(root.ingest, "ingest");
+    ingest = {
+      url: requireString(entry.url, "ingest.url"),
+      key: requireString(entry.key, "ingest.key"),
+    };
+  }
 
   const providersRaw = requireObject(root.providers ?? {}, "providers");
   const providers: Partial<Record<GatewayProvider, ProviderConfig>> = {};
@@ -234,6 +258,7 @@ export function parseGatewayConfig(raw: unknown): GatewayConfig {
     captureContentHashes,
     injectStreamUsage,
     ...(pricingCatalogPath === undefined ? {} : { pricingCatalogPath }),
+    ...(ingest === undefined ? {} : { ingest }),
     providers,
     policies,
     keys,

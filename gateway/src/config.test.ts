@@ -88,6 +88,20 @@ describe("parseGatewayConfig", () => {
     expect(fieldOf(() => parseGatewayConfig(raw2))).toBe("policies.default.endpoints");
   });
 
+  test("ingest block is optional but all-or-nothing", () => {
+    const withIngest = validRaw();
+    withIngest.ingest = { url: "https://console.getveritio.com", key: "vrt_scoped" };
+    expect(parseGatewayConfig(withIngest).ingest).toEqual({
+      url: "https://console.getveritio.com",
+      key: "vrt_scoped",
+    });
+    expect(parseGatewayConfig(validRaw()).ingest).toBeUndefined();
+
+    const missingKey = validRaw();
+    missingKey.ingest = { url: "https://console.getveritio.com" };
+    expect(fieldOf(() => parseGatewayConfig(missingKey))).toBe("ingest.key");
+  });
+
   test("never echoes config values in error messages", () => {
     const raw = validRaw();
     (raw.providers as Record<string, Record<string, unknown>>).anthropic!.baseUrl = "";

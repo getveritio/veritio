@@ -15,6 +15,7 @@ export {
   type GatewayConfig,
   type GatewayEndpoint,
   type GatewayProvider,
+  type IngestConfig,
   type PolicyConfig,
   type ProviderConfig,
   type VirtualKeyConfig,
@@ -29,6 +30,7 @@ export {
   type RequestOutcome,
 } from "./evidence";
 export { createHealthState, type HealthState } from "./health";
+export { createShipOutSink, type ShipOutSinkOptions } from "./shipout";
 export { extractPresentedKey, hashPresentedKey, resolveVirtualKey, type VirtualKeyResolution } from "./keys";
 export { decide, matchesModel, type PolicyContext, type PolicyDecision, type PolicyDenyReason } from "./policy";
 export {
