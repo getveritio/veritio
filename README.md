@@ -265,6 +265,7 @@ schemas in `spec/` yet.
 | `@veritio/react`, `@veritio/vue`, `@veritio/svelte` | Public | Browser-safe UI intent helpers; they do not record audit events client-side. |
 | `@veritio/claude-code` | Public | Claude Code hook capture with local redacted file sink, optional ingest POST, and read-only MCP query/export. Threads a stable `activityEpisodeId` per session. |
 | `veritio` CLI | Public | Local Workbench and MCP CLI. |
+| `@veritio/gateway` | Public (experimental, unpublished) | Self-hosted AI governance gateway: transparent Anthropic/OpenAI passthrough proxy with virtual keys, enforced allowlist policy, provider-reported metering, and hash-chained `ai.*` evidence (`spec/ai-gateway-capture.md`). |
 | `@veritio/server` | Private workspace package | Local/self-hosted Node server module for Workbench, MCP, graph query, verification, and export preview. |
 | `@veritio/express`, `@veritio/hono`, `@veritio/trpc` | Private package shells | In-repo adapter surfaces that are not public packages yet. |
 | `veritio-fastapi` | Package shell/example surface | Python FastAPI adapter direction plus runnable FastAPI example. |
@@ -371,6 +372,7 @@ sdks/go/              Go SDK
 storage/              Host-injected storage adapters and local file store
 adapters/             Framework, auth, UI-intent, and agent adapters
 server/node/          Private local/self-hosted Node server module
+gateway/              Self-hosted AI governance gateway (experimental)
 cli/                  Local Workbench and MCP CLI
 docs/                 OSS architecture, routing, AI integration, and release docs
 examples/             Runnable public examples

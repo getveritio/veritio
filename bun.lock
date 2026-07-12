@@ -153,6 +153,14 @@
         "@veritio/server": "workspace:*",
       },
     },
+    "gateway": {
+      "name": "@veritio/gateway",
+      "version": "0.0.1",
+      "dependencies": {
+        "@veritio/core": "workspace:*",
+        "@veritio/storage": "workspace:*",
+      },
+    },
     "sdks/typescript": {
       "name": "@veritio/core",
       "version": "0.4.1",
@@ -212,6 +220,8 @@
     "@veritio/core": ["@veritio/core@workspace:sdks/typescript"],
 
     "@veritio/express": ["@veritio/express@workspace:adapters/express"],
+
+    "@veritio/gateway": ["@veritio/gateway@workspace:gateway"],
 
     "@veritio/hono": ["@veritio/hono@workspace:adapters/hono"],
 
