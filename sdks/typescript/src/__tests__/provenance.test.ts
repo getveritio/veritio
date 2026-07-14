@@ -402,3 +402,69 @@ describe("provenance end-to-end day", () => {
     expect(causedByHuman).toHaveLength(1);
   });
 });
+
+describe("occurrence-scoped edge identity", () => {
+  // Regression: edge ids derived from endpoints+relation ONLY collide on the
+  // store idempotency key when the same logical link recurs with different
+  // bytes — a session re-modifying the same file in a later turn produced the
+  // SAME edge id with a different occurredAt/afterHash, so an
+  // idempotency-enforcing store rejected the whole later batch. Edge ids must
+  // be scoped by their OWNING EVENT: distinct occurrences get distinct ids,
+  // while a replay of the identical record keeps identical ids and bytes.
+  test("re-modifying the same file under a new event yields distinct edge ids; identical inputs replay identically", async () => {
+    const recorder = createProvenanceRecorder(makeSinks());
+    const { session } = await startBasicSession(recorder);
+    const turn = (id: string, occurredAt: string, afterHash: string) => ({
+      id,
+      sourceTreeId: "tree_01",
+      occurredAt,
+      files: [{ id: "file_shared", pathHash: "sha256:p1", afterHash }],
+    });
+
+    const first = await session.recordFileChange(turn("evt_fc_turn1", "2026-06-18T00:01:00.000Z", "sha256:a1"));
+    const second = await session.recordFileChange(turn("evt_fc_turn2", "2026-06-18T00:02:00.000Z", "sha256:a2"));
+    const modifiedOf = (edges: EvidenceEdgeRecord[]) =>
+      edges.find((r) => r.edge.relation === "modified")?.edge;
+    const firstEdge = modifiedOf(first.edges);
+    const secondEdge = modifiedOf(second.edges);
+    expect(firstEdge?.id).toBeDefined();
+    expect(firstEdge?.id).not.toBe(secondEdge?.id);
+
+    // Replay of the byte-identical record input keeps the SAME edge id (and
+    // identical canonical bytes) so idempotent stores replay instead of fork.
+    const replay = await session.recordFileChange(turn("evt_fc_turn1", "2026-06-18T00:01:00.000Z", "sha256:a1"));
+    const replayEdge = modifiedOf(replay.edges);
+    expect(replayEdge?.id).toBe(firstEdge?.id as string);
+    expect(JSON.stringify(replayEdge)).toBe(JSON.stringify(firstEdge));
+  });
+
+  // Same family: the default prompt event id was constant per (session,
+  // promptHash), so submitting the same prompt text twice in one session
+  // collided (same id, different occurredAt bytes) and dropped the second
+  // prompt's batch. With occurredAt supplied, occurrences are distinct while
+  // identical inputs stay replay-stable.
+  test("the same prompt hash at different times gets distinct event ids; identical inputs replay the same id", async () => {
+    const recorder = createProvenanceRecorder(makeSinks());
+    const { session } = await startBasicSession(recorder);
+    const first = await session.recordPrompt({ promptHash: "sha256:same", occurredAt: "2026-06-18T00:01:00.000Z" });
+    const second = await session.recordPrompt({ promptHash: "sha256:same", occurredAt: "2026-06-18T00:02:00.000Z" });
+    expect(first.event.event.id).not.toBe(second.event.event.id);
+
+    const replay = await session.recordPrompt({ promptHash: "sha256:same", occurredAt: "2026-06-18T00:01:00.000Z" });
+    expect(replay.event.event.id).toBe(first.event.event.id);
+  });
+
+  // link() has no owning event: it stays the caller-intentional SINGLETON
+  // graph edge with the legacy endpoint-derived id (re-linking the same pair
+  // replays; it must not silently fork per call).
+  test("session.link keeps the endpoint-derived singleton edge id", async () => {
+    const recorder = createProvenanceRecorder(makeSinks());
+    const { session } = await startBasicSession(recorder);
+    const record = await session.link(
+      { type: "agent_session", id: "agt_sess_01" },
+      "part_of",
+      { type: "activity", id: "ep_01" },
+    );
+    expect(record.edge.id).toBe("edge_agent_session:agt_sess_01__part_of__activity:ep_01");
+  });
+});
