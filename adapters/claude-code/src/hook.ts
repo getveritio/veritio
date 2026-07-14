@@ -106,7 +106,11 @@ async function main(): Promise<void> {
     case "Stop": {
       if (!state.context) break;
       state.turn += 1;
-      const fileChange = buildBashFileChange(gitChangedFiles(payload.cwd), config, { now, turn: state.turn });
+      const fileChange = buildBashFileChange(gitChangedFiles(payload.cwd), config, {
+        now,
+        turn: state.turn,
+        sessionId: payload.session_id,
+      });
       if (fileChange) {
         const { session } = await recorder.startSession(state.context);
         collect(await session.recordFileChange(fileChange));

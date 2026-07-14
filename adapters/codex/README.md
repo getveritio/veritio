@@ -62,6 +62,7 @@ Read only at the process boundary; no credential is embedded in the hook.
 | `VERITIO_ENVIRONMENT` | `development` | Scope environment |
 | `VERITIO_WORKSPACE_ID` | — | Optional workspace scope |
 | `VERITIO_INGEST_URL` + `VERITIO_INGEST_KEY` | — | If **both** set, also POST records to a Veritio ingest endpoint. The server re-redacts. |
+| `VERITIO_INGEST_TIMEOUT_MS` | `10000` | Abort bound (ms) for one ingest POST. A stalled endpoint can never block the notify hook past this bound; capture stays fail-open (local store already has the records). |
 
 ## Cross-language parity
 
@@ -71,6 +72,8 @@ future Python/Go capture adapter must reproduce, including the hash-only rule.
 
 ## Status
 
-Experimental notify-based capture. It never uses a client-side request abort
-on ingest (an aborted hosted-DB request can wedge a tenant — see the cloud
-connection-timeout hardening); capture fails by returning, not by cancelling.
+Experimental notify-based capture. Ingest ship-out aborts after a bounded
+timeout (`VERITIO_INGEST_TIMEOUT_MS`, default 10s) so a stalled endpoint can
+never block the agent; client aborts are safe now that the hosted side
+enforces fail-closed DB connection/statement timeouts (the old "never abort"
+rule predated that hardening). Capture stays fail-open either way.

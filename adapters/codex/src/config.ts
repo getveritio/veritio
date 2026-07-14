@@ -9,7 +9,7 @@ import { join } from "node:path";
  */
 export interface CodexAdapterConfig {
   localDir: string;
-  ingest?: { url: string; key: string };
+  ingest?: { url: string; key: string; timeoutMs?: number };
   tenantId: string;
   /** The enforcing human (stable id, never an email/username). */
   actorId: string;
@@ -40,10 +40,31 @@ export function resolveConfig(env: NodeJS.ProcessEnv): CodexAdapterConfig {
   };
   if (url && key) {
     config.ingest = { url, key };
+    const timeoutMs = parseIngestTimeout(env.VERITIO_INGEST_TIMEOUT_MS);
+    if (timeoutMs !== undefined) {
+      config.ingest.timeoutMs = timeoutMs;
+    }
   }
   const workspaceId = env.VERITIO_WORKSPACE_ID?.trim();
   if (workspaceId) {
     config.workspaceId = workspaceId;
   }
   return config;
+}
+
+/**
+ * Parses the opt-in VERITIO_INGEST_TIMEOUT_MS override for the ship-out abort
+ * bound. Fails closed on non-positive or non-numeric values instead of silently
+ * capturing with an unintended (or unbounded) timeout.
+ */
+function parseIngestTimeout(raw: string | undefined): number | undefined {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  const value = Number(trimmed);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error("VERITIO_INGEST_TIMEOUT_MS must be a positive integer of milliseconds");
+  }
+  return value;
 }

@@ -77,6 +77,12 @@ lives in a state dir keyed by `session_id` (e.g. under `$XDG_STATE_HOME`/tmp).
 so `toolCallId` is synthesized as `tc_<session_id>_<n>` where `n` is a monotonic
 per-session counter in state (stable on replay of the same ledger). File ids are
 `f_<sha256(file_path)[:16]>` (path itself is hashed into `pathHash`, never stored raw).
+File-change **event** ids must be supplied by the adapter — the recorder's default
+(`evt_filechange__<sourceTreeId>__x`) is constant per source tree, and a constant id
+collides on the ingest idempotency key (same key, different bytes → the whole batch
+409s) after a tenant's first file change. The contract: `evt_filechange__<toolCallId>`
+for the PostToolUse path, `evt_filechange__<session_id>__turn<n>` for the Stop
+turn-scan — unique per capture, stable on replay of the same hook delivery.
 
 ## Redaction (`redact.ts`) — non-negotiable (`.claude/rules/03-privacy-security.md`)
 

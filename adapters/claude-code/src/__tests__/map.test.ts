@@ -120,13 +120,57 @@ describe("buildToolCall", () => {
 
 describe("buildBashFileChange", () => {
   test("builds a change for git-detected files, null when none", () => {
-    expect(buildBashFileChange([], config, { now: NOW, turn: 1 })).toBeNull();
+    expect(buildBashFileChange([], config, { now: NOW, turn: 1, sessionId: "sess_a" })).toBeNull();
     const fc = buildBashFileChange([{ pathHash: "sha256:p1", afterHash: "sha256:a1", action: "upsert" }], config, {
       now: NOW,
       turn: 1,
+      sessionId: "sess_a",
     });
     expect(fc?.files).toHaveLength(1);
     expect(fc?.files[0]?.pathHash).toBe("sha256:p1");
     expect(fc?.changedBy).toBeUndefined(); // attributed to the session entity
+  });
+
+  // Regression: the recorder's DEFAULT filechange id is constant per source
+  // tree, so relying on it collided every later turn-scan in a tenant onto one
+  // ingest idempotency key (same key, different bytes -> whole batch 409s).
+  // The id must be unique per (session, turn) yet stable for a replayed Stop.
+  test("filechange id is unique per session and turn, stable on replay", () => {
+    const files = [{ pathHash: "sha256:p1", afterHash: "sha256:a1", action: "upsert" as const }];
+    const a1 = buildBashFileChange(files, config, { now: NOW, turn: 1, sessionId: "sess_a" });
+    const a1Replay = buildBashFileChange(files, config, { now: NOW, turn: 1, sessionId: "sess_a" });
+    const a2 = buildBashFileChange(files, config, { now: NOW, turn: 2, sessionId: "sess_a" });
+    const b1 = buildBashFileChange(files, config, { now: NOW, turn: 1, sessionId: "sess_b" });
+    expect(a1?.id).toBeDefined();
+    expect(a1?.id).toStartWith("evt_");
+    expect(a1?.id).toBe(a1Replay?.id as string);
+    expect(a1?.id).not.toBe(a2?.id as string);
+    expect(a1?.id).not.toBe(b1?.id as string);
+  });
+});
+
+describe("buildToolCall filechange id", () => {
+  const fp = "/tmp/e.txt";
+  const edit = (sessionId: string, seq: number) =>
+    buildToolCall(payload({ session_id: sessionId, tool_name: "Edit", tool_input: { file_path: fp } }), config, {
+      seq,
+      now: NOW,
+      status: "succeeded",
+      preImages: { [fp]: "sha256:before" },
+      afterHashes: { [fp]: "sha256:after" },
+    });
+
+  // Same collision regression as the turn-scan: each edit's filechange must own
+  // a distinct id (scoped to its tool call), not the recorder's constant default.
+  test("filechange id is unique per tool call, stable on replay", () => {
+    const a0 = edit("sess_a", 0);
+    const a0Replay = edit("sess_a", 0);
+    const a1 = edit("sess_a", 1);
+    const b0 = edit("sess_b", 0);
+    expect(a0.fileChange?.id).toBeDefined();
+    expect(a0.fileChange?.id).toStartWith("evt_");
+    expect(a0.fileChange?.id).toBe(a0Replay.fileChange?.id as string);
+    expect(a0.fileChange?.id).not.toBe(a1.fileChange?.id as string);
+    expect(a0.fileChange?.id).not.toBe(b0.fileChange?.id as string);
   });
 });
