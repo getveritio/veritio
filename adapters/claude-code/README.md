@@ -60,6 +60,7 @@ Read only at the process boundary; no credential is embedded in the hook.
 | `VERITIO_ENVIRONMENT` | `development` | Scope environment |
 | `VERITIO_WORKSPACE_ID` | — | Optional workspace scope |
 | `VERITIO_INGEST_URL` + `VERITIO_INGEST_KEY` | — | If **both** set, also POST records to a Veritio ingest endpoint (e.g. Veritio Cloud), so captured sessions surface in the hosted Sessions UI. The server re-redacts. |
+| `VERITIO_INGEST_TIMEOUT_MS` | `10000` | Abort bound (ms) for one ingest POST. A stalled endpoint can never block the agent past this bound; the hook still exits 0 (capture is fail-open, the local store already has the records). |
 
 ## Query + export (MCP)
 

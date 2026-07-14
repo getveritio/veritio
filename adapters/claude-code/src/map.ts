@@ -106,6 +106,12 @@ export function buildToolCall(
     file.beforeHash = beforeHash;
   }
   const fileChange: FileChangeInput = {
+    // The recorder's default filechange id is constant per source tree, so two
+    // different changes in one tenant would collide on the ingest idempotency
+    // key (same key, different bytes -> the whole batch 409s). Scope the id to
+    // this tool call instead: deterministic for a replay of the same hook
+    // delivery, unique across calls/sessions.
+    id: `evt_filechange__${toolCallId}`,
     sourceTreeId: `tree_${sanitize(config.tenantId)}`,
     occurredAt: opts.now,
     changedBy: { type: "tool_call", id: toolCallId },
@@ -124,17 +130,22 @@ export interface ChangedFile {
 /**
  * Builds the file-change record for files a turn changed on disk that no edit
  * tool reported (Bash writes). `changedBy` is omitted so the recorder attributes
- * them to the session entity. Returns null when nothing changed.
+ * them to the session entity. Returns null when nothing changed. The event id is
+ * scoped to (session, turn) — the recorder's default filechange id is constant
+ * per source tree, and a constant id collides on the ingest idempotency key
+ * (same key, different bytes -> the whole batch 409s) after the tenant's first
+ * ever turn-scan. Deterministic per turn so a re-delivered Stop replays cleanly.
  */
 export function buildBashFileChange(
   files: ChangedFile[],
   config: AdapterConfig,
-  opts: { now: string; turn: number },
+  opts: { now: string; turn: number; sessionId: string },
 ): FileChangeInput | null {
   if (files.length === 0) {
     return null;
   }
   return {
+    id: `evt_filechange__${sanitize(opts.sessionId)}__turn${opts.turn}`,
     sourceTreeId: `tree_${sanitize(config.tenantId)}`,
     occurredAt: opts.now,
     files: files.map((file) => ({
