@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "veritio": {
+      "type": "http",
+      "url": "https://console.getveritio.com/api/mcp"
+    }
+  }
+}

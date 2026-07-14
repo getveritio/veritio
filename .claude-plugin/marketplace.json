@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "veritio",
+  "owner": {
+    "name": "Veritio",
+    "email": "team@getveritio.com"
+  },
+  "metadata": {
+    "description": "Veritio evidence-layer plugins for Claude Code \u2014 tamper-evident session capture and hosted MCP.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "veritio",
+      "source": "./plugins/veritio",
+      "description": "Tamper-evident audit trail for Claude Code sessions + a hosted MCP to query your evidence.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Veritio"
+      },
+      "category": "security",
+      "tags": [
+        "audit",
+        "evidence",
+        "compliance",
+        "provenance"
+      ]
+    }
+  ]
+}

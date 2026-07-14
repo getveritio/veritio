@@ -7,9 +7,12 @@ import {
   type StartedWorkbenchServer,
   type StartWorkbenchServerOptions,
 } from "@veritio/server";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type LoginDeps, parseLoginArgs, runLogin } from "./login.js";
 
 export interface DevCommandOptions {
   command: "dev";
@@ -90,6 +93,9 @@ export async function runCli(
   if (args[0] === "verify-bundle") {
     return runVerifyBundle(args, dependencies);
   }
+  if (args[0] === "login") {
+    return runLoginCommand(args, dependencies);
+  }
   const write = dependencies.write ?? ((message: string) => process.stdout.write(`${message}\n`));
   try {
     const options = parseCliArgs(args);
@@ -115,6 +121,47 @@ export async function runCli(
   }
 }
 
+/**
+ * Wires the login command to real side effects: fetch, mode-600 credential and
+ * config writes (creating parent dirs), Codex config read/write under $HOME, and
+ * an OS `open` for the approval URL. All I/O lives here at the process boundary.
+ */
+async function runLoginCommand(args: readonly string[], dependencies: Partial<CliDependencies>): Promise<CliRunResult> {
+  const write = dependencies.write ?? ((message: string) => process.stdout.write(`${message}\n`));
+  const codexConfigPath = join(homedir(), ".codex", "config.toml");
+  const deps: LoginDeps = {
+    fetch,
+    write,
+    async writeFile(path, contents, mode) {
+      await mkdir(dirname(path), { recursive: true });
+      await writeFile(path, contents, { mode });
+    },
+    async readCodexConfig() {
+      try {
+        return await readFile(codexConfigPath, "utf8");
+      } catch {
+        return null;
+      }
+    },
+    async writeCodexConfig(contents) {
+      await mkdir(dirname(codexConfigPath), { recursive: true });
+      await writeFile(codexConfigPath, contents);
+    },
+    openBrowser(url) {
+      const opener = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+      execFile(opener, [url], () => {});
+    },
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    now: () => Date.now(),
+  };
+  try {
+    return { code: await runLogin(parseLoginArgs(args), deps) };
+  } catch (error) {
+    write(error instanceof Error ? error.message : String(error));
+    return { code: 1 };
+  }
+}
+
 export interface VerifyBundleOptions {
   command: "verify-bundle";
   file: string;
@@ -128,8 +175,7 @@ export interface VerifyBundleDependencies {
   writeError(message: string): void;
 }
 
-const VERIFY_BUNDLE_USAGE =
-  "Usage: veritio verify-bundle <file> [--public-key <path>] [--require-signature] [--json]";
+const VERIFY_BUNDLE_USAGE = "Usage: veritio verify-bundle <file> [--public-key <path>] [--require-signature] [--json]";
 
 /**
  * Parses the `verify-bundle` contract: one positional bundle file plus the

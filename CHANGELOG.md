@@ -8,6 +8,12 @@ Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while th
 
 ### Added
 
+- `@veritio/codex` (experimental): Codex CLI capture via the `notify` hook — hash-only `agent.session.started` + `agent.prompt.recorded` per turn, local file sink + optional ingest; wrapper-safe (never replaces an existing notify), never client-aborts ingest.
+- `veritio login`: browser device-authorization flow that mints a scoped ingest key on console approval and writes Codex/Claude Code capture config — no key pasted by hand.
+- `plugins/veritio` + `.claude-plugin/marketplace.json`: Claude Code plugin bundling the capture hooks and the hosted Veritio MCP server (install via `/plugin marketplace add getveritio/veritio`).
+
+### Added
+
 - `@veritio/gateway`: optional `ingest` config block ships recorded gateway evidence to a Veritio ingest endpoint (Veritio Cloud or self-hosted) through a durable file outbox — local store stays authoritative, delivery is async and idempotent, cloud outages never block traffic.
 - `@veritio/gateway` (experimental, unpublished): self-hosted AI governance gateway — transparent Anthropic/OpenAI passthrough proxy (streaming included) with virtual keys, enforced provider/model/endpoint allowlists, provider-reported token metering costed in integer micro-USD, and one hash-chained `ai.request.*` audit event per request outcome (metadata + sha256 content hashes only, never bodies or key material). Fail-closed evidence semantics: in the default `block` mode the gateway refuses traffic it cannot evidence. Vocabulary frozen in `spec/ai-gateway-capture.md`.
 

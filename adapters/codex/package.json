@@ -1,0 +1,49 @@
+{
+  "name": "@veritio/codex",
+  "version": "0.0.1",
+  "description": "Capture Codex CLI agent activity as Veritio evidence via the notify hook, with a local file sink or ingest POST.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getveritio/veritio.git",
+    "directory": "adapters/codex"
+  },
+  "keywords": [
+    "codex",
+    "codex-cli",
+    "audit-trail",
+    "evidence",
+    "provenance",
+    "typescript"
+  ],
+  "type": "module",
+  "bin": {
+    "veritio-codex-notify": "dist/notify.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/*.d.ts",
+    "dist/*.d.ts.map",
+    "dist/*.js",
+    "dist/*.js.map",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "bun run --cwd ../../storage build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "typecheck": "bun run --cwd ../../storage build && node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit",
+    "test": "bun run --cwd ../../storage build && bun test src"
+  },
+  "dependencies": {
+    "@veritio/core": "workspace:*",
+    "@veritio/storage": "workspace:*"
+  }
+}

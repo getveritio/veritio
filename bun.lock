@@ -37,6 +37,17 @@
         "@veritio/storage": "0.4.1",
       },
     },
+    "adapters/codex": {
+      "name": "@veritio/codex",
+      "version": "0.0.1",
+      "bin": {
+        "veritio-codex-notify": "dist/notify.js",
+      },
+      "dependencies": {
+        "@veritio/core": "workspace:*",
+        "@veritio/storage": "workspace:*",
+      },
+    },
     "adapters/express": {
       "name": "@veritio/express",
       "version": "0.0.1",
@@ -216,6 +227,8 @@
     "@veritio/better-auth": ["@veritio/better-auth@workspace:adapters/better-auth"],
 
     "@veritio/claude-code": ["@veritio/claude-code@workspace:adapters/claude-code"],
+
+    "@veritio/codex": ["@veritio/codex@workspace:adapters/codex"],
 
     "@veritio/core": ["@veritio/core@workspace:sdks/typescript"],
 
