@@ -4,18 +4,36 @@ All notable changes to Veritio will be documented in this file.
 
 Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while the protocol, SDKs, adapters, and storage contracts settle. Release notes should be explicit about migration steps and should avoid legal-compliance guarantees.
 
-## [Unreleased]
+## [0.4.2] - 2026-07-15
+
+### Fixed
+
+- `@veritio/claude-code` + `@veritio/codex`: ingest ship-out now aborts after a
+  bounded timeout (`VERITIO_INGEST_TIMEOUT_MS`, default 10s) instead of hanging
+  on a stalled endpoint (previously a stalled hosted ingest froze the capturing
+  agent for minutes). Capture stays fail-open; the local store already holds the
+  records.
+- `@veritio/claude-code`: file-change events now carry unique, replay-stable ids
+  (`evt_filechange__<toolCallId>` / `evt_filechange__<sessionId>__turn<n>`)
+  instead of the recorder default that collided on the ingest idempotency key
+  after a tenant's first file change and dropped every later batch.
+- `@veritio/core` provenance recorder: record-method edge ids are scoped by
+  their owning event (`edge_<eventId>__<from>__<relation>__<to>`) so a
+  recurring logical link (a session re-modifying the same file in a later turn)
+  no longer collides and drops the batch; `link()` keeps its endpoint-derived
+  singleton id. Default prompt event ids include `occurredAt` when supplied so
+  the same prompt text recorded twice is two occurrences, not a conflict.
 
 ### Added
 
-- `@veritio/codex` (experimental): Codex CLI capture via the `notify` hook — hash-only `agent.session.started` + `agent.prompt.recorded` per turn, local file sink + optional ingest; wrapper-safe (never replaces an existing notify), never client-aborts ingest.
+- `@veritio/codex` (experimental): Codex CLI capture via the `notify` hook — hash-only `agent.session.started` + `agent.prompt.recorded` per turn, local file sink + optional ingest; wrapper-safe (never replaces an existing notify).
 - `veritio login`: browser device-authorization flow that mints a scoped ingest key on console approval and writes Codex/Claude Code capture config — no key pasted by hand.
 - `plugins/veritio` + `.claude-plugin/marketplace.json`: Claude Code plugin bundling the capture hooks and the hosted Veritio MCP server (install via `/plugin marketplace add getveritio/veritio`).
-
-### Added
-
 - `@veritio/gateway`: optional `ingest` config block ships recorded gateway evidence to a Veritio ingest endpoint (Veritio Cloud or self-hosted) through a durable file outbox — local store stays authoritative, delivery is async and idempotent, cloud outages never block traffic.
 - `@veritio/gateway` (experimental, unpublished): self-hosted AI governance gateway — transparent Anthropic/OpenAI passthrough proxy (streaming included) with virtual keys, enforced provider/model/endpoint allowlists, provider-reported token metering costed in integer micro-USD, and one hash-chained `ai.request.*` audit event per request outcome (metadata + sha256 content hashes only, never bodies or key material). Fail-closed evidence semantics: in the default `block` mode the gateway refuses traffic it cannot evidence. Vocabulary frozen in `spec/ai-gateway-capture.md`.
+- `scripts/release-npm.sh`: the guarded npm publish path for the release trio
+  (verify gate, dependency-ordered `bun publish` with workspace-pin rewriting,
+  post-publish registry check; token supplied at run time, never stored).
 
 ## [0.4.1] - 2026-07-09
 
