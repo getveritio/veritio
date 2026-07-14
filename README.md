@@ -263,6 +263,7 @@ schemas in `spec/` yet.
 | `@veritio/tanstack-start` | Public | TanStack Start server function and route adapter. |
 | `@veritio/sveltekit` | Public | SvelteKit server action and endpoint adapter. |
 | `@veritio/react`, `@veritio/vue`, `@veritio/svelte` | Public | Browser-safe UI intent helpers; they do not record audit events client-side. |
+| `@veritio/codex` | Public (experimental) | Codex CLI notify-hook capture with local redacted file sink and optional ingest POST. Hash-only session/prompt evidence. |
 | `@veritio/claude-code` | Public | Claude Code hook capture with local redacted file sink, optional ingest POST, and read-only MCP query/export. Threads a stable `activityEpisodeId` per session. |
 | `veritio` CLI | Public | Local Workbench and MCP CLI. |
 | `@veritio/gateway` | Public (experimental, unpublished) | Self-hosted AI governance gateway: transparent Anthropic/OpenAI passthrough proxy with virtual keys, enforced allowlist policy, provider-reported metering, and hash-chained `ai.*` evidence (`spec/ai-gateway-capture.md`). |
