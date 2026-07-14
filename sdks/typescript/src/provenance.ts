@@ -26,7 +26,9 @@
  * Record ids are deterministic functions of the caller's stable domain ids
  * (sessionId, toolCallId, ...) so re-recording the same logical event yields the
  * same id and the store can replay idempotently; callers may override any event
- * id via input.id. Edge ids derive from (from, relation, to).
+ * id via input.id. Record-method edge ids are scoped by their owning event
+ * (`edge_<eventId>__<from>__<relation>__<to>`) so a recurring logical link never
+ * collides across occurrences; `link()` edges stay endpoint-derived singletons.
  *
  * Privacy: only stable ids, content hashes, and bounded non-PII metadata should
  * travel. Metadata is redacted by KEY NAME only (createAuditEvent), and a
@@ -297,8 +299,9 @@ function actorEntity(principal: Principal): EvidenceEntity {
 }
 
 /**
- * Derives a deterministic edge id from its endpoints and relation so the same
- * logical edge replays idempotently through an idempotency-keyed store.
+ * Derives the endpoint-only edge id used by `link()`: a caller-intentional
+ * SINGLETON graph edge — re-linking the same (from, relation, to) replays
+ * idempotently through an idempotency-keyed store.
  */
 function edgeIdFor(from: EvidenceEntity, relation: EvidenceEdgeRelation, to: EvidenceEntity): string {
   return `edge_${from.type}:${from.id}__${relation}__${to.type}:${to.id}`;
@@ -307,17 +310,31 @@ function edgeIdFor(from: EvidenceEntity, relation: EvidenceEdgeRelation, to: Evi
 /**
  * Persists one edge through the injected sink with a deterministic id, omitting
  * occurredAt when the caller did not supply one so the primitive can stamp it.
+ *
+ * Edge identity: record-method edges are scoped by their OWNING EVENT id.
+ * Endpoint-only ids collided on the store idempotency key whenever the same
+ * logical link recurred with different bytes (e.g. a session re-modifying the
+ * same file in a later turn: same id, new occurredAt/afterHash → the whole
+ * later batch was rejected). Scoping by event id keeps a replay of the
+ * identical record byte-identical (event ids are deterministic per record)
+ * while giving each occurrence its own edge. `link()` passes null and keeps
+ * the endpoint-only singleton semantics.
  */
 async function persistEdge(
   sinks: ProvenanceSinks,
   scope: TenantScope,
+  ownerEventId: string | null,
   occurredAt: string | Date | undefined,
   from: EvidenceEntity,
   relation: EvidenceEdgeRelation,
   to: EvidenceEntity,
   metadata: Record<string, unknown>,
 ): Promise<EvidenceEdgeRecord> {
-  const input: EvidenceEdgeInput = { id: edgeIdFor(from, relation, to), scope, from, relation, to, metadata };
+  const id =
+    ownerEventId === null
+      ? edgeIdFor(from, relation, to)
+      : `edge_${ownerEventId}__${from.type}:${from.id}__${relation}__${to.type}:${to.id}`;
+  const input: EvidenceEdgeInput = { id, scope, from, relation, to, metadata };
   if (occurredAt !== undefined) {
     input.occurredAt = occurredAt;
   }
@@ -374,6 +391,7 @@ export function createProvenanceRecorder(sinks: ProvenanceSinks): ProvenanceReco
         await persistEdge(
           sinks,
           input.scope,
+          event.event.id,
           input.occurredAt,
           sessionEntity,
           "caused_by",
@@ -388,6 +406,7 @@ export function createProvenanceRecorder(sinks: ProvenanceSinks): ProvenanceReco
           await persistEdge(
             sinks,
             input.scope,
+            event.event.id,
             input.occurredAt,
             sessionEntity,
             "caused_by",
@@ -476,14 +495,19 @@ function makeSession(
     return eventInput;
   }
 
-  function edge(
-    occurredAt: string | Date | undefined,
-    from: EvidenceEntity,
-    relation: EvidenceEdgeRelation,
-    to: EvidenceEntity,
-    metadata: Record<string, unknown>,
-  ): Promise<EvidenceEdgeRecord> {
-    return persistEdge(sinks, scope, occurredAt, from, relation, to, metadata);
+  /**
+   * Binds the edge writer to the OWNING EVENT so each record method's edges are
+   * occurrence-scoped (see `persistEdge`): re-recording the same logical link
+   * under a new event gets a new id instead of colliding on the idempotency key.
+   */
+  function edgeFor(ownerEventId: string) {
+    return (
+      occurredAt: string | Date | undefined,
+      from: EvidenceEntity,
+      relation: EvidenceEdgeRelation,
+      to: EvidenceEntity,
+      metadata: Record<string, unknown>,
+    ): Promise<EvidenceEdgeRecord> => persistEdge(sinks, scope, ownerEventId, occurredAt, from, relation, to, metadata);
   }
 
   return {
@@ -492,7 +516,15 @@ function makeSession(
     async recordPrompt(input) {
       const event = await sinks.recordEvent(
         buildEvent(
-          input.id ?? `evt_prompt__${sessionId}__${input.promptHash}`,
+          // The prompt id includes the occurrence time when supplied: a
+          // constant (session, promptHash) id collided on the idempotency key
+          // when the user submitted the SAME prompt text twice in one session
+          // (same id, different occurredAt bytes → second batch rejected).
+          // Identical inputs still replay the identical id.
+          input.id ??
+            `evt_prompt__${sessionId}__${input.promptHash}${
+              input.occurredAt !== undefined ? `__${new Date(input.occurredAt).toISOString()}` : ""
+            }`,
           input.occurredAt,
           agentActor,
           "agent.prompt.recorded",
@@ -530,6 +562,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       edges.push(await edge(input.occurredAt, sessionEntity, "created", toolEntity, { tool: input.tool }));
       for (const read of input.reads ?? []) {
@@ -575,6 +608,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       edges.push(await edge(input.occurredAt, proposalEntity, "part_of", sessionEntity, {}));
       for (const rejected of input.rejectedFiles ?? []) {
@@ -638,6 +672,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       for (const file of input.files) {
         const fileEntity: EvidenceEntity = { type: "file", id: file.id, pathHash: file.pathHash };
@@ -709,6 +744,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       if (input.proposalId) {
         edges.push(
@@ -743,6 +779,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       if (input.artifactId) {
         const artifactEntity: EvidenceEntity = { type: "artifact", id: input.artifactId };
@@ -778,6 +815,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       if (input.artifactId) {
         edges.push(
@@ -827,6 +865,7 @@ function makeSession(
         ),
       );
 
+      const edge = edgeFor(event.event.id);
       const edges: EvidenceEdgeRecord[] = [];
       if (input.deploymentId) {
         edges.push(
@@ -845,7 +884,9 @@ function makeSession(
     },
 
     async link(from, relation, to, metadata, occurredAt) {
-      return edge(occurredAt, from, relation, to, metadata ?? {});
+      // No owning event: link() is the caller-intentional singleton graph edge
+      // (endpoint-derived id, idempotent re-link).
+      return persistEdge(sinks, scope, null, occurredAt, from, relation, to, metadata ?? {});
     },
   };
 }
