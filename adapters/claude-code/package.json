@@ -1,6 +1,6 @@
 {
   "name": "@veritio/claude-code",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Capture Claude Code agent activity as Veritio evidence via hooks, with a local file sink or ingest POST.",
   "license": "Apache-2.0",
   "repository": {

@@ -4,6 +4,20 @@ All notable changes to Veritio will be documented in this file.
 
 Veritio is a pre-1.0 Apache-2.0 project. Early releases may change APIs while the protocol, SDKs, adapters, and storage contracts settle. Release notes should be explicit about migration steps and should avoid legal-compliance guarantees.
 
+## [0.4.3] - 2026-07-15
+
+### Added
+
+- `@veritio/claude-code`: captured activity now carries frozen-vocabulary risk
+  signals (spec/risk-signals.schema.json) — destructive/delete/permission/
+  config Bash command classes (recursive removals required for destructive;
+  unmatched commands attach nothing), effect-side create/update/delete signals
+  with `dataVolume` on file changes, and `envCriticality` derived from
+  `VERITIO_ENVIRONMENT`. Lights up per-step scoring, episode risk rollups, and
+  the hosted in-band risk detector for Claude Code capture. Adapter-only
+  release: `@veritio/core` and `@veritio/storage` are unchanged and stay
+  pinned at 0.4.2.
+
 ## [0.4.2] - 2026-07-15
 
 ### Fixed
