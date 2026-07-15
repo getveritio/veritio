@@ -27,7 +27,7 @@
     },
     "adapters/claude-code": {
       "name": "@veritio/claude-code",
-      "version": "0.4.2",
+      "version": "0.4.3",
       "bin": {
         "veritio-claude-code-hook": "dist/hook.js",
         "veritio-claude-code-mcp": "dist/mcp.js",
