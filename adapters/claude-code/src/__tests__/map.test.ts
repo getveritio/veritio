@@ -174,3 +174,82 @@ describe("buildToolCall filechange id", () => {
     expect(a0.fileChange?.id).not.toBe(b0.fileChange?.id as string);
   });
 });
+
+describe('risk signal derivation', () => {
+  // Classification happens BEFORE hashing and stores only frozen-vocabulary
+  // enums — never raw command text. Unmatched commands attach NOTHING so
+  // ordinary reads never inflate episode risk.
+  test('destructive Bash commands carry destructive/irreversible signals', () => {
+    const { toolCall } = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "rm -rf /tmp/scratch" } }),
+      config,
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(toolCall.riskSignals).toMatchObject({
+      operationType: "destructive",
+      reversibility: "irreversible",
+      envCriticality: "development",
+    });
+  });
+
+  test('plain delete and permission commands classify without overstating', () => {
+    const del = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "rm notes.txt" } }),
+      config,
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(del.toolCall.riskSignals).toMatchObject({ operationType: "delete", reversibility: "recoverable" });
+    const perm = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "chmod +x deploy.sh" } }),
+      config,
+      { seq: 1, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(perm.toolCall.riskSignals).toMatchObject({ operationType: "permission" });
+  });
+
+  test('benign commands attach no risk signals at all', () => {
+    const { toolCall } = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "ls -la && git status" } }),
+      config,
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(toolCall.riskSignals).toBeUndefined();
+  });
+
+  test('file changes carry create/update signals with dataVolume; deletes score as deletes', () => {
+    const fp = "/tmp/new.ts";
+    const { fileChange } = buildToolCall(
+      payload({ tool_name: "Write", tool_input: { file_path: fp } }),
+      config,
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: { [fp]: "sha256:a" } },
+    );
+    expect(fileChange?.riskSignals).toMatchObject({
+      operationType: "create",
+      reversibility: "reversible",
+      dataVolume: 1,
+    });
+
+    const scan = buildBashFileChange(
+      [
+        { pathHash: "sha256:p1", afterHash: "sha256:a1", action: "delete" },
+        { pathHash: "sha256:p2", afterHash: "sha256:a2", action: "upsert" },
+      ],
+      config,
+      { now: NOW, turn: 1, sessionId: "sess_a" },
+    );
+    expect(scan?.riskSignals).toMatchObject({
+      operationType: "delete",
+      reversibility: "recoverable",
+      dataVolume: 2,
+    });
+  });
+
+  test('environment maps onto the frozen envCriticality vocabulary', () => {
+    const prod = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "rm -rf build" } }),
+      { ...config, environment: "prod-eu-1" },
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(prod.toolCall.riskSignals).toMatchObject({ envCriticality: "production" });
+  });
+});
