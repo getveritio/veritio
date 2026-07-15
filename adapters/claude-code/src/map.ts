@@ -1,4 +1,4 @@
-import type { FileChangeInput, FileModification, ToolCallInput } from "@veritio/core";
+import type { FileChangeInput, FileModification, RiskSignals, ToolCallInput } from "@veritio/core";
 import type { AdapterConfig } from "./config.js";
 import { hashJson, pathEntityId, sha256 } from "./redact.js";
 import type { HookPayload, SessionContext } from "./types.js";
@@ -84,6 +84,12 @@ export function buildToolCall(
     occurredAt: opts.now,
     inputHash: hashJson(payload.tool_input ?? {}),
   };
+  if (tool === "Bash" && typeof payload.tool_input?.command === "string") {
+    const signals = bashRiskSignals(payload.tool_input.command, config.environment);
+    if (signals) {
+      toolCall.riskSignals = signals;
+    }
+  }
 
   const filePath =
     EDIT_TOOLS.has(tool) && typeof payload.tool_input?.file_path === "string"
@@ -116,8 +122,77 @@ export function buildToolCall(
     occurredAt: opts.now,
     changedBy: { type: "tool_call", id: toolCallId },
     files: [file],
+    riskSignals: fileChangeRiskSignals([file], config.environment),
   };
   return { toolCall, fileChange };
+}
+
+
+/**
+ * Frozen-vocabulary risk classification for captured activity. Classification
+ * runs BEFORE hashing and stores ONLY spec enums (spec/risk-signals.schema.json)
+ * — never raw command text. Patterns are deliberately conservative: an
+ * unmatched command attaches NO signals, so ordinary reads and builds never
+ * inflate episode risk, while destructive/permission/config classes light up
+ * the per-step scoring and the episode risk rollup.
+ */
+const DESTRUCTIVE_COMMAND = /\brm\s+(-[a-z]*r[a-z]*\s+)+|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+push\s+.*(--force|\s-f\b)|drop\s+(table|database|schema)|truncate\s+table|terraform\s+destroy|kubectl\s+delete|mkfs|\bdd\s+if=/i;
+const DELETE_COMMAND = /\brm\b|\brmdir\b|\bunlink\b|git\s+branch\s+-D/i;
+const PERMISSION_COMMAND = /\bchmod\b|\bchown\b|\bsudo\b/i;
+const CONFIG_COMMAND = /git\s+config|npm\s+config|wrangler\s+secret|\bexport\s+\w+=/i;
+
+/** Maps the adapter's environment label onto the frozen envCriticality enum. */
+export function envCriticalityOf(environment: string): "sandbox" | "development" | "staging" | "production" {
+  const env = environment.toLowerCase();
+  if (env.includes("prod")) return "production";
+  if (env.includes("stag")) return "staging";
+  if (env.includes("sandbox")) return "sandbox";
+  return "development";
+}
+
+/**
+ * Risk signals for a Bash command, or undefined when nothing risk-relevant
+ * matches. The command text itself never leaves this function.
+ */
+export function bashRiskSignals(command: string, environment: string): RiskSignals | undefined {
+  const envCriticality = envCriticalityOf(environment);
+  if (DESTRUCTIVE_COMMAND.test(command)) {
+    return { operationType: "destructive", reversibility: "irreversible", envCriticality };
+  }
+  if (DELETE_COMMAND.test(command)) {
+    return { operationType: "delete", reversibility: "recoverable", envCriticality };
+  }
+  if (PERMISSION_COMMAND.test(command)) {
+    return { operationType: "permission", reversibility: "reversible", envCriticality };
+  }
+  if (CONFIG_COMMAND.test(command)) {
+    return { operationType: "config", reversibility: "reversible", envCriticality };
+  }
+  return undefined;
+}
+
+/**
+ * Risk signals for a batch of file modifications: deletes dominate (delete/
+ * recoverable), otherwise create vs update, always with dataVolume = files in
+ * the batch. Signals ride the file-change EVENT (the effect), never doubled
+ * onto the edit tool call that produced it.
+ */
+export function fileChangeRiskSignals(
+  files: readonly { action?: "create" | "upsert" | "delete" }[],
+  environment: string,
+): RiskSignals {
+  const envCriticality = envCriticalityOf(environment);
+  const hasDelete = files.some((file) => file.action === "delete");
+  if (hasDelete) {
+    return { operationType: "delete", reversibility: "recoverable", envCriticality, dataVolume: files.length };
+  }
+  const allCreate = files.length > 0 && files.every((file) => file.action === "create");
+  return {
+    operationType: allCreate ? "create" : "update",
+    reversibility: "reversible",
+    envCriticality,
+    dataVolume: files.length,
+  };
 }
 
 /** A changed file discovered by the Stop-turn git scan (catches Bash-driven writes). */
@@ -154,5 +229,6 @@ export function buildBashFileChange(
       afterHash: file.afterHash,
       action: file.action,
     })),
+    riskSignals: fileChangeRiskSignals(files, config.environment),
   };
 }
