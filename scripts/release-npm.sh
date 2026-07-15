@@ -24,6 +24,13 @@ bun run verify
 for pkg in sdks/typescript storage adapters/claude-code; do
   name="$(node -p "require('./${pkg}/package.json').name")"
   version="$(node -p "require('./${pkg}/package.json').version")"
+  # Partial releases are normal (an adapter-only bump keeps core/storage at
+  # their published versions): skip anything the registry already has instead
+  # of letting a duplicate-version rejection abort the remaining publishes.
+  if npm view "${name}@${version}" version >/dev/null 2>&1; then
+    echo "release-npm: ${name}@${version} already on the registry — skipping" >&2
+    continue
+  fi
   echo "release-npm: publishing ${name}@${version}" >&2
   (cd "$pkg" && NPM_CONFIG_TOKEN="$NPM_TOKEN" bun publish --access public)
 done
