@@ -136,7 +136,7 @@ export function buildToolCall(
  * inflate episode risk, while destructive/permission/config classes light up
  * the per-step scoring and the episode risk rollup.
  */
-const DESTRUCTIVE_COMMAND = /\brm\s+(-[a-z]*[rf][a-z]*\s+)+|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+push\s+.*(--force|\s-f\b)|drop\s+(table|database|schema)|truncate\s+table|terraform\s+destroy|kubectl\s+delete|mkfs|\bdd\s+if=/i;
+const DESTRUCTIVE_COMMAND = /\brm\s+(-[a-z]*r[a-z]*\s+)+|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+push\s+.*(--force|\s-f\b)|drop\s+(table|database|schema)|truncate\s+table|terraform\s+destroy|kubectl\s+delete|mkfs|\bdd\s+if=/i;
 const DELETE_COMMAND = /\brm\b|\brmdir\b|\bunlink\b|git\s+branch\s+-D/i;
 const PERMISSION_COMMAND = /\bchmod\b|\bchown\b|\bsudo\b/i;
 const CONFIG_COMMAND = /git\s+config|npm\s+config|wrangler\s+secret|\bexport\s+\w+=/i;

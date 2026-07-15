@@ -252,4 +252,21 @@ describe('risk signal derivation', () => {
     );
     expect(prod.toolCall.riskSignals).toMatchObject({ envCriticality: "production" });
   });
+
+  // Codex review regression: a force-only single-file removal is an ordinary
+  // delete — only RECURSIVE removals classify as destructive/irreversible.
+  test('rm -f single file is a plain delete, not destructive', () => {
+    const { toolCall } = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "rm -f build.log" } }),
+      config,
+      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(toolCall.riskSignals).toMatchObject({ operationType: "delete", reversibility: "recoverable" });
+    const recursive = buildToolCall(
+      payload({ tool_name: "Bash", tool_input: { command: "rm -fr old-dir" } }),
+      config,
+      { seq: 1, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
+    );
+    expect(recursive.toolCall.riskSignals).toMatchObject({ operationType: "destructive" });
+  });
 });
