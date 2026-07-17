@@ -1,0 +1,67 @@
+{
+  "name": "export-bundle-filtered-v1",
+  "description": "A vevb-1 bundle exported under manifest.filters (actionPrefixes ['agent.']) with interior sequence gaps (audit sequences 1,3,5) and manifest.chainScope 'filtered'. Verifies valid:true under the filtered rule and MUST fail the strict full rule.",
+  "bundleVersion": "vevb-1",
+  "expected": {
+    "valid": true,
+    "chainScope": "filtered"
+  },
+  "bundle": {
+    "bundleVersion": "vevb-1",
+    "manifest": {
+      "bundleVersion": "vevb-1",
+      "createdAt": "2026-07-17T00:00:00.000Z",
+      "scope": {
+        "tenantId": "org_scoped_fixture",
+        "workspaceId": "wks_scoped_fixture",
+        "environment": "test"
+      },
+      "range": {
+        "from": "2026-07-10T00:00:00.000Z",
+        "to": "2026-07-16T00:00:00.000Z"
+      },
+      "producer": {
+        "authority": "veritio",
+        "kind": "principal",
+        "type": "service",
+        "id": "svc_scoped_fixture"
+      },
+      "files": [
+        {
+          "path": "records/audit-events.jsonl",
+          "sha256": "194d6d2440920ce5ba2fe0aefc232b06d0fd3e920ad32e6f6edc19d72db0c790",
+          "records": 3
+        },
+        {
+          "path": "records/evidence-edges.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "records": 0
+        },
+        {
+          "path": "records/commits.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "records": 0
+        },
+        {
+          "path": "verification.json",
+          "sha256": "cb5e0fe6856e3a2c0d5bd86f500e7adc1c8cf33a502123facbc163ccb89e8131",
+          "records": 0
+        }
+      ],
+      "rootHash": "05f81e95d36cda58794c0b382026243f0abe92286c5ed705d09044e2b304148e",
+      "chainScope": "filtered",
+      "filters": {
+        "workspaceId": "wks_scoped_fixture",
+        "actionPrefixes": [
+          "agent."
+        ]
+      }
+    },
+    "files": {
+      "records/audit-events.jsonl": "{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"agent.session.started\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_1\",\"metadata\":{\"position\":1},\"occurredAt\":\"2026-07-10T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"d349b0558f7f24ed367a2901c12224e7e02e74f32321a70fbc262ca6bf745462\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"59a960c628cb8665f80884a3f877ed76c0d58a75a48cf151beeebf92d39ce447\",\"previousHash\":null,\"sequence\":1}\n{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"agent.prompt.recorded\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_3\",\"metadata\":{\"position\":3},\"occurredAt\":\"2026-07-12T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"5f6ad424dbdf1c19deb7e0f42323266fdceceafb8c653c9d62fa74745ce1a560\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"30facae07a510ce008f236dd1a116b8459ccba4d6241712aa56c63f5c3350640\",\"previousHash\":\"167885b32da4791e5c9be8f7a9cf76f80e9756d329c5502d01bb656dd94036ff\",\"sequence\":3}\n{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"agent.tool.invoked\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_5\",\"metadata\":{\"position\":5},\"occurredAt\":\"2026-07-14T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"3328832ada0078d20aaf9655c65628d326e21883279f67bccad58025406d177a\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"26ed7b0d5aa10e38729b340f7cdbd0dadd0d8ce62da4b9a84afe60c19c201fdf\",\"previousHash\":\"005f3f5a97bb085b168ecc161fbb3dcc85b22297d823fb3e7c496111924b8b93\",\"sequence\":5}\n",
+      "records/evidence-edges.jsonl": "",
+      "records/commits.jsonl": "",
+      "verification.json": "{\"audit\":{\"valid\":true},\"chainScope\":\"filtered\",\"commits\":{\"valid\":true},\"edges\":{\"valid\":true}}"
+    }
+  }
+}

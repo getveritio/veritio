@@ -77,6 +77,30 @@
             }
           }
         },
+        "chainScope": {
+          "type": "string",
+          "enum": ["windowed", "filtered"],
+          "description": "Chain-verification claim of this bundle. Absent means 'full' (strict start-at-one gapless chains). 'windowed' allows a mid-chain entry per tenant with strict linkage after it; 'filtered' proves per-record integrity and strictly-increasing sequences with strict linkage only between sequence-adjacent records. See export-bundle.md § Chain scopes."
+        },
+        "filters": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Content filters a 'filtered' bundle was produced under, declared so consumers can see what was deliberately excluded. Only valid when chainScope is 'filtered'.",
+          "properties": {
+            "workspaceId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "actionPrefixes": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
         "producer": {
           "type": "object",
           "additionalProperties": false,

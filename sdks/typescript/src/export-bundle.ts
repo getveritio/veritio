@@ -10,7 +10,8 @@
  * the protocol, so all hashing routes through the export-bundle-deps shim.
  */
 
-import { canonicalJson, sha256Hex, verifyAuditChain, verifyCommitChain, verifyEdgeChain } from "./export-bundle-deps.js";
+import { canonicalJson, sha256Hex, verifyCommitChain } from "./export-bundle-deps.js";
+import { verifyAuditChainScoped, verifyEdgeChainScoped } from "./export-bundle-chain-modes.js";
 
 /**
  * One record file inside an export bundle. `path` is the bundle-relative file
@@ -50,6 +51,19 @@ export interface ExportBundleManifest {
   };
   files: ExportBundleFileEntry[];
   rootHash: string;
+  /**
+   * Chain-verification claim of this bundle (absent = `full`, the strict
+   * start-at-one gapless claim). `windowed` and `filtered` declare partial
+   * exports so the verifier holds the bundle to exactly the claim it makes —
+   * see spec/export-bundle.md § Chain scopes.
+   */
+  chainScope?: "windowed" | "filtered";
+  /**
+   * Content filters a `filtered` bundle was produced under. Declared in the
+   * manifest (and therefore hashed and signable) so a consumer can see what
+   * was deliberately excluded. Field names are protocol-neutral.
+   */
+  filters?: { workspaceId?: string; actionPrefixes?: string[] };
   annex?: { packId: string; version: string }[];
   signaturePublicKeyFingerprint?: string;
 }
@@ -108,6 +122,10 @@ export interface ExportBundleInput {
   range: ExportBundleManifest["range"];
   producer: ExportBundleManifest["producer"];
   createdAt: string;
+  /** Chain claim of this export; absent = `full`. Filters require `filtered`. */
+  chainScope?: "windowed" | "filtered";
+  /** Content filters, declared in the manifest; only valid with `filtered`. */
+  filters?: ExportBundleManifest["filters"];
   events: unknown[];
   edges: unknown[];
   commits?: unknown[];
@@ -162,6 +180,21 @@ function serializeRecords(records: unknown[]): string {
  */
 export async function buildExportBundle(input: ExportBundleInput): Promise<ExportBundle> {
   const commits = input.commits ?? [];
+  const chainScope = input.chainScope ?? "full";
+
+  // Fail closed on inconsistent scope declarations: filters without the
+  // `filtered` claim would hide content removal behind a stricter-looking
+  // scope, and scoped commit sets are not defined in v1 (commits always verify
+  // under the strict rule, so a scoped bundle must not carry them).
+  if (input.filters !== undefined && chainScope !== "filtered") {
+    throw new Error("export bundle: filters require chainScope 'filtered'");
+  }
+  if (chainScope === "filtered" && input.filters === undefined) {
+    throw new Error("export bundle: chainScope 'filtered' requires a filters declaration");
+  }
+  if (chainScope !== "full" && commits.length > 0) {
+    throw new Error("export bundle: commits are not supported in a scoped bundle");
+  }
 
   const sortedAnnex = input.annex
     ? [...input.annex].sort((left, right) => {
@@ -194,9 +227,12 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
     {
       path: "verification.json",
       content: canonicalJson({
-        audit: verifyAuditChain(input.events),
-        edges: verifyEdgeChain(input.edges),
+        audit: verifyAuditChainScoped(input.events, chainScope),
+        edges: verifyEdgeChainScoped(input.edges, chainScope),
         commits: verifyCommitChain(commits),
+        // Only scoped bundles carry the marker so pre-existing full bundles
+        // stay byte-identical.
+        ...(chainScope !== "full" ? { chainScope } : {}),
       }),
       records: 0,
     },
@@ -228,6 +264,8 @@ export async function buildExportBundle(input: ExportBundleInput): Promise<Expor
     producer: input.producer,
     files: manifestFiles,
     rootHash: await computeRootHash(manifestFiles),
+    ...(chainScope !== "full" ? { chainScope } : {}),
+    ...(input.filters !== undefined ? { filters: input.filters } : {}),
     ...(sortedAnnex ? { annex: sortedAnnex.map((pack) => ({ packId: pack.packId, version: pack.version })) } : {}),
   };
 
@@ -396,6 +434,12 @@ export interface ExportBundleVerificationReport {
     chains: boolean;
     signature: "valid" | "invalid" | "absent" | "skipped";
   };
+  /**
+   * The chain claim the bundle declared and was verified against (`full` when
+   * `manifest.chainScope` is absent). Consumers deciding how much a `valid`
+   * verdict proves must read this: only `full` proves nothing was removed.
+   */
+  chainScope: "full" | "windowed" | "filtered";
   issues: string[];
 }
 
@@ -541,11 +585,30 @@ export async function verifyExportBundle(
     issues.push("manifest.files is not an array");
   }
 
+  // Chain scope: the bundle's own declaration selects which chain claim is
+  // verified. An unknown value or an inconsistent filters declaration fails
+  // closed as a structure error rather than silently verifying under `full`.
+  const declaredScope = manifestOk ? (manifest as ExportBundleManifest).chainScope : undefined;
+  let chainScope: ExportBundleVerificationReport["chainScope"] = "full";
+  if (declaredScope !== undefined) {
+    if (declaredScope === "windowed" || declaredScope === "filtered") {
+      chainScope = declaredScope;
+    } else {
+      structure = false;
+      issues.push("manifest.chainScope is not a known scope");
+    }
+  }
+  if (manifestOk && (manifest as ExportBundleManifest).filters !== undefined && chainScope !== "filtered") {
+    structure = false;
+    issues.push("manifest.filters requires chainScope 'filtered'");
+  }
+
   const canInspect = filesOk && manifestFilesOk;
   if (!canInspect) {
     return {
       valid: false,
       checks: { structure: false, integrity: false, chains: false, signature },
+      chainScope,
       issues,
     };
   }
@@ -652,9 +715,14 @@ export async function verifyExportBundle(
   }
 
   if (allRecordsParsed) {
-    const auditVerdict = verifyAuditChain(parsedRecords["records/audit-events.jsonl"] ?? []);
-    const edgeVerdict = verifyEdgeChain(parsedRecords["records/evidence-edges.jsonl"] ?? []);
+    const auditVerdict = verifyAuditChainScoped(parsedRecords["records/audit-events.jsonl"] ?? [], chainScope);
+    const edgeVerdict = verifyEdgeChainScoped(parsedRecords["records/evidence-edges.jsonl"] ?? [], chainScope);
     const commitVerdict = verifyCommitChain(parsedRecords["records/commits.jsonl"] ?? []);
+    // Scoped bundles must not smuggle commit records past the strict rule.
+    if (chainScope !== "full" && (parsedRecords["records/commits.jsonl"] ?? []).length > 0) {
+      chains = false;
+      issues.push("commits are not supported in a scoped bundle");
+    }
 
     let embedded: unknown;
     const embeddedPayload = files["verification.json"];
@@ -682,6 +750,14 @@ export async function verifyExportBundle(
       chains = false;
       issues.push("embedded verification report disagrees");
     }
+
+    // The chains gate asserts the chains ARE valid, not merely that the
+    // embedded report agrees. A bundle whose own report admits an invalid
+    // chain must not produce an overall `valid: true`.
+    if (!auditVerdict.valid || !edgeVerdict.valid || !commitVerdict.valid) {
+      chains = false;
+      issues.push("record chain verification failed");
+    }
   }
 
   const valid = structure && integrity && chains && signatureSatisfied;
@@ -689,6 +765,7 @@ export async function verifyExportBundle(
   return {
     valid,
     checks: { structure, integrity, chains, signature },
+    chainScope,
     issues,
   };
 }

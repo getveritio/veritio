@@ -10,6 +10,14 @@ import {
   verifyExportBundle,
 } from "../export-bundle";
 import { canonicalJson, sha256Hex } from "../export-bundle-deps";
+import {
+  HASH_ALGORITHM,
+  MemoryAuditStore,
+  createAuditEvent,
+  createEvidenceEdge,
+  hashEvidenceEdgeRecord,
+  hashIdempotencyKey,
+} from "../index";
 
 test("shim: canonical json is key-sorted and stable", () => {
   expect(canonicalJson({ b: 1, a: 2 })).toBe(canonicalJson({ a: 2, b: 1 }));
@@ -28,16 +36,59 @@ test("rootHash is order-insensitive over file entries", async () => {
   expect(await computeRootHash([a, b])).toMatch(/^[0-9a-f]{64}$/);
 });
 
+// Real chained records: the chains gate now asserts chain VALIDITY (not just
+// agreement with the embedded report), so the shared fixture must be an
+// actually-valid export, exactly like a production bundle.
+const fixtureStore = new MemoryAuditStore();
+const fixtureEvents = [
+  await fixtureStore.append(
+    createAuditEvent({
+      id: "evt_1",
+      occurredAt: "2026-01-02T00:00:00.000Z",
+      scope: { tenantId: "ten_1" },
+      actor: { type: "service", id: "svc_test" },
+      action: "agent.session.started",
+      target: { type: "agent_session", id: "agt_test" },
+      metadata: { n: 1 },
+    }),
+  ),
+  await fixtureStore.append(
+    createAuditEvent({
+      id: "evt_2",
+      occurredAt: "2026-01-03T00:00:00.000Z",
+      scope: { tenantId: "ten_1" },
+      actor: { type: "service", id: "svc_test" },
+      action: "agent.prompt.recorded",
+      target: { type: "agent_session", id: "agt_test" },
+      metadata: { n: 2 },
+    }),
+  ),
+];
+const fixtureEdgeBase = {
+  edge: createEvidenceEdge({
+    id: "edge_1",
+    occurredAt: "2026-01-02T00:00:00.000Z",
+    scope: { tenantId: "ten_1" },
+    from: { type: "agent_session", id: "agt_test" },
+    relation: "modified",
+    to: { type: "file", id: "file_test" },
+    metadata: {},
+  }),
+  sequence: 1,
+  previousHash: null,
+  hashAlgorithm: HASH_ALGORITHM,
+  canonicalization: "veritio-json-v1" as const,
+  appendedAt: "2026-01-02T00:00:00.000Z",
+  idempotencyKeyHash: hashIdempotencyKey("ten_1", "edge_1"),
+};
+
 const buildInput = {
   scope: { tenantId: "ten_1" },
   range: { from: "2026-01-01T00:00:00Z", to: "2026-02-01T00:00:00Z" },
   producer: { authority: "veritio", kind: "principal" as const, type: "service" as const, id: "svc_test" },
   createdAt: "2026-07-06T00:00:00Z",
-  events: [
-    { id: "evt_1", n: 1 },
-    { id: "evt_2", n: 2 },
-  ],
-  edges: [{ id: "edge_1" }],
+  events: fixtureEvents as unknown[],
+  edges: [{ ...fixtureEdgeBase, hash: hashEvidenceEdgeRecord(fixtureEdgeBase) }] as unknown[],
 };
 
 test("build is deterministic and lists all fixed paths", async () => {
