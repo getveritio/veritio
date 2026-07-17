@@ -7,6 +7,7 @@ import {
   buildToolCall,
   episodeIdOf,
   promptHashOf,
+  rebuildSessionContext,
   refreshContextScope,
 } from "../map";
 import type { HookPayload } from "../types";
@@ -311,5 +312,52 @@ describe("refreshContextScope", () => {
     expect(withWorkspace.scope.workspaceId).toBe("ws_1");
     const removed = refreshContextScope(withWorkspace, config);
     expect(removed.scope.workspaceId).toBeUndefined();
+  });
+});
+
+describe("rebuildSessionContext", () => {
+  const opts = {
+    now: "2026-07-18T09:00:00.000Z",
+    activityEpisodeId: episodeIdOf("sess_a"),
+    branch: "feat/current",
+    repository: { provider: "github", id: "acme/app" },
+  };
+
+  test("mirrors the prior session-start bytes so the replay stays idempotent", () => {
+    const prior = {
+      occurredAt: "2026-07-14T07:50:39.286Z",
+      metadata: {
+        activityEpisodeId: "ep_custom_thread",
+        branch: "main",
+        model: { provider: "anthropic", name: "claude-fable-5" },
+        repository: { provider: "github", id: "acme/original" },
+        sessionId: "sess_a",
+      },
+    };
+    const ctx = rebuildSessionContext(payload({ model: "claude-opus-4-8" }), config, opts, prior);
+    // Byte-critical fields come from the prior append, NOT from current facts.
+    expect(ctx.occurredAt).toBe("2026-07-14T07:50:39.286Z");
+    expect(ctx.model).toEqual({ provider: "anthropic", name: "claude-fable-5" });
+    expect(ctx.branch).toBe("main");
+    expect(ctx.repository).toEqual({ provider: "github", id: "acme/original" });
+    expect(ctx.activityEpisodeId).toBe("ep_custom_thread");
+    expect(ctx.sessionId).toBe("sess_a");
+  });
+
+  test("drops branch/repository when the prior append had none (byte parity)", () => {
+    const prior = {
+      occurredAt: "2026-07-14T07:50:39.286Z",
+      metadata: { sessionId: "sess_a", model: { provider: "anthropic", name: "claude" } },
+    };
+    const ctx = rebuildSessionContext(payload({}), config, opts, prior);
+    expect(ctx.branch).toBeUndefined();
+    expect(ctx.repository).toBeUndefined();
+    expect(ctx.occurredAt).toBe("2026-07-14T07:50:39.286Z");
+  });
+
+  test("builds a fresh context when there is no prior append (nothing to conflict with)", () => {
+    const ctx = rebuildSessionContext(payload({ model: "claude-opus-4-8" }), config, opts, null);
+    expect(ctx).toEqual(buildSessionContext(payload({ model: "claude-opus-4-8" }), config, opts));
+    expect(ctx.occurredAt).toBe(opts.now);
   });
 });
