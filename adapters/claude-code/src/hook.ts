@@ -14,6 +14,7 @@ import {
   buildToolCall,
   episodeIdOf,
   promptHashOf,
+  refreshContextScope,
 } from "./map.js";
 import { sha256 } from "./redact.js";
 import { clearState, loadState, saveState } from "./state.js";
@@ -40,7 +41,20 @@ async function main(): Promise<void> {
   }
 
   const config = resolveConfig(process.env);
+  if (config.ingest && config.tenantId === "local") {
+    // Loud, non-blocking: shipping with the fallback tenant is guaranteed to
+    // be rejected by the scoped key's tenant check — silent 403s wedged whole
+    // sessions before this warning existed.
+    process.stderr.write(
+      "veritio-claude-code: ingest is configured but VERITIO_TENANT_ID is missing — ship-out will be rejected\n",
+    );
+  }
   const state = loadState(config.localDir, payload.session_id);
+  if (state.context) {
+    // Heal sessions whose persisted context froze a stale tenant scope (e.g.
+    // started before the ingest env existed): scope follows current config.
+    state.context = refreshContextScope(state.context, config);
+  }
   const recorder = createProvenanceRecorder(createFileEvidenceStore(config.localDir));
   const now = new Date().toISOString();
   const events: AuditEvent[] = [];

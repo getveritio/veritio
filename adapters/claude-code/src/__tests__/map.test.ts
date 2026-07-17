@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AdapterConfig } from "../config";
-import { buildBashFileChange, buildSessionContext, buildToolCall, episodeIdOf, promptHashOf } from "../map";
+import {
+  buildBashFileChange,
+  buildSessionContext,
+  buildToolCall,
+  episodeIdOf,
+  promptHashOf,
+  refreshContextScope,
+} from "../map";
 import type { HookPayload } from "../types";
 
 const config: AdapterConfig = {
@@ -268,5 +275,41 @@ describe('risk signal derivation', () => {
       { seq: 1, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
     );
     expect(recursive.toolCall.riskSignals).toMatchObject({ operationType: "destructive" });
+  });
+});
+
+describe("refreshContextScope", () => {
+  const startedLocal = buildSessionContext(payload({ hook_event_name: "SessionStart" }), config, {
+    now: NOW,
+    activityEpisodeId: "ep_sess_a",
+  });
+
+  test("heals a context frozen with the fallback tenant once config carries a real one", () => {
+    // Regression: a session started BEFORE the ingest env existed persisted
+    // scope.tenantId "local"; every later ship-out 403'd silently forever.
+    const configured: AdapterConfig = {
+      ...config,
+      tenantId: "proj_real",
+      environment: "production",
+      ingest: { url: "https://example.test/api/ingest", key: "vrt_x" },
+    };
+    const healed = refreshContextScope(startedLocal, configured);
+    expect(healed.scope.tenantId).toBe("proj_real");
+    expect(healed.scope.environment).toBe("production");
+    // Identity stays frozen — only scope follows config.
+    expect(healed.sessionId).toBe(startedLocal.sessionId);
+    expect(healed.activityEpisodeId).toBe(startedLocal.activityEpisodeId);
+    expect(healed.occurredAt).toBe(startedLocal.occurredAt);
+  });
+
+  test("returns the same reference when scope already matches (stable state writes)", () => {
+    expect(refreshContextScope(startedLocal, config)).toBe(startedLocal);
+  });
+
+  test("applies and removes workspace scope with config", () => {
+    const withWorkspace = refreshContextScope(startedLocal, { ...config, workspaceId: "ws_1" });
+    expect(withWorkspace.scope.workspaceId).toBe("ws_1");
+    const removed = refreshContextScope(withWorkspace, config);
+    expect(removed.scope.workspaceId).toBeUndefined();
   });
 });
