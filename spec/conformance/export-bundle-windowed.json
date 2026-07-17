@@ -1,0 +1,61 @@
+{
+  "name": "export-bundle-windowed-v1",
+  "description": "A vevb-1 bundle exported over a contiguous mid-chain window (audit sequences 3-5, edge sequences 2-3) with manifest.chainScope 'windowed'. Verifies valid:true under the windowed rule and MUST fail the strict full rule.",
+  "bundleVersion": "vevb-1",
+  "expected": {
+    "valid": true,
+    "chainScope": "windowed"
+  },
+  "bundle": {
+    "bundleVersion": "vevb-1",
+    "manifest": {
+      "bundleVersion": "vevb-1",
+      "createdAt": "2026-07-17T00:00:00.000Z",
+      "scope": {
+        "tenantId": "org_scoped_fixture",
+        "workspaceId": "wks_scoped_fixture",
+        "environment": "test"
+      },
+      "range": {
+        "from": "2026-07-12T00:00:00.000Z",
+        "to": "2026-07-15T00:00:00.000Z"
+      },
+      "producer": {
+        "authority": "veritio",
+        "kind": "principal",
+        "type": "service",
+        "id": "svc_scoped_fixture"
+      },
+      "files": [
+        {
+          "path": "records/audit-events.jsonl",
+          "sha256": "c37c23b3b394c3c66027e63f93efd02f77cae66e107c848c0bce006211bb1a81",
+          "records": 3
+        },
+        {
+          "path": "records/evidence-edges.jsonl",
+          "sha256": "ee0da483f9b6cbaab5cd1e5dd9e743ff621ff49c9a6be27f148c7de30837c06a",
+          "records": 2
+        },
+        {
+          "path": "records/commits.jsonl",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "records": 0
+        },
+        {
+          "path": "verification.json",
+          "sha256": "be3a9e0e23c6f014438ca9d256b061e7eec8af931781aac166010c20ce47f5c9",
+          "records": 0
+        }
+      ],
+      "rootHash": "a29634a7753872a5072b05fd892c1f7b2d2d36fc7e9089d37aacd446e6a8837b",
+      "chainScope": "windowed"
+    },
+    "files": {
+      "records/audit-events.jsonl": "{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"agent.prompt.recorded\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_3\",\"metadata\":{\"position\":3},\"occurredAt\":\"2026-07-12T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"5f6ad424dbdf1c19deb7e0f42323266fdceceafb8c653c9d62fa74745ce1a560\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"30facae07a510ce008f236dd1a116b8459ccba4d6241712aa56c63f5c3350640\",\"previousHash\":\"167885b32da4791e5c9be8f7a9cf76f80e9756d329c5502d01bb656dd94036ff\",\"sequence\":3}\n{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"org.member.invited\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_4\",\"metadata\":{\"position\":4},\"occurredAt\":\"2026-07-13T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"005f3f5a97bb085b168ecc161fbb3dcc85b22297d823fb3e7c496111924b8b93\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"79855d11d4d2417e3c017a6ea51d6bf7c02c125e920cd863a5e3d60668128cad\",\"previousHash\":\"5f6ad424dbdf1c19deb7e0f42323266fdceceafb8c653c9d62fa74745ce1a560\",\"sequence\":4}\n{\"appendedAt\":\"2026-07-17T05:37:46.832Z\",\"canonicalization\":\"veritio-json-v1\",\"event\":{\"action\":\"agent.tool.invoked\",\"actor\":{\"id\":\"svc_scoped_fixture\",\"type\":\"service\"},\"id\":\"evt_scoped_fixture_5\",\"metadata\":{\"position\":5},\"occurredAt\":\"2026-07-14T00:00:00.000Z\",\"schemaVersion\":\"2026-06-10\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"target\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"}},\"hash\":\"3328832ada0078d20aaf9655c65628d326e21883279f67bccad58025406d177a\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"26ed7b0d5aa10e38729b340f7cdbd0dadd0d8ce62da4b9a84afe60c19c201fdf\",\"previousHash\":\"005f3f5a97bb085b168ecc161fbb3dcc85b22297d823fb3e7c496111924b8b93\",\"sequence\":5}\n",
+      "records/evidence-edges.jsonl": "{\"appendedAt\":\"2026-07-16T00:00:00.000Z\",\"canonicalization\":\"veritio-json-v1\",\"edge\":{\"from\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"},\"id\":\"edge_scoped_fixture_2\",\"metadata\":{},\"occurredAt\":\"2026-07-12T00:00:00.000Z\",\"relation\":\"modified\",\"schemaVersion\":\"2026-06-13\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"to\":{\"id\":\"file_scoped_2\",\"type\":\"file\"}},\"hash\":\"74ebce50bdfcbf28be4fd1e4e2f23615af2b39d768cd61c0f86e77587e4965c9\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"855ff5398494035954e3fa3c45ebeb4e9f481b01502287880198554fb45bf00d\",\"previousHash\":\"983c66bf7ecd8aab0a9786e317f95a9867db95d95e1cbc0d0b094672cfbcce3e\",\"sequence\":2}\n{\"appendedAt\":\"2026-07-16T00:00:00.000Z\",\"canonicalization\":\"veritio-json-v1\",\"edge\":{\"from\":{\"id\":\"agt_scoped_fixture\",\"type\":\"agent_session\"},\"id\":\"edge_scoped_fixture_3\",\"metadata\":{},\"occurredAt\":\"2026-07-13T00:00:00.000Z\",\"relation\":\"modified\",\"schemaVersion\":\"2026-06-13\",\"scope\":{\"environment\":\"test\",\"tenantId\":\"org_scoped_fixture\",\"workspaceId\":\"wks_scoped_fixture\"},\"to\":{\"id\":\"file_scoped_3\",\"type\":\"file\"}},\"hash\":\"f706e7ffd16b3c7b33e471df5788b12f02f54b8acdc6968d2b2efa49eb21c679\",\"hashAlgorithm\":\"sha256\",\"idempotencyKeyHash\":\"78c443d44d268c581cf8b3cc9efb11199774dd03ffb7f903fcd2a5e69fa73ae4\",\"previousHash\":\"74ebce50bdfcbf28be4fd1e4e2f23615af2b39d768cd61c0f86e77587e4965c9\",\"sequence\":3}\n",
+      "records/commits.jsonl": "",
+      "verification.json": "{\"audit\":{\"valid\":true},\"chainScope\":\"windowed\",\"commits\":{\"valid\":true},\"edges\":{\"valid\":true}}"
+    }
+  }
+}

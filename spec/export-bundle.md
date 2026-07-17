@@ -47,6 +47,12 @@ The manifest is the signed, verifiable index of the export:
   the authoritative principal that produced the bundle.
 - `files` — the array of file entries (§3), each `{ path, sha256, records }`.
 - `rootHash` — the deterministic digest binding `files` (§4).
+- `chainScope` — OPTIONAL, `"windowed"` or `"filtered"`; absent means `full`.
+  Declares the chain-verification claim this bundle makes (§6a). Because the
+  manifest is hashed and signable, the claim itself is tamper-evident.
+- `filters` — OPTIONAL `{ workspaceId?, actionPrefixes? }`; the content filters
+  a `filtered` bundle was produced under. MUST be present exactly when
+  `chainScope` is `"filtered"`, and MUST fail closed otherwise.
 - `annex` — OPTIONAL array of `{ packId, version }` summaries for attached
   evidence packs.
 - `signaturePublicKeyFingerprint` — OPTIONAL; present only once the bundle is
@@ -145,8 +151,10 @@ only when every applicable gate holds:
    to its manifest entry, `rootHash` is recomputed (§4) and matched, and each
    record file's line count equals its declared `records` count.
 3. **Chains** — each record file is parsed back and re-run through the audit,
-   edge, and commit chain verifiers, whose `valid` verdicts MUST equal the
-   embedded `verification.json`.
+   edge, and commit chain verifiers appropriate to the bundle's declared
+   `chainScope` (§6a). The fresh verdicts MUST all be valid AND MUST equal the
+   embedded `verification.json`; a bundle whose own report admits an invalid
+   chain fails this gate.
 4. **Signature** — a present signature is checked against a caller-supplied public
    key and reported `valid`/`invalid`; present without a key is `skipped`; absent
    is `absent`. The algorithm MUST be `ed25519`, and the caller key's fingerprint
@@ -154,6 +162,43 @@ only when every applicable gate holds:
    `signaturePublicKeyFingerprint` before the Ed25519 check runs. Only an
    `invalid` signature — or a signature required by the caller but `absent` —
    drives `valid` false; `skipped` and `absent` (when not required) are satisfied.
+
+## 6a. Chain scopes
+
+Full-history exports grow without bound, so producers may export a time window
+or a filtered subset. Removing records from a strict hash chain necessarily
+weakens what verification can prove; `chainScope` makes that trade explicit
+instead of letting a partial export silently fail — or worse, silently pass —
+the full-chain rule. The verifier holds a bundle to exactly the claim its
+manifest declares:
+
+- **`full`** (`chainScope` absent) — every per-tenant chain MUST start at
+  sequence 1 with a null `previousHash` and be gapless, and every record's
+  envelope hash MUST recompute. Only this scope proves no record was removed.
+- **`windowed`** — a contiguous window: each tenant's first record MAY enter
+  mid-chain (any sequence ≥ 1; `previousHash` MUST be a string for sequence
+  > 1, and MUST be null for sequence 1), after which every record MUST link
+  strictly (sequence + 1 and `previousHash` equal to the prior record's
+  `hash`). Interior removal is therefore still detectable; what a windowed
+  bundle does not prove is what existed outside the declared `range`.
+- **`filtered`** — a content-filtered subset (declared in `manifest.filters`):
+  interior gaps are inherent, so per-tenant sequences MUST be strictly
+  increasing, every record's envelope hash MUST recompute, records across a
+  gap MUST carry a string `previousHash`, and wherever two records are
+  sequence-adjacent they MUST link strictly. A filtered bundle proves each
+  included record is authentic and in order; it does not prove completeness.
+
+In every scope, per-record envelope rules (tenant scope present, declared
+`hashAlgorithm` and `canonicalization`, recomputable `hash`) are unchanged.
+Scoped bundles MUST NOT carry commit records (`records/commits.jsonl` MUST be
+empty): commit chains are defined over the full ledger only. The embedded
+`verification.json` of a scoped bundle carries a `chainScope` member with the
+same value as the manifest; full bundles omit it, keeping pre-existing full
+bundles byte-identical. Consumers MUST read the verification report's
+`chainScope` when deciding how much a `valid` verdict proves.
+
+Pinned by `spec/conformance/export-bundle-windowed.json` and
+`spec/conformance/export-bundle-filtered.json`.
 
 ## 7. Determinism and fail-closed rules
 

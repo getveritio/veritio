@@ -1168,3 +1168,5 @@ export type {
   ExportBundleSignature,
   ExportBundleVerificationReport,
 } from "./export-bundle.js";
+export { verifyAuditChainScoped, verifyEdgeChainScoped } from "./export-bundle-chain-modes.js";
+export type { ExportBundleChainScope } from "./export-bundle-chain-modes.js";
