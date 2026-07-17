@@ -14,6 +14,7 @@ import {
   buildToolCall,
   episodeIdOf,
   promptHashOf,
+  rebuildSessionContext,
   refreshContextScope,
 } from "./map.js";
 import { sha256 } from "./redact.js";
@@ -50,12 +51,29 @@ async function main(): Promise<void> {
     );
   }
   const state = loadState(config.localDir, payload.session_id);
+  const store = createFileEvidenceStore(config.localDir);
   if (state.context) {
     // Heal sessions whose persisted context froze a stale tenant scope (e.g.
     // started before the ingest env existed): scope follows current config.
     state.context = refreshContextScope(state.context, config);
+  } else if (payload.hook_event_name !== "SessionStart" && payload.hook_event_name !== "SessionEnd") {
+    // Self-heal a session whose state was lost mid-flight (SessionEnd fired at
+    // a continuation boundary and cleared it, crash, cleanup): without this,
+    // every later hook breaks on the null context and capture dies silently
+    // for the rest of the session. Mirrors the prior session-start bytes from
+    // the local store so the idempotent replay cannot conflict (see
+    // rebuildSessionContext).
+    const now = new Date().toISOString();
+    const activityEpisodeId = state.activityEpisodeId ?? config.activityEpisodeId ?? episodeIdOf(payload.session_id);
+    state.context = rebuildSessionContext(
+      payload,
+      config,
+      { now, activityEpisodeId, ...readGit(payload.cwd) },
+      await findPriorSessionStart(store, config.tenantId, payload.session_id),
+    );
+    state.activityEpisodeId = state.context.activityEpisodeId ?? activityEpisodeId;
   }
-  const recorder = createProvenanceRecorder(createFileEvidenceStore(config.localDir));
+  const recorder = createProvenanceRecorder(store);
   const now = new Date().toISOString();
   const events: AuditEvent[] = [];
   const edges: EvidenceEdge[] = [];
@@ -143,6 +161,37 @@ async function main(): Promise<void> {
   if (config.ingest) {
     await postToIngest(config.ingest, { events, edges });
   }
+}
+
+/**
+ * Finds this session's most recent `agent.session.started` append under the
+ * CURRENT tenant in the local store, for the state-loss self-heal: its bytes
+ * are what a rebuilt context must mirror so the deterministic session-start
+ * replay stays idempotent instead of conflicting. Best-effort (null on any
+ * read failure) — a fresh context is then used, which is only safe when no
+ * prior append exists.
+ */
+async function findPriorSessionStart(
+  store: { listEvents(): Promise<{ event: AuditEvent }[]> },
+  tenantId: string,
+  sessionId: string,
+): Promise<{ occurredAt: string; metadata: Record<string, unknown> } | null> {
+  try {
+    const records = await store.listEvents();
+    for (let i = records.length - 1; i >= 0; i -= 1) {
+      const event = records[i]!.event;
+      if (
+        event.action === "agent.session.started" &&
+        event.target.id === sessionId &&
+        event.scope?.tenantId === tenantId
+      ) {
+        return { occurredAt: event.occurredAt, metadata: event.metadata };
+      }
+    }
+  } catch {
+    // Unreadable local store — heal with a fresh context below.
+  }
+  return null;
 }
 
 /** Reads all of stdin synchronously; returns "" when there is no piped input. */

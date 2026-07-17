@@ -73,6 +73,18 @@ lives in a state dir keyed by `session_id` (e.g. under `$XDG_STATE_HOME`/tmp).
 | `Stop` | `git status --porcelain` → `recordFileChange` for changed files not already captured this turn | Catches **Bash-driven** writes the edit hooks miss (the contract's documented gap). |
 | `SessionEnd` | finalize state (flush, clear pre-image cache) | Protocol has no session-end event; no spurious event emitted. |
 
+**State-loss self-heal (part of the contract).** Hook state can vanish while a
+session keeps running — Claude Code fires `SessionEnd` at a continuation/compaction
+boundary (which clears state) without a follow-up `SessionStart`, or the state file
+is lost to a crash/cleanup. Any non-SessionStart hook that loads `context: null`
+must REBUILD the session context instead of no-oping, or capture dies silently for
+the rest of the session. The rebuild must mirror the bytes of this session's prior
+`agent.session.started` append under the current tenant from the local store
+(`occurredAt`, model, branch, repository, episode id) so the deterministic
+session-start replay stays an idempotent no-op — a fresh `occurredAt` would be an
+idempotency conflict that rejects whole batches. Only when no prior append exists
+is a fresh context safe. A Python/Go capture adapter must reproduce this behavior.
+
 **Deterministic ids.** Claude Code hook payloads do **not** include a `tool_use_id`,
 so `toolCallId` is synthesized as `tc_<session_id>_<n>` where `n` is a monotonic
 per-session counter in state (stable on replay of the same ledger). File ids are

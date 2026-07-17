@@ -90,6 +90,53 @@ export function promptHashOf(payload: HookPayload): string {
 }
 
 /**
+ * Rebuilds a session context after state loss. Hook state can vanish while a
+ * session keeps running (SessionEnd fires at a continuation/compaction
+ * boundary and clears state, a crash, manual cleanup); later hooks then load
+ * `context: null` and every capture silently no-ops FOREVER for that session.
+ * The heal must not simply build a fresh context: `startSession` replays the
+ * deterministic `evt_session__<id>` event, so any byte drift from the
+ * original append (a fresh `occurredAt`) is an idempotency CONFLICT, which
+ * rejects the whole batch. When a prior `agent.session.started` append for
+ * this session+tenant exists (the caller reads it from the local store), its
+ * bytes are mirrored — occurredAt, model, branch, repository, episode id — so
+ * the replay stays byte-identical. Without a prior append there is nothing to
+ * conflict with and a fresh context is safe.
+ */
+export function rebuildSessionContext(
+  payload: HookPayload,
+  config: AdapterConfig,
+  opts: { now: string; activityEpisodeId: string; branch?: string; repository?: { provider: string; id: string } },
+  prior: { occurredAt: string; metadata: Record<string, unknown> } | null,
+): SessionContext {
+  const context = buildSessionContext(payload, config, opts);
+  if (!prior) {
+    return context;
+  }
+  context.occurredAt = prior.occurredAt;
+  const meta = prior.metadata;
+  const model = meta.model as { provider?: unknown; name?: unknown } | undefined;
+  if (typeof model?.name === "string") {
+    context.model = { provider: "anthropic", name: model.name };
+  }
+  if (typeof meta.branch === "string") {
+    context.branch = meta.branch;
+  } else {
+    delete context.branch;
+  }
+  const repository = meta.repository as { provider?: unknown; id?: unknown } | undefined;
+  if (typeof repository?.provider === "string" && typeof repository?.id === "string") {
+    context.repository = { provider: repository.provider, id: repository.id };
+  } else {
+    delete context.repository;
+  }
+  if (typeof meta.activityEpisodeId === "string") {
+    context.activityEpisodeId = meta.activityEpisodeId;
+  }
+  return context;
+}
+
+/**
  * Builds the tool-call record (and, for edit tools, the file-change record) for a
  * PostToolUse / PostToolUseFailure event. The file edges live ONLY on the
  * fileChange (changedBy = the tool call) — never also on `toolCall.modifies` —
