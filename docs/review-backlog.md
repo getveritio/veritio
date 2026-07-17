@@ -45,6 +45,11 @@ decisions that deserve a coordinated `veritio-protocol-change` /
 ## Deferred — protocol-change / cross-repo cycle
 
 ### C — revision id collides on rollback to an identical earlier state
+- **Decision (2026-07-17): DEFERRED PAST CLOUD LAUNCH.** The change-scoped
+  stopgap is fixture-pinned, replay-stable, and consumed opaquely by the cloud
+  read models, so it is sound to ship on. Adopting the host-assigned ordinal
+  scheme changes every revision-id string plus the cloud Explain/timeline/diff
+  keys — revisit only alongside a deliberate protocol rev, not as launch work.
 - **Status:** STOPGAP LANDED (`fix/review-backlog-deferred`): the revision id
   is now `rev_<type>_<id>_<digest12>_<sha256(changeId)8>` byte-identically
   across TS/Python/Go, pinned by `spec/conformance/governed-revision-id.json`
@@ -154,3 +159,13 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   (`riskPolicy`) and per-action frequency rules landed in OSS
   (docs/risk-scoring.md + spec/risk-scoring.md are the source of truth); the
   public education page for them belongs in `veritio-website`, not here.
+
+## Release decisions (2026-07-17)
+
+- **`@veritio/codex` stays unpublished-experimental for the Cloud launch.** It
+  is deliberately outside `scripts/release-npm.sh`'s publish loop; its capture
+  contract should soak against real Codex sessions before the package name is
+  claimed publicly. Revisit when a user needs `bunx @veritio/codex` resolution.
+- **Provenance edge-id scheme is now normative** — pinned by
+  `spec/provenance-identity.md` + `spec/conformance/provenance-ids.json`
+  (PR #40); no longer an open decision.
