@@ -53,6 +53,37 @@ export function buildSessionContext(
   return context;
 }
 
+/**
+ * Refreshes a persisted session context's tenant scope from the CURRENT
+ * config. The context freezes identity (sessionId, activityEpisodeId) at
+ * SessionStart, but scope must follow the operator's configuration: a session
+ * started before the ingest env existed carries the "local" fallback tenant
+ * in its persisted context forever, so every later ship-out is rejected 403
+ * (key-resolved tenant mismatch) and dropped silently. Re-scoping is safe
+ * end-to-end because idempotency keys hash the tenant id — records replayed
+ * under the refreshed scope are NEW records both in the local file store and
+ * on the server, never byte conflicts. Returns the same reference when the
+ * scope already matches (the common case, so state writes stay stable).
+ */
+export function refreshContextScope(context: SessionContext, config: AdapterConfig): SessionContext {
+  const scope = context.scope;
+  if (
+    scope.tenantId === config.tenantId &&
+    scope.environment === config.environment &&
+    (scope.workspaceId ?? undefined) === (config.workspaceId ?? undefined)
+  ) {
+    return context;
+  }
+  return {
+    ...context,
+    scope: {
+      tenantId: config.tenantId,
+      environment: config.environment,
+      ...(config.workspaceId ? { workspaceId: config.workspaceId } : {}),
+    },
+  };
+}
+
 /** The promptHash for a UserPromptSubmit event — the raw prompt is never stored. */
 export function promptHashOf(payload: HookPayload): string {
   return sha256(payload.prompt ?? "");
@@ -127,7 +158,6 @@ export function buildToolCall(
   return { toolCall, fileChange };
 }
 
-
 /**
  * Frozen-vocabulary risk classification for captured activity. Classification
  * runs BEFORE hashing and stores ONLY spec enums (spec/risk-signals.schema.json)
@@ -136,7 +166,8 @@ export function buildToolCall(
  * inflate episode risk, while destructive/permission/config classes light up
  * the per-step scoring and the episode risk rollup.
  */
-const DESTRUCTIVE_COMMAND = /\brm\s+(-[a-z]*r[a-z]*\s+)+|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+push\s+.*(--force|\s-f\b)|drop\s+(table|database|schema)|truncate\s+table|terraform\s+destroy|kubectl\s+delete|mkfs|\bdd\s+if=/i;
+const DESTRUCTIVE_COMMAND =
+  /\brm\s+(-[a-z]*r[a-z]*\s+)+|git\s+reset\s+--hard|git\s+clean\s+-[a-z]*f|git\s+push\s+.*(--force|\s-f\b)|drop\s+(table|database|schema)|truncate\s+table|terraform\s+destroy|kubectl\s+delete|mkfs|\bdd\s+if=/i;
 const DELETE_COMMAND = /\brm\b|\brmdir\b|\bunlink\b|git\s+branch\s+-D/i;
 const PERMISSION_COMMAND = /\bchmod\b|\bchown\b|\bsudo\b/i;
 const CONFIG_COMMAND = /git\s+config|npm\s+config|wrangler\s+secret|\bexport\s+\w+=/i;
