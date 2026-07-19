@@ -183,11 +183,11 @@ describe("buildToolCall filechange id", () => {
   });
 });
 
-describe('risk signal derivation', () => {
+describe("risk signal derivation", () => {
   // Classification happens BEFORE hashing and stores only frozen-vocabulary
   // enums — never raw command text. Unmatched commands attach NOTHING so
   // ordinary reads never inflate episode risk.
-  test('destructive Bash commands carry destructive/irreversible signals', () => {
+  test("destructive Bash commands carry destructive/irreversible signals", () => {
     const { toolCall } = buildToolCall(
       payload({ tool_name: "Bash", tool_input: { command: "rm -rf /tmp/scratch" } }),
       config,
@@ -200,22 +200,26 @@ describe('risk signal derivation', () => {
     });
   });
 
-  test('plain delete and permission commands classify without overstating', () => {
-    const del = buildToolCall(
-      payload({ tool_name: "Bash", tool_input: { command: "rm notes.txt" } }),
-      config,
-      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
-    );
+  test("plain delete and permission commands classify without overstating", () => {
+    const del = buildToolCall(payload({ tool_name: "Bash", tool_input: { command: "rm notes.txt" } }), config, {
+      seq: 0,
+      now: NOW,
+      status: "succeeded",
+      preImages: {},
+      afterHashes: {},
+    });
     expect(del.toolCall.riskSignals).toMatchObject({ operationType: "delete", reversibility: "recoverable" });
-    const perm = buildToolCall(
-      payload({ tool_name: "Bash", tool_input: { command: "chmod +x deploy.sh" } }),
-      config,
-      { seq: 1, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
-    );
+    const perm = buildToolCall(payload({ tool_name: "Bash", tool_input: { command: "chmod +x deploy.sh" } }), config, {
+      seq: 1,
+      now: NOW,
+      status: "succeeded",
+      preImages: {},
+      afterHashes: {},
+    });
     expect(perm.toolCall.riskSignals).toMatchObject({ operationType: "permission" });
   });
 
-  test('benign commands attach no risk signals at all', () => {
+  test("benign commands attach no risk signals at all", () => {
     const { toolCall } = buildToolCall(
       payload({ tool_name: "Bash", tool_input: { command: "ls -la && git status" } }),
       config,
@@ -224,13 +228,15 @@ describe('risk signal derivation', () => {
     expect(toolCall.riskSignals).toBeUndefined();
   });
 
-  test('file changes carry create/update signals with dataVolume; deletes score as deletes', () => {
+  test("file changes carry create/update signals with dataVolume; deletes score as deletes", () => {
     const fp = "/tmp/new.ts";
-    const { fileChange } = buildToolCall(
-      payload({ tool_name: "Write", tool_input: { file_path: fp } }),
-      config,
-      { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: { [fp]: "sha256:a" } },
-    );
+    const { fileChange } = buildToolCall(payload({ tool_name: "Write", tool_input: { file_path: fp } }), config, {
+      seq: 0,
+      now: NOW,
+      status: "succeeded",
+      preImages: {},
+      afterHashes: { [fp]: "sha256:a" },
+    });
     expect(fileChange?.riskSignals).toMatchObject({
       operationType: "create",
       reversibility: "reversible",
@@ -252,7 +258,7 @@ describe('risk signal derivation', () => {
     });
   });
 
-  test('environment maps onto the frozen envCriticality vocabulary', () => {
+  test("environment maps onto the frozen envCriticality vocabulary", () => {
     const prod = buildToolCall(
       payload({ tool_name: "Bash", tool_input: { command: "rm -rf build" } }),
       { ...config, environment: "prod-eu-1" },
@@ -263,18 +269,20 @@ describe('risk signal derivation', () => {
 
   // Codex review regression: a force-only single-file removal is an ordinary
   // delete — only RECURSIVE removals classify as destructive/irreversible.
-  test('rm -f single file is a plain delete, not destructive', () => {
+  test("rm -f single file is a plain delete, not destructive", () => {
     const { toolCall } = buildToolCall(
       payload({ tool_name: "Bash", tool_input: { command: "rm -f build.log" } }),
       config,
       { seq: 0, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
     );
     expect(toolCall.riskSignals).toMatchObject({ operationType: "delete", reversibility: "recoverable" });
-    const recursive = buildToolCall(
-      payload({ tool_name: "Bash", tool_input: { command: "rm -fr old-dir" } }),
-      config,
-      { seq: 1, now: NOW, status: "succeeded", preImages: {}, afterHashes: {} },
-    );
+    const recursive = buildToolCall(payload({ tool_name: "Bash", tool_input: { command: "rm -fr old-dir" } }), config, {
+      seq: 1,
+      now: NOW,
+      status: "succeeded",
+      preImages: {},
+      afterHashes: {},
+    });
     expect(recursive.toolCall.riskSignals).toMatchObject({ operationType: "destructive" });
   });
 });
@@ -307,11 +315,30 @@ describe("refreshContextScope", () => {
     expect(refreshContextScope(startedLocal, config)).toBe(startedLocal);
   });
 
-  test("applies and removes workspace scope with config", () => {
-    const withWorkspace = refreshContextScope(startedLocal, { ...config, workspaceId: "ws_1" });
-    expect(withWorkspace.scope.workspaceId).toBe("ws_1");
-    const removed = refreshContextScope(withWorkspace, config);
-    expect(removed.scope.workspaceId).toBeUndefined();
+  test("same-tenant environment drift stays frozen (idempotency-conflict wedge)", () => {
+    // Regression (review 2026-07-18, reproduced): the idempotency key hashes
+    // only tenant + event id, so re-scoping environment/workspaceId
+    // mid-session keeps the key while drifting the canonical bytes — the
+    // deterministic session-start replay then CONFLICTS and capture dies
+    // silently for the rest of the session. Same-tenant drift must be a no-op.
+    const driftedEnv = refreshContextScope(startedLocal, { ...config, environment: "production" });
+    expect(driftedEnv).toBe(startedLocal);
+    const driftedWorkspace = refreshContextScope(startedLocal, { ...config, workspaceId: "ws_1" });
+    expect(driftedWorkspace).toBe(startedLocal);
+  });
+
+  test("tenant change still re-scopes fully, including environment and workspace", () => {
+    const rescoped = refreshContextScope(startedLocal, {
+      ...config,
+      tenantId: "proj_other",
+      environment: "production",
+      workspaceId: "ws_1",
+    });
+    expect(rescoped.scope).toEqual({
+      tenantId: "proj_other",
+      environment: "production",
+      workspaceId: "ws_1",
+    });
   });
 });
 
@@ -359,5 +386,24 @@ describe("rebuildSessionContext", () => {
     const ctx = rebuildSessionContext(payload({ model: "claude-opus-4-8" }), config, opts, null);
     expect(ctx).toEqual(buildSessionContext(payload({ model: "claude-opus-4-8" }), config, opts));
     expect(ctx.occurredAt).toBe(opts.now);
+  });
+
+  test("mirrors the prior append's scope, not current config (same-tenant drift wedge)", () => {
+    // Regression (review 2026-07-18, reproduced): rebuilding with the CURRENT
+    // config's environment/workspace while the prior append recorded different
+    // ones keeps the idempotency key (tenant + event id) but drifts the bytes —
+    // conflict, dead capture. The prior scope must win verbatim.
+    const prior = {
+      occurredAt: "2026-07-14T07:50:39.286Z",
+      metadata: { sessionId: "sess_a", model: { provider: "anthropic", name: "claude" } },
+      scope: { tenantId: config.tenantId, environment: "development", workspaceId: "ws_orig" },
+    };
+    const driftedConfig: AdapterConfig = { ...config, environment: "production", workspaceId: "ws_new" };
+    const ctx = rebuildSessionContext(payload({}), driftedConfig, opts, prior);
+    expect(ctx.scope).toEqual({
+      tenantId: config.tenantId,
+      environment: "development",
+      workspaceId: "ws_orig",
+    });
   });
 });

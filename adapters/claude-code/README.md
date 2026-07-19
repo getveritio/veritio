@@ -62,6 +62,20 @@ Read only at the process boundary; no credential is embedded in the hook.
 | `VERITIO_INGEST_URL` + `VERITIO_INGEST_KEY` | — | If **both** set, also POST records to a Veritio ingest endpoint (e.g. Veritio Cloud), so captured sessions surface in the hosted Sessions UI. The server re-redacts. |
 | `VERITIO_INGEST_TIMEOUT_MS` | `10000` | Abort bound (ms) for one ingest POST. A stalled endpoint can never block the agent past this bound; the hook still exits 0 (capture is fail-open, the local store already has the records). |
 
+### Offline spool (ingest outages)
+
+When a ship-out fails for a **retryable** reason (endpoint unreachable, timeout,
+HTTP 5xx/429 — e.g. the hosted tenant database being temporarily unavailable),
+the batch is queued under `<localDir>/spool/` and replayed by later hook
+invocations once the endpoint recovers, oldest first, a few batches per hook so
+the hook time bound holds. Replay is safe because record ids are deterministic
+and server ingest is idempotent. Permanent rejections (other 4xx: bad key,
+tenant mismatch, malformed batch) are never queued. The queue is capped at
+1,000 batches (oldest dropped first, with a stderr note); spooled files contain
+exactly the redacted, hash-only payload the wire would have carried. The spool
+is currently TypeScript-only — a Python/Go capture adapter must reproduce this
+ship-out behavior (see `.claude/rules/02-sdk-parity.md`).
+
 ## Query + export (MCP)
 
 The package also ships a read-only MCP server (`veritio-claude-code-mcp`, `dist/mcp.js`)

@@ -6,7 +6,7 @@ import { type AuditEvent, type EvidenceEdge, type RecordResult, createProvenance
 import { createFileEvidenceStore } from "@veritio/storage";
 
 import { resolveConfig } from "./config.js";
-import { postToIngest } from "./ingest.js";
+import { shipWithSpool } from "./spool.js";
 import {
   type ChangedFile,
   buildBashFileChange,
@@ -19,7 +19,7 @@ import {
 } from "./map.js";
 import { sha256 } from "./redact.js";
 import { clearState, loadState, saveState } from "./state.js";
-import type { HookPayload } from "./types.js";
+import type { HookPayload, SessionContext } from "./types.js";
 
 /** Largest file the turn-scan will hash, to keep a Stop hook bounded. */
 const MAX_HASH_BYTES = 2_000_000;
@@ -159,7 +159,10 @@ async function main(): Promise<void> {
 
   saveState(config.localDir, payload.session_id, state);
   if (config.ingest) {
-    await postToIngest(config.ingest, { events, edges });
+    // Spool-aware ship-out: outages queue the batch locally and later hooks
+    // replay it (idempotent server ingest), so a down/quota-blocked endpoint
+    // no longer silently drops evidence. See spool.ts.
+    await shipWithSpool(config.ingest, config.localDir, { events, edges });
   }
 }
 
@@ -167,15 +170,22 @@ async function main(): Promise<void> {
  * Finds this session's most recent `agent.session.started` append under the
  * CURRENT tenant in the local store, for the state-loss self-heal: its bytes
  * are what a rebuilt context must mirror so the deterministic session-start
- * replay stays idempotent instead of conflicting. Best-effort (null on any
- * read failure) — a fresh context is then used, which is only safe when no
- * prior append exists.
+ * replay stays idempotent instead of conflicting. Returns the prior append's
+ * full `event.scope` too — the heal must mirror it verbatim (the idempotency
+ * key hashes only tenant + event id, so re-deriving environment/workspace
+ * from current config would conflict on same-tenant drift). Best-effort (null
+ * on any read failure) — a fresh context is then used, which is only safe
+ * when no prior append exists.
  */
 async function findPriorSessionStart(
   store: { listEvents(): Promise<{ event: AuditEvent }[]> },
   tenantId: string,
   sessionId: string,
-): Promise<{ occurredAt: string; metadata: Record<string, unknown> } | null> {
+): Promise<{
+  occurredAt: string;
+  metadata: Record<string, unknown>;
+  scope?: SessionContext["scope"] | undefined;
+} | null> {
   try {
     const records = await store.listEvents();
     for (let i = records.length - 1; i >= 0; i -= 1) {
@@ -185,7 +195,13 @@ async function findPriorSessionStart(
         event.target.id === sessionId &&
         event.scope?.tenantId === tenantId
       ) {
-        return { occurredAt: event.occurredAt, metadata: event.metadata };
+        // tenantId is proven present by the guard above; spreading keeps the
+        // prior append's environment/workspaceId exactly as recorded.
+        return {
+          occurredAt: event.occurredAt,
+          metadata: event.metadata,
+          scope: { ...event.scope, tenantId },
+        };
       }
     }
   } catch {
