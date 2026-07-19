@@ -55,23 +55,23 @@ export function buildSessionContext(
 
 /**
  * Refreshes a persisted session context's tenant scope from the CURRENT
- * config. The context freezes identity (sessionId, activityEpisodeId) at
- * SessionStart, but scope must follow the operator's configuration: a session
- * started before the ingest env existed carries the "local" fallback tenant
- * in its persisted context forever, so every later ship-out is rejected 403
- * (key-resolved tenant mismatch) and dropped silently. Re-scoping is safe
- * end-to-end because idempotency keys hash the tenant id — records replayed
- * under the refreshed scope are NEW records both in the local file store and
- * on the server, never byte conflicts. Returns the same reference when the
- * scope already matches (the common case, so state writes stay stable).
+ * config — but ONLY when the tenant id itself changed. The context freezes
+ * identity (sessionId, activityEpisodeId) at SessionStart; a session started
+ * before the ingest env existed carries the "local" fallback tenant forever,
+ * so every ship-out is rejected 403 and dropped silently — re-tenanting heals
+ * that, and is safe end-to-end because idempotency keys hash the tenant id:
+ * records replayed under the new tenant are NEW records everywhere, never
+ * byte conflicts. Same-tenant drift (environment / workspaceId changed
+ * mid-session) must NOT re-scope: the idempotency key hashes only
+ * tenant + event id, so the deterministic session-start replay would keep its
+ * key while its canonical bytes drift — an idempotency CONFLICT that rejects
+ * every batch and silently kills capture for the rest of the session (the
+ * exact wedge this heal exists to prevent). Those fields stay frozen at their
+ * SessionStart values; a new environment takes effect from the next session.
+ * Returns the same reference when unchanged so state writes stay stable.
  */
 export function refreshContextScope(context: SessionContext, config: AdapterConfig): SessionContext {
-  const scope = context.scope;
-  if (
-    scope.tenantId === config.tenantId &&
-    scope.environment === config.environment &&
-    (scope.workspaceId ?? undefined) === (config.workspaceId ?? undefined)
-  ) {
+  if (context.scope.tenantId === config.tenantId) {
     return context;
   }
   return {
@@ -99,19 +99,30 @@ export function promptHashOf(payload: HookPayload): string {
  * original append (a fresh `occurredAt`) is an idempotency CONFLICT, which
  * rejects the whole batch. When a prior `agent.session.started` append for
  * this session+tenant exists (the caller reads it from the local store), its
- * bytes are mirrored — occurredAt, model, branch, repository, episode id — so
- * the replay stays byte-identical. Without a prior append there is nothing to
- * conflict with and a fresh context is safe.
+ * bytes are mirrored — scope, occurredAt, model, branch, repository, episode
+ * id — so the replay stays byte-identical. Scope is mirrored from the PRIOR
+ * APPEND, never re-derived from current config: the idempotency key hashes
+ * only tenant + event id, so a same-tenant environment/workspace drift would
+ * keep the key while changing the bytes — a conflict that kills capture for
+ * the session. Without a prior append there is nothing to conflict with and a
+ * fresh context is safe.
  */
 export function rebuildSessionContext(
   payload: HookPayload,
   config: AdapterConfig,
   opts: { now: string; activityEpisodeId: string; branch?: string; repository?: { provider: string; id: string } },
-  prior: { occurredAt: string; metadata: Record<string, unknown> } | null,
+  prior: {
+    occurredAt: string;
+    metadata: Record<string, unknown>;
+    scope?: SessionContext["scope"] | undefined;
+  } | null,
 ): SessionContext {
   const context = buildSessionContext(payload, config, opts);
   if (!prior) {
     return context;
+  }
+  if (prior.scope) {
+    context.scope = prior.scope;
   }
   context.occurredAt = prior.occurredAt;
   const meta = prior.metadata;

@@ -51,3 +51,14 @@ treat as a parity TODO for Python/Go):
   adapter must reproduce: hash prompts/tool-inputs/file-contents (never raw),
   stable ids + content hashes only, and a `Stop` git-scan to catch Bash-driven
   file changes the edit hooks miss.
+
+- **Risk-signal classification mapping.** The capture classifier
+  (`bashRiskSignals` / `fileChangeRiskSignals` / `envCriticalityOf` in
+  `adapters/claude-code/src/map.ts`) stamps `metadata.riskSignals` BEFORE
+  hashing, so the command→class mapping is hash-affecting capture contract, not
+  an implementation detail. The normative table lives in the adapter's
+  `DESIGN.md` ("Risk-signal classification"); vocabulary is pinned by
+  `spec/risk-signals.schema.json`. Currently TypeScript only — a Python/Go
+  capture adapter must reproduce the mapping (patterns, precedence, unmatched →
+  no signal) byte-identically. Parity TODO alongside the sessionId /
+  activityEpisodeId stamps above.
