@@ -160,6 +160,71 @@ decisions that deserve a coordinated `veritio-protocol-change` /
   (docs/risk-scoring.md + spec/risk-scoring.md are the source of truth); the
   public education page for them belongs in `veritio-website`, not here.
 
+## Review 2026-07-18 — post-0.4.3-train pass (PRs #35–#45)
+
+Six-lens adversarial review of everything merged since 2026-07-13 (capture
+correctness, protocol compat, SDK parity, privacy/redaction, boundary). The
+strongest claims were re-verified locally; the capture bug below was reproduced
+against the real hook binary. Items are OPEN unless marked otherwise.
+
+### Open — needs a fix branch
+
+- **Capture heals wedge on same-tenant scope drift (MEDIUM, reproduced) —
+  FIXED 2026-07-19.** `refreshContextScope` now re-scopes ONLY on a tenant-id
+  change (same-tenant environment/workspace drift stays frozen at the
+  SessionStart values — re-scoping kept the idempotency key, tenant + event id
+  only, while drifting the canonical bytes, so the deterministic session-start
+  replay conflicted and capture died silently for the session).
+  `findPriorSessionStart` returns the prior append's full `event.scope` and
+  `rebuildSessionContext` mirrors it verbatim instead of re-deriving from
+  config. Doc comments corrected; regression tests pin both heals
+  (`map.test.ts`: same-tenant drift no-op, tenant-change re-scope, prior-scope
+  mirror).
+- **`bun.lock` drift from the 0.4.3 release train (MEDIUM, confirmed) —
+  FIXED 2026-07-19.** The adapter's workspace manifest snapshot in `bun.lock`
+  now records the `0.4.3` pins (note: `bun install`/`--force` do NOT refresh
+  the version spec of workspace-resolved deps — the snapshot had to be
+  corrected in the lockfile text, then validated with plain and
+  `--frozen-lockfile` installs, both clean). Still open from this finding:
+  add `--frozen-lockfile` to CI installs so the next drift fails loudly.
+- **Destructive-classifier long-form gaps (LOW, runtime-verified).**
+  `rm --recursive` (long flag) classifies as `delete`/`recoverable`, not
+  `destructive` (the regex only matches short-flag groups); `npx rimraf` and
+  `find … -delete` attach no signal. One-line regex additions; update the
+  DESIGN.md classification table in the same commit (mapping is hash-affecting
+  capture contract).
+- **`provenance-ids.json` under-pins two derivations (LOW, confirmed).**
+  `spec/provenance-identity.md` §2 documents the tool-event id
+  (`evt_tool__<toolCallId>`) and the absent-resultVersion file-change sentinel
+  (`…__x`) as normative, but the conformance fixture pins neither — a parity
+  implementer could diverge with nothing catching it. Add both cases.
+
+### Landed (this pass)
+
+- **Risk-signal mapping documented as capture contract.** cc70340's commit
+  message claimed the classification mapping was in DESIGN.md; it never was.
+  Now landed: DESIGN.md "Risk-signal classification" table (patterns,
+  precedence, env mapping, known gaps) + parity obligation in
+  `.claude/rules/02-sdk-parity.md`.
+
+### Verified sound (no action)
+
+- Tenant isolation of both heal paths: candidates filtered by
+  `event.scope.tenantId`; a real tenant change emits a second session-start
+  under a distinct key by design. No wrong-tenant writes, no session-start
+  double-emit (byte-identical replay returns `appended:false`).
+- Frozen risk vocabulary: `RiskSignals` carries enums + numbers only — no
+  free-text field exists to leak into; raw command text never leaves the
+  classifier (hash only).
+- Release-script skip logic (1f6ea3a): npm versions are immutable and
+  `npm view` failure fails OPEN to a publish attempt, so neither stuck
+  partial-publish states nor registry blips can cause a false skip.
+- Provenance-id spec pin (794c3b4) matches the TS implementation
+  byte-for-byte; the 2026-07-15 "edge-id turn conflict" open decision is
+  RESOLVED by occurrence-scoped edge ids, not contradicted.
+- Shared TS/Python/Go behavior untouched: no shared conformance fixture
+  modified by any commit in the window; all three languages green.
+
 ## Release decisions (2026-07-17)
 
 - **`@veritio/codex` stays unpublished-experimental for the Cloud launch.** It

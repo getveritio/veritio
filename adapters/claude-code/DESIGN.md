@@ -96,6 +96,40 @@ collides on the ingest idempotency key (same key, different bytes → the whole 
 for the PostToolUse path, `evt_filechange__<session_id>__turn<n>` for the Stop
 turn-scan — unique per capture, stable on replay of the same hook delivery.
 
+## Risk-signal classification (`map.ts`) — language-neutral capture contract
+
+Captured activity is classified into `metadata.riskSignals` **before hashing**,
+so the command→class mapping below is hash-affecting: a Python/Go capture
+adapter must reproduce it byte-for-byte or recorded events diverge. Values are
+ONLY enums from `spec/risk-signals.schema.json`; raw command text never leaves
+the classifier (only its `inputHash` is stored).
+
+**Bash commands** (`bashRiskSignals`) — first match wins, in this order; an
+unmatched command attaches NO signals (conservative by design so ordinary
+reads/builds never inflate episode risk):
+
+| Precedence | Pattern class (case-insensitive) | `operationType` | `reversibility` |
+|---|---|---|---|
+| 1 | `rm` with a short-flag recursive group (`-r`/`-rf`/`-fr`/`-R`…), `git reset --hard`, `git clean -f*`, `git push --force`/`-f`, `drop table|database|schema`, `truncate table`, `terraform destroy`, `kubectl delete`, `mkfs`, `dd if=` | `destructive` | `irreversible` |
+| 2 | `rm`, `rmdir`, `unlink`, `git branch -D` | `delete` | `recoverable` |
+| 3 | `chmod`, `chown`, `sudo` | `permission` | `reversible` |
+| 4 | `git config`, `npm config`, `wrangler secret`, `export VAR=` | `config` | `reversible` |
+
+**File-change batches** (`fileChangeRiskSignals`): any delete in the batch →
+`delete`/`recoverable`; else all-create → `create` and mixed/update →
+`update`, both `reversible`. Always carries `dataVolume` = files in the batch.
+Signals ride the file-change EVENT (the effect), never doubled onto the edit
+tool call that produced it.
+
+**`envCriticality`** (`envCriticalityOf`, applied to every signal): configured
+environment label containing `prod` → `production`, `stag` → `staging`,
+`sandbox` → `sandbox`, anything else → `development`.
+
+Known conservative gaps (tracked in `docs/review-backlog.md`, deliberate
+false-negatives until fixed here AND in this table): long-form
+`rm --recursive` is not matched by the destructive short-flag regex, and
+`npx rimraf` / `find … -delete` attach no signal.
+
 ## Redaction (`redact.ts`) — non-negotiable (`.claude/rules/03-privacy-security.md`)
 
 - `prompt` → `promptHash` only.
